@@ -1,6 +1,6 @@
 {
   "name": "thiaguinho-erp-cliente",
-  "version": "1.0.0",
+  "version": "1.0.17",
   "description": "thIAguinho ERP — App nativo Android para clientes finais. Inclui suporte a ELM327 via Bluetooth Clássico (SPP/RFCOMM). Powered by thIAguinho Soluções Digitais",
   "main": "electron/main.js",
   "scripts": {
@@ -33,9 +33,18 @@
     "productName": "thIAguinho SAAS Oficina",
     "asar": false,
     "files": [
-      "**/*",
-      "!capacitor-android/android/**",
-      "!node_modules/.cache/**"
+      "electron/**/*",
+      "*.html",
+      "manifest.json",
+      "checklist.webmanifest",
+      "service-worker.js",
+      "elm327-service.js",
+      "elm-bridge.js",
+      "favicon.ico",
+      "js/**/*",
+      "css/**/*",
+      "assets/**/*",
+      "data/**/*"
     ],
     "directories": {
       "output": "dist-pc"

@@ -254,7 +254,7 @@
     const resumo = Object.keys(porPessoa).length > 1
       ? '<br><strong>Resumo por colaborador:</strong><br>' + Object.entries(porPessoa).sort((a,b)=>b[1]-a[1]).map(([nome, total]) => `- ${esc(nome)}: ${moeda(total)}`).join('<br>')
       : '';
-    return `<strong>Comissões ${querPagas ? 'pagas' : 'a pagar'}${tituloPessoa} (${lista.length}):</strong><br>${lista.slice(0, 30).map(formatarLinhaFinanceiro).join('<br>')}<br><br><strong>Total:</strong> ${moeda(total)}${resumo}`;
+    return `<strong>Comissões ${querPagas ? 'pagas' : 'a pagar'}${tituloPessoa} (${lista.length}):</strong><br>${lista.slice(0, 10).map(formatarLinhaFinanceiro).join('<br>')}<br><br><strong>Total:</strong> ${moeda(total)}${resumo}`;
   }
 
   function responderFinanceiroDetalhado(texto, q, ctx, opts) {
@@ -319,7 +319,7 @@
       ];
       const prioridades = [...vencidos, ...hojeLista, ...pendentes]
         .filter((f, i, arr) => arr.findIndex(x => (x.id || x.desc || x.descricao) === (f.id || f.desc || f.descricao)) === i)
-        .slice(0, 20);
+        .slice(0, 5);
       if (prioridades.length) linhas.push('<br><strong>Prioridades:</strong><br>' + prioridades.map(formatarLinhaFinanceiro).join('<br>'));
       return linhas.join('<br>');
     }
@@ -431,16 +431,21 @@
 
   function extrairPeriodoPergunta(texto) {
     const datas = Array.from(String(texto || '').matchAll(/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/g));
-    if (datas.length < 2) return null;
+    if (!datas.length) return null;
     const anoAtual = new Date().getFullYear();
     const anoExplicito = datas.map(m => Number(m[3] || 0)).find(Boolean);
     let anoInicio = Number(datas[0][3] || anoExplicito || anoAtual);
-    let anoFim = Number(datas[1][3] || anoExplicito || anoAtual);
     if (anoInicio < 100) anoInicio += 2000;
-    if (anoFim < 100) anoFim += 2000;
     let inicio = dataValidaPeriodo(datas[0][1], datas[0][2], anoInicio);
+    if (!inicio) return null;
+
+    // Uma única data significa consulta daquele dia, não uma busca de comissão genérica.
+    if (datas.length === 1) return { inicio, fim: inicio };
+
+    let anoFim = Number(datas[1][3] || anoExplicito || anoAtual);
+    if (anoFim < 100) anoFim += 2000;
     let fim = dataValidaPeriodo(datas[1][1], datas[1][2], anoFim);
-    if (!inicio || !fim) return null;
+    if (!fim) return null;
     if (!datas[0][3] && !datas[1][3] && inicio > fim) {
       anoInicio = anoFim - 1;
       inicio = dataValidaPeriodo(datas[0][1], datas[0][2], anoInicio);
@@ -633,10 +638,8 @@
   }
 
   function modoRelatorioFuncionario(q) {
-    if (/\b(detalhado|detalhada|detalhes|completo|completa|analitico|analitica)\b/.test(q)) return 'detalhado';
-    if (/\b(resumo|resumido|resumida|sintetico|sintetica|curto|curta|simples)\b/.test(q)) return 'resumo';
-    if (/\b(so|somente|apenas)\s+resumo\b/.test(q)) return 'resumo';
-    return 'detalhado';
+    if (/\b(detalhado|detalhada|detalhes|completo|completa|analitico|analitica|listar tudo|todos os servicos)\b/.test(q)) return 'detalhado';
+    return 'resumo';
   }
 
   function responderAtendimentosFuncionarioPeriodo(texto, q, ctx, opts) {
@@ -720,10 +723,14 @@
         const placa = placaOS(ctx, os) || '-';
         const modelo = veiculo.modelo || os.veiculoSnapshot?.modelo || os.veiculoModelo || os.veiculo || os.tipoVeiculo || '-';
         const osNumero = String(os.numero || os.id || '').slice(-6).toUpperCase();
+        const data = dataBR(dataPrincipalOS(os));
         const listaServicos = servicos.confirmados.length ? servicos.confirmados : servicos.registrados;
         const totalOS = servicos.confirmados.length ? servicos.totalConfirmado : servicos.totalRegistrado;
-        const descricoes = listaServicos.map(s => s.desc).filter(Boolean).join('; ') || 'Sem servi&ccedil;o identificado';
-        return `${esc(nome)}: O.S. #${esc(osNumero)} | Placa ${esc(placa)} | Modelo ${esc(modelo)}${podeVerValores ? ` | Valor ${moeda(totalOS)}` : ''}<br>(&quot;${esc(descricoes)}&quot;)`;
+        const nomes = listaServicos.map(s => s.desc).filter(Boolean);
+        const amostra = nomes.slice(0, 2).join('; ');
+        const complemento = nomes.length > 2 ? ` +${nomes.length - 2} outro(s)` : '';
+        const servicoTxt = nomes.length ? ` | ${esc(amostra)}${esc(complemento)}` : ' | sem servi&ccedil;o identificado';
+        return `- ${esc(data)} | O.S. #${esc(osNumero)} | ${esc(placa)} | ${esc(modelo)} | ${esc(os.status || '-')}${servicoTxt}${podeVerValores ? ` | ${moeda(totalOS)}` : ''}`;
       });
       const resumoValores = podeVerValores ? [
         `<br><strong>Total de O.S.:</strong> ${esc(lista.length)} | <strong>Ve&iacute;culos:</strong> ${esc(veiculosUnicos.size)}`,
@@ -732,8 +739,11 @@
         `<br><strong>Base para comiss&atilde;o:</strong> ${moeda(baseComissao)}`,
         valorComissao == null ? '' : `<br><strong>Comiss&atilde;o calculada:</strong> ${moeda(valorComissao)}`
       ].join('') : `<br><strong>Total de O.S.:</strong> ${esc(lista.length)} | <strong>Ve&iacute;culos:</strong> ${esc(veiculosUnicos.size)}`;
+      const periodoTitulo = periodo.inicio === periodo.fim
+        ? `em ${esc(dataBR(periodo.inicio))}`
+        : `de ${esc(dataBR(periodo.inicio))} at&eacute; ${esc(dataBR(periodo.fim))}`;
       return [
-        `<strong>Resumo de ${esc(nome)} de ${esc(dataBR(periodo.inicio))} at&eacute; ${esc(dataBR(periodo.fim))}:</strong>`,
+        `<strong>Resumo de ${esc(nome)} ${periodoTitulo}:</strong>`,
         linhasResumo.join('<br><br>'),
         resumoValores
       ].join('<br>');
@@ -749,7 +759,11 @@
 
   function extrairPlaca(txt) {
     const m = String(txt || '').match(/\b[A-Z]{3}[-\s]?\d[A-Z0-9]\d{2}\b/i);
-    return m ? placaLimpa(m[0]) : '';
+    if (!m) return '';
+    const placa = placaLimpa(m[0]);
+    // Evita interpretar "ano 2011", códigos e referências como placa Mercosul.
+    if (/^(ANO|COD|REF|OEM|DSD|DNI|DPL|BRK|AJE)/.test(placa)) return '';
+    return placa;
   }
 
   function clienteDeOS(ctx, os) {
@@ -1061,22 +1075,51 @@
     }
   }
 
+  function combinarCerebrosGlobais(base, adicional) {
+    const a = base ? normalizeBrainJson(base, { escopo: 'global' }) : normalizeBrainJson({}, { escopo: 'global' });
+    const b = adicional ? normalizeBrainJson(adicional, { escopo: 'global' }) : null;
+    if (!b) return a;
+    return normalizeBrainJson({
+      versao: Math.max(Number(a.versao || 1), Number(b.versao || 1)),
+      escopo: 'global',
+      comportamento: Object.assign({}, a.comportamento || {}, b.comportamento || {}),
+      contexto: [a.contexto, b.contexto].filter(Boolean).join('\n'),
+      catalogos: [a.catalogos, b.catalogos].filter(Boolean).join('\n'),
+      erros: [a.erros, b.erros].filter(Boolean).join('\n'),
+      regras: [...asArray(a.regras), ...asArray(b.regras)],
+      procedimentos: [...asArray(a.procedimentos), ...asArray(b.procedimentos)],
+      diagnosticos: [...asArray(a.diagnosticos), ...asArray(b.diagnosticos)],
+      conhecimento: [...asArray(a.conhecimento), ...asArray(b.conhecimento)],
+      fontes: [...asArray(a.fontes), ...asArray(b.fontes)],
+      pendenciasConhecimento: [...asArray(a.pendenciasConhecimento), ...asArray(b.pendenciasConhecimento)],
+      duvidasResolvidas: [...asArray(a.duvidasResolvidas), ...asArray(b.duvidasResolvidas)],
+      conflitosConhecimento: [...asArray(a.conflitosConhecimento), ...asArray(b.conflitosConhecimento)]
+    }, { escopo: 'global' });
+  }
+
   async function carregarCerebroGlobal() {
     if (W._thiaCerebroGlobalCarregado) return brainGlobal();
     W._thiaCerebroGlobalCarregado = true;
+    let embarcado = null;
+    let central = null;
+    try {
+      const resp = await fetch('data/ia-base-global.json?v=17.0.0', { cache: 'force-cache' });
+      if (resp.ok) embarcado = await resp.json();
+    } catch (e) {
+      console.warn('[thIAguinho IA] base global embarcada nao carregada:', e.message || e);
+    }
     try {
       const cdb = typeof W.initCentralFirebase === 'function' ? W.initCentralFirebase() : null;
-      if (!cdb) return brainGlobal();
-      const doc = await cdb.collection('cerebros_ia').doc('global').get();
-      if (doc.exists) {
-        const data = normalizeBrainJson(doc.data(), { escopo: 'global' });
-        sessionStorage.setItem('thia_cerebro_global', JSON.stringify(data));
-        return data;
+      if (cdb) {
+        const doc = await cdb.collection('cerebros_ia').doc('global').get();
+        if (doc.exists) central = doc.data();
       }
     } catch (e) {
-      console.warn('[thIAguinho IA] cerebro global nao carregado:', e.message || e);
+      console.warn('[thIAguinho IA] complemento global do Superadmin nao carregado:', e.message || e);
     }
-    return brainGlobal();
+    const data = combinarCerebrosGlobais(embarcado, central);
+    try { sessionStorage.setItem('thia_cerebro_global', JSON.stringify(data)); } catch (_) {}
+    return data;
   }
 
   function juntarBrain() {
@@ -1140,9 +1183,18 @@
     return achados;
   }
 
+  function pareceConsultaCatalogo(texto) {
+    const q = norm(texto);
+    const codigoFabricante = /\b(ds|dni|dpl|brk|aje|jurid|nytron|ranalle|wahler|ete)[-./ ]?\d{3,}\b/.test(q);
+    const documental = /catalog|aplic|equival|referencia|codigo|rainha|aje|wahler|dni|nytron|ranalle|dpl|forcecar|brk|brasilkits|jurid|ds automotive/.test(q);
+    const pecaComAplicacao = /(sensor|valvula|bico|pastilha|sapata|tensor|polia|diafragma|bomba|terminal|bucha|rolamento|correia|filtro|chicote|interruptor)/.test(q)
+      && /(\b(?:19|20)\d{2}\b|\b1[.,][034568]\b|celta|palio|corsa|gol|uno|fiat|gm|chevrolet|ford|volkswagen|renault|toyota|honda)/.test(q);
+    return codigoFabricante || documental || pecaComAplicacao;
+  }
+
   function buscarNosCatalogos(q) {
     try {
-      return typeof W.thiaCatalogosBuscar === 'function' ? (W.thiaCatalogosBuscar(q, 8) || []) : [];
+      return typeof W.thiaCatalogosBuscar === 'function' ? (W.thiaCatalogosBuscar(q, 3) || []) : [];
     } catch (e) {
       console.warn('[thIAguinho IA] busca em catálogos:', e?.message || e);
       return [];
@@ -1152,8 +1204,9 @@
   function respostaCatalogos(q) {
     const hits = buscarNosCatalogos(q);
     if (!hits.length) return '';
-    if (typeof W.thiaCatalogosFormatar === 'function') return W.thiaCatalogosFormatar(hits);
-    return `<strong>Catálogos técnicos:</strong><br>${hits.map(h => `- ${esc(h.fonte)} • página ${esc(h.pagina)}: ${esc(h.texto)}`).join('<br>')}`;
+    if (typeof W.thiaCatalogosFormatar === 'function') return W.thiaCatalogosFormatar(hits, q);
+    const h = hits[0];
+    return `<strong>${esc(h.fonte)}:</strong> ${esc(h.texto).slice(0, 320)}<br><small>Fonte: ${esc(h.pdf || '')}, página ${esc(h.pagina)}.</small>`;
   }
 
   function aplicarComportamento(html) {
@@ -1200,6 +1253,14 @@
     const respostaOSOperacional = responderVeiculosOSOperacional(texto, q, ctx, opts);
     if (respostaOSOperacional) return aplicarComportamento(respostaOSOperacional);
 
+    // Códigos e aplicações documentais têm prioridade sobre qualquer padrão parecido com placa.
+    const consultaDocumentalPrioritaria = pareceConsultaCatalogo(texto)
+      && !/estoque critico|estoque minimo|saldo.*estoque/.test(q);
+    if (consultaDocumentalPrioritaria) {
+      const documental = respostaCatalogos(texto);
+      if (documental) return aplicarComportamento(documental);
+    }
+
     const placa = extrairPlaca(texto);
     if (placa) {
       const lista = osMatchesPlaca(ctx, placa).sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
@@ -1214,7 +1275,7 @@
     // Perguntas explicitamente documentais consultam primeiro os PDFs. Assim,
     // termos como "aplicação", um código de peça ou o nome do fabricante não
     // são confundidos com histórico de diagnóstico da oficina.
-    const querCatalogo = /catalog|aplic|equival|referencia|codigo|rainha|aje|wahler|dni|nytron|ranalle|dpl|forcecar|brk|brasilkits|jurid|ds automotive/.test(q)
+    const querCatalogo = pareceConsultaCatalogo(texto)
       && !/estoque critico|estoque minimo|saldo.*estoque/.test(q);
     if (querCatalogo) {
       const documental = respostaCatalogos(texto);
@@ -1253,7 +1314,9 @@
       const crit = ctx.estoque.filter(p => num(p.qtd) <= num(p.min || p.minimo || 0));
       if (/critico|minimo|baixo|comprar/.test(q)) {
         if (!crit.length) return 'Nao ha peca abaixo do minimo nos dados carregados.';
-        return `<strong>Estoque critico:</strong><br>${crit.slice(0, 25).map(p => `- ${esc(p.codigo ? '[' + p.codigo + '] ' : '')}${esc(p.desc || p.descricao || 'Peca')} | saldo ${esc(p.qtd || 0)} | minimo ${esc(p.min || p.minimo || 0)}`).join('<br>')}`;
+        const exibidos = crit.slice(0, 10);
+        const restantes = Math.max(0, crit.length - exibidos.length);
+        return `<strong>Estoque cr&iacute;tico (${crit.length}):</strong><br>${exibidos.map(p => `- ${esc(p.codigo ? '[' + p.codigo + '] ' : '')}${esc(p.desc || p.descricao || 'Pe&ccedil;a')} | saldo ${esc(p.qtd || 0)} | m&iacute;nimo ${esc(p.min || p.minimo || 0)}`).join('<br>')}${restantes ? `<br><small>+ ${restantes} item(ns). Pe&ccedil;a &quot;listar estoque cr&iacute;tico completo&quot; para ver todos.</small>` : ''}`;
       }
       const termos = q.split(/\s+/).filter(t => t.length >= 4);
       const achados = ctx.estoque.filter(p => termos.some(t => norm([p.codigo, p.desc, p.descricao, p.oem, p.ean].join(' ')).includes(t))).slice(0, 20);
@@ -1295,13 +1358,13 @@
         ];
         const prioridades = [...vencidos, ...hojeLista, ...pixParcelado, ...pendentes]
           .filter((f, i, arr) => arr.findIndex(x => (x.id || x.desc || x.descricao) === (f.id || f.desc || f.descricao)) === i)
-          .slice(0, 20);
+          .slice(0, 5);
         if (prioridades.length) linhas.push('<br><strong>Prioridades:</strong><br>' + prioridades.map(f => `- ${esc(f.venc || f.vencimento || '-')} | ${esc(f.desc || f.descricao || 'Lancamento')} | ${moeda(f.valor)} | ${esc(f.status || '-')}`).join('<br>'));
         return linhas.join('<br>');
       }
       if (!lista.length) return 'Nao encontrei lancamento financeiro para essa pergunta nos dados carregados.';
       const total = lista.reduce((s, f) => s + num(f.valor), 0);
-      return `<strong>Financeiro localizado (${lista.length}):</strong><br>${lista.slice(0, 25).map(f => `- ${esc(f.venc || f.vencimento || '-')} | ${esc(f.desc || f.descricao || 'Lancamento')} | ${moeda(f.valor)} | ${esc(f.status || '-')}`).join('<br>')}<br><br><strong>Total:</strong> ${moeda(total)}`;
+      return `<strong>Financeiro localizado (${lista.length}):</strong><br>${lista.slice(0, 10).map(f => `- ${esc(f.venc || f.vencimento || '-')} | ${esc(f.desc || f.descricao || 'Lancamento')} | ${moeda(f.valor)} | ${esc(f.status || '-')}`).join('<br>')}<br><br><strong>Total:</strong> ${moeda(total)}`;
     }
 
     if (/equipe|mecanico|mecanicos|funcionario|responsavel/.test(q)) {
@@ -1377,7 +1440,7 @@
     if (!msg) return;
     input.value = '';
     addUser(msg);
-    const consultaCatalogo = /catalog|aplic|equival|codigo|peca|autopeca|rainha|aje|wahler|dni|nytron|ranalle|dpl|brk|jurid|sensor|valvula|bico|pastilha|sapata|tensor|polia|diafragma|bomba/.test(norm(msg));
+    const consultaCatalogo = pareceConsultaCatalogo(msg);
     const lid = addBot(`<span class="j-spinner"></span> ${consultaCatalogo ? 'Consultando dados internos e catálogos técnicos...' : 'Consultando dados internos...'}`);
     try { await carregarCerebroGlobal(); } catch (_) {}
     if (consultaCatalogo && typeof W.thiaCatalogosPrepararPergunta === 'function') {

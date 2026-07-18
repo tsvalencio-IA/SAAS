@@ -1,4 +1,4 @@
-const CACHE='oficin-ia-local-catalogos-v16-20260718';
+const CACHE='oficin-ia-local-catalogos-v17-20260718';
 const ASSETS=['./checklist.html','./js/checklist.js','./js/config.js','./data/checklist-model.json','./checklist.webmanifest','./assets/icons/checklist-192.png','./assets/icons/checklist-512.png'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS).catch(()=>null)))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('oficin-ia-')&&k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim()});

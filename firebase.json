@@ -7,34 +7,39 @@
       "**/.*",
       "**/node_modules/**",
       "capacitor-android/**",
-      "checklist-apk/**",
       "electron/**",
       "scripts/**",
-      "api/**",
-      "robo-vercel-ia-diagnostico/**",
-      "**/*.md",
-      "**/*.txt",
-      "**/*.yml",
-      "**/*.jks",
-      "DIAGNOSTICO_CONSOLE.js",
-      "package.json"
+      "package.json",
+      "package-lock.json",
+      "dist-pc/**",
+      "web-dist/**",
+      "**/*.jks"
     ],
     "headers": [
       {
         "source": "service-worker.js",
         "headers": [
-          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
         ]
       },
       {
         "source": "**/*.@(html|json)",
         "headers": [
-          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
         ]
       }
     ],
     "rewrites": [
-      { "source": "**", "destination": "/index.html" }
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
     ]
   },
   "firestore": {
