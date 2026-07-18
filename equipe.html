@@ -1243,9 +1243,9 @@ async function iaEnviar() {
 
   try {
     if (typeof window.thiaCarregarCerebroGlobal === 'function') await window.thiaCarregarCerebroGlobal();
-    const resp = typeof window.thiaResponderLocal === 'function'
-      ? window.thiaResponderLocal(msg, { perfil:'equipe' })
-      : 'Motor interno indisponivel nesta tela.';
+    const resp = typeof window.thiaResponderLocalAsync === 'function'
+      ? await window.thiaResponderLocalAsync(msg, { perfil:'equipe' })
+      : (typeof window.thiaResponderLocal === 'function' ? window.thiaResponderLocal(msg, { perfil:'equipe' }) : 'Motor interno indisponivel nesta tela.');
     _iaHist.push({ role: 'model', text: String(resp).replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '') });
     _iaReplace(lid, resp);
   } catch(e) {
@@ -2607,9 +2607,9 @@ async function _iaConsultarOS(prompt, modo) {
       if (!out.length) out.push('Diagnostico tecnico conforme relato', 'Inspecao visual e teste funcional do sistema informado');
       return Array.from(new Set(out)).slice(0, 6).map(s => '- ' + s).join('\n');
     }
-    const resp = typeof window.thiaResponderLocal === 'function'
-      ? window.thiaResponderLocal(prompt, { perfil:'equipe' })
-      : '';
+    const resp = typeof window.thiaResponderLocalAsync === 'function'
+      ? await window.thiaResponderLocalAsync(prompt, { perfil:'equipe' })
+      : (typeof window.thiaResponderLocal === 'function' ? window.thiaResponderLocal(prompt, { perfil:'equipe' }) : '');
     const local = strip(resp);
     if (local && !/^Preciso de mais contexto/i.test(local)) return local;
     return 'DIAGNOSTICO SUGERIDO: validar o relato, conferir historico da placa/modelo e executar testes dirigidos antes de trocar pecas.\n\nCausas provaveis:\n- Falha relacionada ao sistema informado no relato.\n- Componente com desgaste ou mau contato.\n- Defeito intermitente que precisa de teste funcional.\n\nComponentes a verificar:\n- Itens citados no relato.\n- Conectores, fixacoes, vazamentos e sinais de desgaste.\n\nAlerta de garantia: confira no historico da O.S. se a peca ja foi executada recentemente.';
@@ -2701,8 +2701,8 @@ function aplicarSugestaoIA() {
 <script src="js/final-1010-regras-os.js"></script>
 <script src="js/theme.js"></script>
 <script src="js/hardening-comercial.js"></script>
-<script src="js/ia.js?v=17.0.0"></script>
-<script src="js/catalogos-ia.js?v=17.0.0"></script>
+<script src="js/ia.js?v=18.0.0"></script>
+<script src="js/catalogos-ia.js?v=18.0.0"></script>
 <script src="js/uix-theme-fix.js"></script>
 </body>
 </html>

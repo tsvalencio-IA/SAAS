@@ -371,9 +371,9 @@
     const lid = iaAddBot('<span class="j-spinner"></span> Analisando contexto real...');
     try {
       if (typeof window.thiaCarregarCerebroGlobal === 'function') await window.thiaCarregarCerebroGlobal();
-      const local = typeof window.thiaResponderLocal === 'function'
-        ? window.thiaResponderLocal(msg, { perfil })
-        : iaFallback(msg, perfil, 'motor local indisponivel');
+      const local = typeof window.thiaResponderLocalAsync === 'function'
+        ? await window.thiaResponderLocalAsync(msg, { perfil })
+        : (typeof window.thiaResponderLocal === 'function' ? window.thiaResponderLocal(msg, { perfil }) : iaFallback(msg, perfil, 'motor local indisponivel'));
       iaReplaceBot(lid, local);
       return;
     } catch (e) {

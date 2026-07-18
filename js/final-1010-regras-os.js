@@ -46,9 +46,9 @@
       const lid = typeof window._iaMsgBot === 'function' ? window._iaMsgBot('<span class="j-spinner"></span> Analisando historico real da O.S...') : null;
       try{
         if (typeof window.thiaCarregarCerebroGlobal === 'function') await window.thiaCarregarCerebroGlobal();
-        const resp = typeof window.thiaResponderLocal === 'function'
-          ? window.thiaResponderLocal(msg, { perfil:'equipe' })
-          : 'Motor interno indisponivel nesta tela.';
+        const resp = typeof window.thiaResponderLocalAsync === 'function'
+          ? await window.thiaResponderLocalAsync(msg, { perfil:'equipe' })
+          : (typeof window.thiaResponderLocal === 'function' ? window.thiaResponderLocal(msg, { perfil:'equipe' }) : 'Motor interno indisponivel nesta tela.');
         if(window._iaReplace) window._iaReplace(lid, resp);
       }catch(e){ if(window._iaReplace) window._iaReplace(lid,'Nao consegui cruzar os dados internos: '+(e.message||e)); }
     };

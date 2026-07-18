@@ -7,7 +7,7 @@
   'use strict';
 
   const W = window;
-  const MANIFEST_URL = 'data/catalogos-ia/manifest.json?v=20260718-v17';
+  const MANIFEST_URL = 'data/catalogos-ia/manifest.json?v=20260718-v18';
   const cache = new Map();
   const pageNormCache = new WeakMap();
   let manifest = null;
@@ -17,7 +17,7 @@
     'para','com','sem','uma','uns','das','dos','de','da','do','em','no','na','nos','nas',
     'por','que','qual','quais','tem','esta','este','essa','esse','peca','pecas','carro',
     'veiculo','veiculos','catalogo','catalogos','aplicacao','aplicacoes','codigo','codigos',
-    'modelo','ano','anos','quero','saber','serve','servem','seria','ser'
+    'modelo','ano','anos','quero','saber','serve','servem','seria','ser','consulte','consultar','consulta','procure','procurar','busque','buscar','informe','informar','verifique','verificar','fabricante','marca'
   ]);
   const GENERICOS = new Set([
     'sensor','nivel','combustivel','bomba','valvula','temperatura','detonacao','pressao',
@@ -99,7 +99,7 @@
 
   async function loadManifest() {
     if (manifest) return manifest;
-    if (!manifestPromise) manifestPromise = fetch(MANIFEST_URL, { cache: 'force-cache' })
+    if (!manifestPromise) manifestPromise = fetch(MANIFEST_URL, { cache: 'no-store' })
       .then(r => { if (!r.ok) throw new Error('manifesto HTTP ' + r.status); return r.json(); })
       .then(data => { manifest = data; return data; })
       .catch(err => { manifestPromise = null; throw err; });
@@ -108,7 +108,8 @@
 
   async function loadSource(src) {
     if (cache.has(src.id)) return cache.get(src.id);
-    const data = await fetch(src.arquivoDados, { cache: 'force-cache' })
+    const url = src.arquivoDados + (src.arquivoDados.includes('?') ? '&' : '?') + 'v=20260718-v18';
+    const data = await fetch(url, { cache: 'no-store' })
       .then(r => { if (!r.ok) throw new Error(src.nome + ' HTTP ' + r.status); return r.json(); });
     cache.set(src.id, data);
     return data;
@@ -313,9 +314,22 @@
     const paginas = [...new Set(resultados.map(r => r.pagina))].join(', ');
     const codigo = codigoConsultado || primeiro.codigoProduto;
     const titulo = `${primeiro.fonte}${codigo ? ` ${codigo}` : ''} — ${primeiro.categoria}`;
+    const ano = queryYear(pergunta);
+    const codigos = codeTokens(pergunta);
+    const termosConsulta = tokens(pergunta).filter(t =>
+      t !== String(ano || '') &&
+      !codigos.includes(compact(t)) &&
+      !GENERICOS.has(t) &&
+      !/^(ds|dni|dpl|brk|aje|jurid|nytron|ranalle|wahler|ete)\d{3,}$/.test(compact(t)) &&
+      !/^\d[.,]\d$/.test(t)
+    );
 
     let corpo = '';
-    if (aplicacoes.length) {
+    if (codigoConsultado && !termosConsulta.length && !ano) {
+      corpo = `<strong>Código localizado.</strong> O catálogo possui várias aplicações para este código e a extração da página está distribuída em colunas. Informe veículo, motor e ano para filtrar sem atribuir uma aplicação errada.`;
+    } else if (!codigoConsultado && !ano && termosConsulta.length <= 1) {
+      corpo = `<strong>Encontrei referências para ${esc(termosConsulta[0] || primeiro.categoria)}, mas existem várias versões.</strong> Informe motor e ano para retornar o código correto.`;
+    } else if (aplicacoes.length) {
       corpo = aplicacoes.length === 1
         ? `<strong>Aplicação catalogada:</strong> ${esc(aplicacoes[0])}`
         : `<strong>Aplicações catalogadas:</strong><br>${aplicacoes.map(a => `- ${esc(a)}`).join('<br>')}`;
