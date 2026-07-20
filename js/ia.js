@@ -498,23 +498,61 @@
     return !!id && idsFuncionario(func).includes(id);
   }
 
+  function rateiosFuncionarioItem(item, os) {
+    const direto = Array.isArray(item?.rateiosComissao) ? item.rateiosComissao : [];
+    const origem = Number.isInteger(Number(item?.index)) && Array.isArray(os?.servicos)
+      ? (os.servicos[Number(item.index)] || {})
+      : {};
+    const salvos = Array.isArray(origem?.rateiosComissao) ? origem.rateiosComissao : [];
+    const lista = direto.length ? direto : salvos;
+    const unicos = new Map();
+    lista.forEach(r => {
+      const id = String(r?.mecId || r?.id || '').trim();
+      const nome = String(r?.mecNome || r?.nome || '').trim();
+      const chave = id || ('nome:' + norm(nome));
+      if (!chave || unicos.has(chave)) return;
+      unicos.set(chave, {
+        mecId: id,
+        mecNome: nome,
+        valorBase: Math.max(0, num(r?.valorBase ?? r?.valorDividido ?? r?.baseComissao ?? 0))
+      });
+    });
+    return Array.from(unicos.values());
+  }
+
+  function rateioDoFuncionarioNoItem(item, func, os) {
+    const rateios = rateiosFuncionarioItem(item, os);
+    if (!rateios.length) return null;
+    return rateios.find(r => idCombinaFuncionario(r.mecId, func) || nomeCombinaFuncionario(r.mecNome, func)) || null;
+  }
+
   function osAtribuidaFuncionario(os, func) {
+    const servicos = Array.isArray(os?.servicos) ? os.servicos : [];
     const ids = [
       os?.mecId, os?.mecanicoId, os?.responsavelId, os?.funcionarioId, os?.colaboradorId, os?.executorId,
       ...(Array.isArray(os?.mecIds) ? os.mecIds : []),
       ...(Array.isArray(os?.mecanicos) ? os.mecanicos.map(m => m?.id || m?.mecId) : []),
-      ...(Array.isArray(os?.servicos) ? os.servicos.map(s => s?.mecId || s?.mecanicoId || s?.responsavelId) : [])
+      ...servicos.flatMap(s => [
+        s?.mecId || s?.mecanicoId || s?.responsavelId,
+        ...(Array.isArray(s?.rateiosComissao) ? s.rateiosComissao.map(r => r?.mecId || r?.id) : [])
+      ])
     ];
     if (ids.some(v => idCombinaFuncionario(v, func))) return true;
     return [
       os?.mecNome, os?.mecanicoNome, os?.mecanico, os?.responsavelNome, os?.responsavel, os?.executorNome,
       ...(Array.isArray(os?.mecanicos) ? os.mecanicos.map(m => m?.nome || m?.mecNome) : []),
-      ...(Array.isArray(os?.servicos) ? os.servicos.map(s => s?.mecNome || s?.mecanicoNome || s?.responsavelNome) : [])
-    ]
-      .some(v => nomeCombinaFuncionario(v, func));
+      ...servicos.flatMap(s => [
+        s?.mecNome || s?.mecanicoNome || s?.responsavelNome,
+        ...(Array.isArray(s?.rateiosComissao) ? s.rateiosComissao.map(r => r?.mecNome || r?.nome) : [])
+      ])
+    ].some(v => nomeCombinaFuncionario(v, func));
   }
 
   function itemPertenceFuncionario(item, func, os) {
+    const rateios = rateiosFuncionarioItem(item, os);
+    if (rateios.length) {
+      return rateios.some(r => idCombinaFuncionario(r.mecId, func) || nomeCombinaFuncionario(r.mecNome, func));
+    }
     const itemIds = [item?.mecId, item?.mecanicoId, item?.responsavelId].filter(Boolean);
     const itemNomes = [item?.mecNome, item?.mecanicoNome, item?.responsavelNome].filter(Boolean);
     if (itemIds.length || itemNomes.length) {
@@ -526,6 +564,14 @@
       ...(Array.isArray(os?.mecanicos) ? os.mecanicos.map(m => m?.id || m?.mecId) : [])
     ].filter(Boolean);
     return idsOS.length <= 1 && osAtribuidaFuncionario(os, func);
+  }
+
+  function baseComissaoFuncionarioItem(item, func, os) {
+    const rateio = rateioDoFuncionarioNoItem(item, func, os);
+    const valorIntegral = Math.max(0, num(item?.valorFinal ?? item?.total ?? item?.valorBruto ?? item?.valorUnit ?? 0));
+    if (rateio) return Math.min(valorIntegral, Math.max(0, num(rateio.valorBase)));
+    if (rateiosFuncionarioItem(item, os).length) return 0;
+    return itemPertenceFuncionario(item, func, os) ? valorIntegral : 0;
   }
 
   function autoriaRegistroFuncionario(registro, func, osAtribuida) {
@@ -555,10 +601,12 @@
     return (Array.isArray(os?.servicos) ? os.servicos : []).map((s, index) => ({
       key: `servico-${index}`,
       tipo: 'servico',
+      index,
       desc: s?.desc || s?.descricao || s?.nome || '',
       valorFinal: num(s?.valorFinal ?? s?.total ?? s?.valor ?? s?.valorBruto ?? 0),
       mecId: s?.mecId || s?.mecanicoId || s?.responsavelId || '',
-      mecNome: s?.mecNome || s?.mecanicoNome || s?.responsavelNome || ''
+      mecNome: s?.mecNome || s?.mecanicoNome || s?.responsavelNome || '',
+      rateiosComissao: Array.isArray(s?.rateiosComissao) ? s.rateiosComissao : []
     }));
   }
 
@@ -591,10 +639,12 @@
       if (!periodoContem(periodo, dataExecucao)) return;
       const desc = item?.desc || registro?.desc || registro?.descricao || key;
       if (desc) {
+        const valorIntegral = num(item?.valorFinal ?? item?.total ?? item?.valorBruto ?? item?.valorUnit ?? registro?.valor ?? 0);
         confirmados.push({
           key: String(key),
           desc,
-          valor: num(item?.valorFinal ?? item?.total ?? item?.valorBruto ?? item?.valorUnit ?? registro?.valor ?? 0),
+          valor: valorIntegral,
+          baseComissao: baseComissaoFuncionarioItem(item, func, os),
           status: registro?.status || 'executado',
           data: dataISO(dataExecucao)
         });
@@ -617,7 +667,8 @@
         registrados.push({
           key: String(item.key || ''),
           desc,
-          valor: num(item?.valorFinal ?? item?.total ?? item?.valorBruto ?? item?.valorUnit ?? 0)
+          valor: num(item?.valorFinal ?? item?.total ?? item?.valorBruto ?? item?.valorUnit ?? 0),
+          baseComissao: baseComissaoFuncionarioItem(item, func, os)
         });
       });
     }
@@ -627,7 +678,9 @@
       registrados,
       legadoFinalizado,
       totalConfirmado: somarValoresServicos(unicosConfirmados),
-      totalRegistrado: somarValoresServicos(registrados)
+      totalRegistrado: somarValoresServicos(registrados),
+      baseComissaoConfirmada: +unicosConfirmados.reduce((soma, item) => soma + num(item?.baseComissao ?? item?.valor), 0).toFixed(2),
+      baseComissaoRegistrada: +registrados.reduce((soma, item) => soma + num(item?.baseComissao ?? item?.valor), 0).toFixed(2)
     };
   }
 
@@ -661,6 +714,7 @@
     const lista = ctx.os
       .filter(os => evidenciaAtendimentoFuncionario(os, func, periodo))
       .map(os => ({ os, servicos: servicosFuncionarioNaOS(os, func, periodo, ctx) }))
+      .filter(item => item.servicos.confirmados.length || item.servicos.registrados.length)
       .sort((a, b) => dataISO(dataPrincipalOS(a.os)).localeCompare(dataISO(dataPrincipalOS(b.os))));
     const nome = func.nome || func.usuario || func.id || 'mec&acirc;nico';
     if (!lista.length) {
@@ -699,22 +753,29 @@
       return `- ${esc(data)} | ${esc(placa)} | ${esc(modelo)} | O.S. #${esc(osNumero)} | ${esc(os.status || '-')}${confirmados}${legados}`;
     });
     const totalConfirmado = +lista.reduce((soma, item) => soma + num(item.servicos.totalConfirmado), 0).toFixed(2);
+    const baseConfirmadaComissao = +lista.reduce((soma, item) => soma + num(item.servicos.baseComissaoConfirmada), 0).toFixed(2);
     const totalLegadoFinalizado = +lista
       .filter(item => item.servicos.legadoFinalizado)
       .reduce((soma, item) => soma + num(item.servicos.totalRegistrado), 0)
+      .toFixed(2);
+    const baseLegadaComissao = +lista
+      .filter(item => item.servicos.legadoFinalizado)
+      .reduce((soma, item) => soma + num(item.servicos.baseComissaoRegistrada), 0)
       .toFixed(2);
     const totalSomenteOrcado = +lista
       .filter(item => !item.servicos.legadoFinalizado)
       .reduce((soma, item) => soma + num(item.servicos.totalRegistrado), 0)
       .toFixed(2);
-    const baseComissao = +(totalConfirmado + totalLegadoFinalizado).toFixed(2);
+    const baseComissao = +(baseConfirmadaComissao + baseLegadaComissao).toFixed(2);
     const valorComissao = percentualComissao == null
       ? null
       : +(baseComissao * (percentualComissao / 100)).toFixed(2);
     const resumoComissao = podeVerValores ? [
       '<br><strong>Resumo para comiss&atilde;o:</strong>',
       `<br>- M&atilde;o de obra com execu&ccedil;&atilde;o confirmada: <strong>${moeda(totalConfirmado)}</strong>`,
+      baseConfirmadaComissao !== totalConfirmado ? `<br>- Parte interna atribu&iacute;da ao colaborador nesses servi&ccedil;os: <strong>${moeda(baseConfirmadaComissao)}</strong>` : '',
       `<br>- M&atilde;o de obra de O.S. finalizada legada: <strong>${moeda(totalLegadoFinalizado)}</strong>`,
+      baseLegadaComissao !== totalLegadoFinalizado ? `<br>- Parte interna legada atribu&iacute;da ao colaborador: <strong>${moeda(baseLegadaComissao)}</strong>` : '',
       `<br>- Base total considerada para comiss&atilde;o: <strong>${moeda(baseComissao)}</strong>`,
       totalSomenteOrcado > 0
         ? `<br>- Servi&ccedil;os apenas or&ccedil;ados/sem finaliza&ccedil;&atilde;o, exclu&iacute;dos da comiss&atilde;o: <strong>${moeda(totalSomenteOrcado)}</strong>`

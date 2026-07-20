@@ -1,7 +1,7 @@
 {
   "name": "thiaguinho-erp-cliente",
-  "version": "1.0.23",
-  "description": "thIAguinho ERP V23 — desempenho progressivo, dados sob demanda e cache otimizado. Powered by thIAguinho Soluções Digitais",
+  "version": "1.0.24",
+  "description": "thIAguinho ERP V24 — rateio multi-mecânico corrigido em comissões e IA, mantendo desempenho progressivo V23. Powered by thIAguinho Soluções Digitais",
   "main": "electron/main.js",
   "scripts": {
     "build": "bash scripts/build-web.sh",

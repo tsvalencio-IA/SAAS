@@ -1,5 +1,5 @@
 /**
- * OFICIN-IA V22 — Comissões rastreáveis por O.S., serviço e mecânico.
+ * OFICIN-IA V24 — Comissões rastreáveis por O.S., serviço e mecânico.
  * Cada card mostra somente os serviços realmente atribuídos ao colaborador.
  * O rateio interno do valor do serviço aparece somente no financeiro.
  * Powered by thIAguinho Soluções Digitais
@@ -70,15 +70,23 @@
     return map;
   }
 
-  function rateioDoMecanico(os,item,mecId,registro){
+  function rateioDoMecanico(os,item,mecId,registro,mec){
     const origem=(os?.servicos||[])[Number(item?.index)]||{};
-    const rateios=Array.isArray(origem.rateiosComissao)?origem.rateiosComissao:[];
-    const achado=rateios.find(r=>String(r?.mecId||r?.id||'')===String(mecId||''));
-    if(achado)return {valorBase:Math.max(0,n(achado.valorBase??achado.valorDividido??achado.baseComissao??0)),legado:false};
+    const diretos=Array.isArray(item?.rateiosComissao)?item.rateiosComissao:[];
+    const salvos=Array.isArray(origem.rateiosComissao)?origem.rateiosComissao:[];
+    const rateios=diretos.length?diretos:salvos;
+    const nomeMec=norm(mec?.nome||mec?.usuario||'');
+    const achado=rateios.find(r=>{
+      const rid=String(r?.mecId||r?.id||'');
+      const rnome=norm(r?.mecNome||r?.nome||'');
+      return (rid&&rid===String(mecId||''))||(!rid&&nomeMec&&rnome===nomeMec)||(nomeMec&&rnome===nomeMec);
+    });
+    if(achado)return {valorBase:Math.max(0,n(achado.valorBase??achado.valorDividido??achado.baseComissao??0)),legado:false,explicito:true};
     if(rateios.length)return null;
     const responsavel=registro?.mecId||registro?.responsavelId||origem.mecId||origem.mecanicoId||origem.responsavelId||item?.mecId||item?.responsavelId||os?.mecId||'';
-    if(String(responsavel)!==String(mecId||''))return null;
-    return {valorBase:Math.max(0,n(item?.valorFinal||0)),legado:true};
+    const responsavelNome=norm(registro?.mecNome||registro?.responsavelNome||origem.mecNome||origem.mecanicoNome||origem.responsavelNome||item?.mecNome||item?.responsavelNome||'');
+    if(String(responsavel)!==String(mecId||'')&&(!nomeMec||responsavelNome!==nomeMec))return null;
+    return {valorBase:Math.max(0,n(item?.valorFinal||0)),legado:true,explicito:false};
   }
 
   function rowsFor(mec){
@@ -93,14 +101,15 @@
       itens.filter(it=>it.tipo==='servico').forEach(it=>{
         if(aprovacaoAtiva&&!aprovados.has(it.key))return;
         const reg=exec[it.key]||{};
-        if(temExecServico&&!statusExecutado(reg.status))return;
-        if(!temExecServico&&!finalStatus(os))return;
-        const rateio=rateioDoMecanico(os,it,mec.id,reg);
+        const elegivelPagamento=temExecServico?statusExecutado(reg.status):finalStatus(os);
+        const rateio=rateioDoMecanico(os,it,mec.id,reg,mec);
         if(!rateio||rateio.valorBase<=0)return;
+        // O serviço explicitamente dividido continua visível antes da finalização,
+        // mas permanece bloqueado para pagamento até existir execução confirmada ou O.S. finalizada.
+        if(!elegivelPagamento&&!rateio.explicito)return;
         const base=+Math.min(n(it.valorFinal||0),rateio.valorBase).toFixed(2),previsto=+(base*(pct/100)).toFixed(2);
-        if(previsto<=0)return;
         const key=`${os.id}|${it.key}`,pago=+(pagos.get(key)||0).toFixed(2),falta=Math.max(0,+(previsto-pago).toFixed(2));
-        rows.push({osId:os.id,servicoKey:it.key,servico:it.desc||'Serviço',placa:vei.placa||os.placa||'',veiculo:vei.modelo||vei.veiculo||os.veiculoSnapshot?.modelo||os.veiculo||'',cliente:cli.nome||os.clienteNome||os.cliente||'',status:os.status||'',data:os.data||os.createdAt||'',valorServico:n(it.valorFinal||0),base,percentual:pct,previsto,pago,falta,finalizada:finalStatus(os),legado:rateio.legado});
+        rows.push({osId:os.id,servicoKey:it.key,servico:it.desc||'Serviço',placa:vei.placa||os.placa||'',veiculo:vei.modelo||vei.veiculo||os.veiculoSnapshot?.modelo||os.veiculo||'',cliente:cli.nome||os.clienteNome||os.cliente||'',status:os.status||'',data:os.data||os.createdAt||'',valorServico:n(it.valorFinal||0),base,percentual:pct,previsto,pago,falta,finalizada:finalStatus(os),legado:rateio.legado,rateioExplicito:rateio.explicito===true,semPercentual:pct<=0,aguardandoExecucao:!elegivelPagamento});
       });
       const pctPeca=n(mec.comissaoPeca||0),principal=String(os.mecId||os.mecIds?.[0]||'');
       const basePecas=itens.filter(it=>it.tipo==='peca'&&(!aprovacaoAtiva||aprovados.has(it.key))).reduce((sum,it)=>sum+n(it.valorFinal||0),0);
@@ -132,7 +141,7 @@
     if(!mec){list.innerHTML='<div style="padding:14px;color:var(--muted);">Selecione o colaborador.</div>';updateSummary();return;}
     const q=norm($id('comBuscaV21')?.value||''),rows=rowsFor(mec).filter(r=>!q||norm([r.osId,r.placa,r.veiculo,r.cliente,r.servico,r.status].join(' ')).includes(q));
     const groups=new Map();rows.forEach(r=>{if(!groups.has(r.osId))groups.set(r.osId,[]);groups.get(r.osId).push(r);});
-    list.innerHTML=Array.from(groups.values()).map(group=>{const h=group[0];return `<div class="com-v22-os"><div style="padding:8px 10px;background:rgba(0,0,0,.18);font-family:var(--fm);font-size:.66rem;color:var(--cyan);overflow-wrap:anywhere"><b>O.S. #${esc(String(h.osId).slice(-6).toUpperCase())}</b> · ${esc(h.placa||'SEM PLACA')} · ${esc(h.veiculo||'VEÍCULO')}<br><span style="color:var(--muted)">${esc(h.cliente)} · ${esc(h.status)}</span></div><div style="display:grid;gap:5px;padding:8px;min-width:0">${group.map(r=>{const id=`${r.osId}|${r.servicoKey}`.replace(/[^a-zA-Z0-9_-]/g,'_'),disabled=r.falta<=0;return `<div class="com-v22-row" data-com-row data-os-id="${esc(r.osId)}" data-key="${esc(r.servicoKey)}" data-servico="${esc(r.servico)}" data-placa="${esc(r.placa)}" data-veiculo="${esc(r.veiculo)}" data-base="${r.base}" data-pct="${r.percentual}" data-previsto="${r.previsto}" data-pago="${r.pago}" style="${disabled?'opacity:.55;':''}"><input id="${id}" class="com-check-v21" type="checkbox" ${disabled?'disabled':''} style="width:auto;min-height:0"><label for="${id}" style="font-size:.75rem;line-height:1.35;cursor:pointer"><b>${esc(r.servico)}</b><br><small style="color:var(--muted)">Valor cobrado ${money(r.valorServico)} · base interna deste mecânico ${money(r.base)} · ${r.percentual.toFixed(2).replace('.',',')}% · comissão prevista ${money(r.previsto)} · já paga ${money(r.pago)} · falta ${money(r.falta)}</small></label><input class="j-input com-valor-v21" type="text" inputmode="decimal" value="${r.falta.toFixed(2).replace('.',',')}" ${disabled?'disabled':''} style="text-align:right" title="Valor da comissão a pagar agora neste serviço"></div>`;}).join('')}</div></div>`;}).join('')||'<div style="padding:14px;color:var(--muted);text-align:center;">Nenhum serviço atribuído a este colaborador.</div>';
+    list.innerHTML=Array.from(groups.values()).map(group=>{const h=group[0];return `<div class="com-v22-os"><div style="padding:8px 10px;background:rgba(0,0,0,.18);font-family:var(--fm);font-size:.66rem;color:var(--cyan);overflow-wrap:anywhere"><b>O.S. #${esc(String(h.osId).slice(-6).toUpperCase())}</b> · ${esc(h.placa||'SEM PLACA')} · ${esc(h.veiculo||'VEÍCULO')}<br><span style="color:var(--muted)">${esc(h.cliente)} · ${esc(h.status)}</span></div><div style="display:grid;gap:5px;padding:8px;min-width:0">${group.map(r=>{const id=`${r.osId}|${r.servicoKey}`.replace(/[^a-zA-Z0-9_-]/g,'_'),disabled=r.falta<=0||r.semPercentual||r.aguardandoExecucao,alertaPct=r.semPercentual?' · ⚠ percentual de comissão não cadastrado para este colaborador':'',alertaExec=r.aguardandoExecucao?' · ⏳ aguardando execução confirmada ou finalização da O.S.':'';return `<div class="com-v22-row" data-com-row data-os-id="${esc(r.osId)}" data-key="${esc(r.servicoKey)}" data-servico="${esc(r.servico)}" data-placa="${esc(r.placa)}" data-veiculo="${esc(r.veiculo)}" data-base="${r.base}" data-pct="${r.percentual}" data-previsto="${r.previsto}" data-pago="${r.pago}" style="${disabled?'opacity:.62;':''}"><input id="${id}" class="com-check-v21" type="checkbox" ${disabled?'disabled':''} style="width:auto;min-height:0"><label for="${id}" style="font-size:.75rem;line-height:1.35;cursor:pointer"><b>${esc(r.servico)}</b><br><small style="color:${r.semPercentual||r.aguardandoExecucao?'var(--warn)':'var(--muted)'}">Valor cobrado ${money(r.valorServico)} · base interna deste mecânico ${money(r.base)} · ${r.percentual.toFixed(2).replace('.',',')}% · comissão prevista ${money(r.previsto)} · já paga ${money(r.pago)} · falta ${money(r.falta)}${alertaPct}${alertaExec}</small></label><input class="j-input com-valor-v21" type="text" inputmode="decimal" value="${r.falta>0?r.falta.toFixed(2).replace('.',','):''}" ${disabled?'disabled':''} style="text-align:right" title="Valor da comissão a pagar agora neste serviço"></div>`;}).join('')}</div></div>`;}).join('')||'<div style="padding:14px;color:var(--muted);text-align:center;">Nenhum serviço atribuído a este colaborador.</div>';
     updateSummary();
   }
 
@@ -152,13 +161,29 @@
     await batch.commit();window.toast?.(`✓ Comissão registrada: ${money(totalGeral)} para ${mec.nome}`,'ok');if(typeof window.audit==='function')window.audit('RH/EQUIPE',`Pagamento detalhado de comissão ${money(totalGeral)} para ${mec.nome} em ${groups.size} O.S.`);window.fecharModal?.('modalPgtoRH');window.calcComissoes?.();
   }
 
-  function summaryByFunc(id){const all=(window.J?.financeiro||[]).filter(f=>f?.isComissao===true&&String(f.mecId||'')===String(id||'')&&!isCanceled(f));return{pendente:all.filter(f=>!isPaid(f)).reduce((s,f)=>s+n(f.valor||0),0),pago:all.filter(isPaid).reduce((s,f)=>s+n(f.valor||0),0),qtdPago:all.filter(isPaid).length};}
-  function calcCards(){const box=$id('boxComissoes');if(!box)return;box.innerHTML=(window.J?.equipe||[]).map(f=>({f,s:summaryByFunc(f.id)})).filter(x=>x.s.pendente>0||x.s.pago>0).map(({f,s})=>`<div class="com-card" style="cursor:pointer;align-items:center;min-width:0;max-width:100%;box-sizing:border-box" onclick="window.abrirComissaoColaboradorV21('${esc(f.id)}')"><div style="min-width:0"><div class="com-nome" style="overflow-wrap:anywhere">${esc(f.nome)}</div><div style="font-family:var(--fm);font-size:.6rem;color:var(--muted)">PAGO ${money(s.pago)} · FALTA ${money(s.pendente)}</div></div><div style="text-align:right"><div class="com-val">${money(s.pendente)}</div><div style="font-family:var(--fm);font-size:.56rem;color:var(--cyan);margin-top:3px">DETALHAR / PAGAR</div></div></div>`).join('')||'<div style="text-align:center;color:var(--muted);padding:20px;">Sem comissões registradas</div>';}
+  function summaryByFunc(func){
+    const id=func?.id||func;
+    const all=(window.J?.financeiro||[]).filter(f=>f?.isComissao===true&&String(f.mecId||'')===String(id||'')&&!isCanceled(f));
+    const linhas=rowsFor(typeof func==='object'?func:(window.J?.equipe||[]).find(f=>String(f.id)===String(id)));
+    return{
+      pendente:+linhas.filter(r=>!r.aguardandoExecucao&&!r.semPercentual).reduce((s,r)=>s+n(r.falta||0),0).toFixed(2),
+      pago:all.filter(isPaid).reduce((s,f)=>s+n(f.valor||0),0),
+      qtdPago:all.filter(isPaid).length,
+      qtdServicos:linhas.length,
+      semPercentual:linhas.filter(r=>r.semPercentual).length,
+      aguardando:linhas.filter(r=>r.aguardandoExecucao).length
+    };
+  }
+  function calcCards(){
+    const box=$id('boxComissoes');if(!box)return;
+    window.thiaEnsureDataFor?.('equipe');
+    box.innerHTML=(window.J?.equipe||[]).map(f=>({f,s:summaryByFunc(f)})).filter(x=>x.s.qtdServicos>0||x.s.pendente>0||x.s.pago>0).map(({f,s})=>`<div class="com-card" style="cursor:pointer;align-items:center;min-width:0;max-width:100%;box-sizing:border-box" onclick="window.abrirComissaoColaboradorV21('${esc(f.id)}')"><div style="min-width:0"><div class="com-nome" style="overflow-wrap:anywhere">${esc(f.nome)}</div><div style="font-family:var(--fm);font-size:.6rem;color:var(--muted)">${s.qtdServicos} SERVIÇO(S) · PAGO ${money(s.pago)} · FALTA ${money(s.pendente)}${s.semPercentual?` · <span style="color:var(--warn)">${s.semPercentual} SEM %</span>`:''}${s.aguardando?` · <span style="color:var(--warn)">${s.aguardando} AGUARDANDO</span>`:''}</div></div><div style="text-align:right"><div class="com-val">${money(s.pendente)}</div><div style="font-family:var(--fm);font-size:.56rem;color:var(--cyan);margin-top:3px">DETALHAR / PAGAR</div></div></div>`).join('')||'<div style="text-align:center;color:var(--muted);padding:20px;">Sem serviços atribuídos ou comissões registradas</div>';
+  }
 
   const oldPrep=window.prepPgtoRH;window.prepPgtoRH=function(){if(typeof oldPrep==='function')oldPrep.apply(this,arguments);ensureUI();toggle();};
   const oldSave=window.salvarPgtoRH;window.salvarPgtoRH=function(){return $id('rhPgtoTipo')?.value==='Pagamento Comissão'?saveDetailed():(typeof oldSave==='function'?oldSave.apply(this,arguments):undefined);};
   window.calcComissoes=calcCards;
-  window.abrirComissaoColaboradorV21=function(id){window.abrirModal?.('modalPgtoRH');window.prepPgtoRH();if($id('rhPgtoFunc'))$id('rhPgtoFunc').value=id;if($id('rhPgtoTipo'))$id('rhPgtoTipo').value='Pagamento Comissão';toggle();render();};
+  window.abrirComissaoColaboradorV21=function(id){window.thiaEnsureDataFor?.('equipe');window.abrirModal?.('modalPgtoRH');window.prepPgtoRH();if($id('rhPgtoFunc'))$id('rhPgtoFunc').value=id;if($id('rhPgtoTipo'))$id('rhPgtoTipo').value='Pagamento Comissão';toggle();render();setTimeout(render,350);setTimeout(render,1100);};
   function boot(){ensureUI();calcCards();}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();[500,1200,2500].forEach(ms=>setTimeout(boot,ms));
 })();
