@@ -21,10 +21,7 @@ if ('serviceWorker' in navigator) {
 </script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="js/config.js"></script>
 <script src="js/links-publicos.js"></script>
 <script src="js/tenant-modules.js"></script>
@@ -2122,17 +2119,19 @@ window.thiaEnsureDataFor = function(key) {
     chatequipe: () => window.escutarChatEquipe?.()
   };
   const porTela = {
-    dashboard: ['estoque', 'financeiro'],
-    agenda: ['agendamentos', 'equipe'],
-    kanban: ['estoque', 'financeiro', 'equipe', 'fornecedores'],
-    clientes: [],
+    // V23: cada módulo carrega apenas o que realmente usa. O histórico completo continua disponível.
+    dashboard: ['os'],
+    agenda: ['agendamentos', 'clientes', 'veiculos', 'equipe'],
+    kanban: ['os', 'clientes', 'veiculos'],
+    clientes: ['clientes', 'veiculos', 'os'],
     estoque: ['estoque', 'fornecedores'],
     vendas: ['estoque', 'equipe', 'vendas'],
-    financeiro: ['financeiro', 'equipe'],
-    equipe: ['equipe', 'financeiro'],
-    chat: ['mensagens'],
+    financeiro: ['financeiro', 'equipe', 'fornecedores', 'os'],
+    equipe: ['equipe', 'financeiro', 'os'],
+    chat: ['mensagens', 'clientes', 'veiculos'],
     chatequipe: ['equipe', 'chatequipe'],
-    ia: ['estoque', 'financeiro', 'equipe', 'fornecedores'],
+    ia: ['os', 'clientes', 'veiculos', 'estoque', 'financeiro', 'equipe', 'fornecedores'],
+    osModal: ['clientes', 'veiculos', 'estoque', 'financeiro', 'equipe', 'fornecedores'],
     tabelatempa: [],
     auditoria: ['auditoria'],
     oficina: []
@@ -2149,14 +2148,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const nichoLabels = {carros:'🚗 CARROS', motos:'🏍️ MOTOS', bicicletas:'🚲 BICICLETAS'};
   $('tbNicho').innerText = nichoLabels[J.nicho] || '🚗 CARROS';
 
-  // O.S., clientes e veículos formam o pátio inicial. Dados pesados e telas
-  // secundárias são carregados somente quando necessários.
-  _thiaStartData('os', () => window.escutarOS?.());
-  _thiaStartData('clientes', () => window.escutarClientes?.());
-  _thiaStartData('veiculos', () => window.escutarVeiculos?.());
+  // V23: primeiro pinta a interface; depois carrega somente as O.S. necessárias ao dashboard.
+  // Clientes, veículos, estoque e financeiro entram sob demanda ao abrir seus módulos.
   const iniciarDashboard = () => window.thiaEnsureDataFor('dashboard');
-  if ('requestIdleCallback' in window) requestIdleCallback(iniciarDashboard, { timeout: 1200 });
-  else setTimeout(iniciarDashboard, 350);
+  if ('requestIdleCallback' in window) requestIdleCallback(iniciarDashboard, { timeout: 1800 });
+  else setTimeout(iniciarDashboard, 900);
 
   // ═══════════════════════════════════════════════════════════════════
   // CORREÇÃO 4: Lembrete de boleto vencido do plano SaaS
@@ -2927,7 +2923,7 @@ window.renderDashboard = function() {
   if($('kStock')) $('kStock').innerText = J.estoque.filter(p=>(p.qtd||0)<=(p.min||0)).length;
   if($('kVenc')) $('kVenc').innerText = J.financeiro.filter(f=>f.status==='Pendente'&&f.venc&&String(f.venc).slice(0,10)<dataLocalISOJ(agora)).length;
 
-  const recOS = J.os.sort((a,b)=>b.updatedAt>a.updatedAt?1:-1).slice(0,5);
+  const recOS = [...(J.os || [])].sort((a,b)=>b.updatedAt>a.updatedAt?1:-1).slice(0,5);
   if($('dashRecentOS')) {
       $('dashRecentOS').innerHTML = recOS.map(o=>{
         const v = J.veiculos.find(x=>x.id===o.veiculoId) || {placa: o.placa};
@@ -4449,6 +4445,7 @@ window.iaAnalisarEstoque = function() { _jiaChamar('Quais pecas estao em estoque
 
 <script src="js/jarvis-crm-veiculos-v20.js?v=20.0.0"></script>
 <script src="js/comissoes-os-v21.js?v=22.0.0"></script>
+<script src="js/performance-v23.js?v=23.0.0"></script>
 
 </body>
 </html>
