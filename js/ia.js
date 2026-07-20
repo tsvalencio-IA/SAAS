@@ -610,9 +610,49 @@
     }));
   }
 
+  function statusOperacionalAtendimento(os) {
+    const bruto = norm(os?.status || '').replace(/[^a-z0-9]+/g, '');
+    // Aliases confirmados na base Web atual (js/os.js e equipe.html).
+    // A normalizacao e somente de leitura; nenhum valor e gravado de volta no banco.
+    const mapa = {
+      aguardando: 'Triagem',
+      triagem: 'Triagem',
+      patio: 'Triagem',
+      orcamento: 'Orcamento',
+      orcamentoenviado: 'Orcamento_Enviado',
+      aprovacao: 'Orcamento_Enviado',
+      aprovado: 'Aprovado',
+      andamento: 'Andamento',
+      box: 'Andamento',
+      emservico: 'Andamento',
+      pronto: 'Pronto',
+      prontoretirada: 'Pronto',
+      faturado: 'Pronto',
+      entregue: 'Entregue',
+      concluido: 'Entregue',
+      cancelado: 'Cancelado'
+    };
+    const canonico = mapa[bruto] || '';
+    const rotulos = {
+      Triagem: 'TRIAGEM',
+      Orcamento: 'ORÇAMENTO',
+      Orcamento_Enviado: 'ORÇAMENTO ENVIADO / AGUARDANDO APROVAÇÃO',
+      Aprovado: 'SERVIÇO APROVADO',
+      Andamento: 'EM SERVIÇO',
+      Pronto: 'VEÍCULO PRONTO',
+      Entregue: 'VEÍCULO ENTREGUE',
+      Cancelado: 'CANCELADO'
+    };
+    return {
+      canonico,
+      rotulo: rotulos[canonico] || String(os?.status || 'STATUS NAO RECONHECIDO'),
+      permitido: ['Aprovado', 'Andamento', 'Pronto', 'Entregue'].includes(canonico)
+    };
+  }
+
   function osFinalizadaParaComissao(os) {
-    const status = norm(os?.status || '').replace(/[_-]+/g, ' ');
-    return /\b(pronto|entregue|concluido|finalizado|faturado|pronto retirada)\b/.test(status);
+    const status = statusOperacionalAtendimento(os).canonico;
+    return status === 'Pronto' || status === 'Entregue';
   }
 
   function somarValoresServicos(lista) {
@@ -707,13 +747,21 @@
   function responderAtendimentosFuncionarioPeriodo(texto, q, ctx, opts) {
     const periodo = extrairPeriodoPergunta(texto);
     if (!periodo) return null;
-    if (!/\b(mecanico|funcionario|colaborador|responsavel)\b/.test(q)) return null;
-    if (!/(atendeu|atendimento|realizou|executou|trabalhou|servico|servicos|veiculo|veiculos|o\.?s\.?|ordem|ordens|comiss|relatorio|valor|valores|total)/.test(q)) return null;
+    const citaCargo = /\b(mecanico|funcionario|colaborador|responsavel)\b/.test(q);
+    const perguntaAtendimentoComNome = /\batendimentos?\b/.test(q) && /\b(fez|atendeu|realizou|executou|trabalhou)\b/.test(q);
+    if (!citaCargo && !perguntaAtendimentoComNome) return null;
+    if (!/(atendeu|atendimento|realizou|executou|trabalhou|fez|servico|servicos|veiculo|veiculos|o\.?s\.?|ordem|ordens|comiss|relatorio|valor|valores|total)/.test(q)) return null;
     const func = funcionarioDaPerguntaOperacional(ctx, texto, q);
     if (!func) return 'Informe o nome do mec&acirc;nico para consultar os atendimentos por per&iacute;odo.';
     const lista = ctx.os
-      .filter(os => evidenciaAtendimentoFuncionario(os, func, periodo))
-      .map(os => ({ os, servicos: servicosFuncionarioNaOS(os, func, periodo, ctx) }))
+      .map(os => ({ os, statusOperacional: statusOperacionalAtendimento(os) }))
+      .filter(item => item.statusOperacional.permitido)
+      .filter(item => evidenciaAtendimentoFuncionario(item.os, func, periodo))
+      .map(item => ({
+        os: item.os,
+        statusOperacional: item.statusOperacional,
+        servicos: servicosFuncionarioNaOS(item.os, func, periodo, ctx)
+      }))
       .filter(item => item.servicos.confirmados.length || item.servicos.registrados.length)
       .sort((a, b) => dataISO(dataPrincipalOS(a.os)).localeCompare(dataISO(dataPrincipalOS(b.os))));
     const nome = func.nome || func.usuario || func.id || 'mec&acirc;nico';
@@ -726,32 +774,53 @@
     const percentualCadastrado = percentualRaw != null && String(percentualRaw).trim() !== '';
     const percentualComissao = percentualCadastrado ? num(percentualRaw) : null;
     const modoRelatorio = modoRelatorioFuncionario(q);
-    const linhas = lista.map(({ os, servicos }) => {
+    function formatarServicosAtendimento(servicos) {
+      const confirmados = servicos.confirmados.map(s => ({
+        ...s,
+        baseLiberada: num(s.baseComissao),
+        baseAguardando: 0,
+        situacao: 'EXECUCAO CONFIRMADA'
+      }));
+      const registrados = servicos.registrados.map(s => ({
+        ...s,
+        baseLiberada: servicos.legadoFinalizado ? num(s.baseComissao) : 0,
+        baseAguardando: servicos.legadoFinalizado ? 0 : num(s.baseComissao),
+        situacao: servicos.legadoFinalizado
+          ? 'LIBERADO PELA FINALIZACAO DA O.S. (REGRA LEGADA)'
+          : 'AGUARDANDO EXECUCAO CONFIRMADA OU FINALIZACAO'
+      }));
+      return [...confirmados, ...registrados];
+    }
+
+    function formatarOSAtendimento(item, compacto) {
+      const { os, servicos, statusOperacional } = item;
       const veiculo = veiculoDeOS(ctx, os);
       const placa = placaOS(ctx, os) || '-';
       const modelo = veiculo.modelo || os.veiculoSnapshot?.modelo || os.veiculoModelo || os.veiculo || os.tipoVeiculo || '-';
       const osNumero = String(os.numero || os.id || '').slice(-6).toUpperCase();
       const data = dataBR(dataPrincipalOS(os));
-      const confirmados = servicos.confirmados.length
-        ? [
-            '<br>&nbsp;&nbsp;<strong>Servi&ccedil;os confirmados como executados:</strong>',
-            servicos.confirmados.map(s => `<br>&nbsp;&nbsp;- ${esc(s.desc)}${podeVerValores ? `: <strong>${moeda(s.valor)}</strong>` : ''}`).join(''),
-            podeVerValores ? `<br>&nbsp;&nbsp;<strong>Subtotal confirmado da O.S.: ${moeda(servicos.totalConfirmado)}</strong>` : ''
-          ].join('')
-        : '';
-      const legados = servicos.registrados.length
-        ? [
-            `<br>&nbsp;&nbsp;<strong>${servicos.legadoFinalizado
-              ? 'Servi&ccedil;os de O.S. finalizada sem confirma&ccedil;&atilde;o individual (regra legada):'
-              : 'Servi&ccedil;os somente registrados/or&ccedil;ados, fora da base de comiss&atilde;o:'}</strong>`,
-            servicos.registrados.map(s => `<br>&nbsp;&nbsp;- ${esc(s.desc)}${podeVerValores ? `: <strong>${moeda(s.valor)}</strong>` : ''}`).join(''),
-            podeVerValores
-              ? `<br>&nbsp;&nbsp;<strong>Subtotal ${servicos.legadoFinalizado ? 'legado finalizado' : 'informativo'} da O.S.: ${moeda(servicos.totalRegistrado)}</strong>`
-              : ''
-          ].join('')
-        : (!confirmados ? '<br>&nbsp;&nbsp;Nenhum servi&ccedil;o executado foi identificado nesta O.S.' : '');
-      return `- ${esc(data)} | ${esc(placa)} | ${esc(modelo)} | O.S. #${esc(osNumero)} | ${esc(os.status || '-')}${confirmados}${legados}`;
-    });
+      const itens = formatarServicosAtendimento(servicos);
+      const linhasServico = itens.map(s => {
+        const valores = podeVerValores ? [
+          `<br>&nbsp;&nbsp;&nbsp;&nbsp;Valor cobrado do cliente: <strong>${moeda(s.valor)}</strong>`,
+          `<br>&nbsp;&nbsp;&nbsp;&nbsp;Parte interna atribu&iacute;da ao mec&acirc;nico consultado: <strong>${moeda(s.baseComissao)}</strong>`,
+          `<br>&nbsp;&nbsp;&nbsp;&nbsp;Base liberada para comiss&atilde;o: <strong>${moeda(s.baseLiberada)}</strong>`,
+          `<br>&nbsp;&nbsp;&nbsp;&nbsp;Valor aguardando execu&ccedil;&atilde;o/finaliza&ccedil;&atilde;o: <strong>${moeda(s.baseAguardando)}</strong>`
+        ].join('') : '';
+        return [
+          `<br>&nbsp;&nbsp;<strong>Servi&ccedil;o:</strong> ${esc(s.desc)}`,
+          valores,
+          compacto ? '' : `<br>&nbsp;&nbsp;&nbsp;&nbsp;Situa&ccedil;&atilde;o da base: <strong>${esc(s.situacao)}</strong>`
+        ].join('');
+      }).join('');
+      return [
+        `- ${esc(data)} | O.S. #${esc(osNumero)} | ${esc(placa)} | ${esc(modelo)}`,
+        `<br>&nbsp;&nbsp;<strong>Status atual:</strong> ${esc(statusOperacional.rotulo)}`,
+        linhasServico || '<br>&nbsp;&nbsp;Nenhum servi&ccedil;o atribu&iacute;do foi identificado.'
+      ].join('');
+    }
+
+    const linhas = lista.map(item => formatarOSAtendimento(item, false));
     const totalConfirmado = +lista.reduce((soma, item) => soma + num(item.servicos.totalConfirmado), 0).toFixed(2);
     const baseConfirmadaComissao = +lista.reduce((soma, item) => soma + num(item.servicos.baseComissaoConfirmada), 0).toFixed(2);
     const totalLegadoFinalizado = +lista
@@ -766,6 +835,10 @@
       .filter(item => !item.servicos.legadoFinalizado)
       .reduce((soma, item) => soma + num(item.servicos.totalRegistrado), 0)
       .toFixed(2);
+    const baseAguardandoExecucao = +lista
+      .filter(item => !item.servicos.legadoFinalizado)
+      .reduce((soma, item) => soma + num(item.servicos.baseComissaoRegistrada), 0)
+      .toFixed(2);
     const baseComissao = +(baseConfirmadaComissao + baseLegadaComissao).toFixed(2);
     const valorComissao = percentualComissao == null
       ? null
@@ -778,7 +851,10 @@
       baseLegadaComissao !== totalLegadoFinalizado ? `<br>- Parte interna legada atribu&iacute;da ao colaborador: <strong>${moeda(baseLegadaComissao)}</strong>` : '',
       `<br>- Base total considerada para comiss&atilde;o: <strong>${moeda(baseComissao)}</strong>`,
       totalSomenteOrcado > 0
-        ? `<br>- Servi&ccedil;os apenas or&ccedil;ados/sem finaliza&ccedil;&atilde;o, exclu&iacute;dos da comiss&atilde;o: <strong>${moeda(totalSomenteOrcado)}</strong>`
+        ? `<br>- Valor cobrado em servi&ccedil;os ainda aguardando execu&ccedil;&atilde;o/finaliza&ccedil;&atilde;o: <strong>${moeda(totalSomenteOrcado)}</strong>`
+        : '',
+      baseAguardandoExecucao > 0
+        ? `<br>- Parte interna ainda aguardando execu&ccedil;&atilde;o/finaliza&ccedil;&atilde;o: <strong>${moeda(baseAguardandoExecucao)}</strong>`
         : '',
       percentualComissao == null
         ? '<br>- Percentual de comiss&atilde;o: <strong>n&atilde;o localizado no cadastro do colaborador</strong>'
@@ -788,26 +864,14 @@
         : `<br>- Comiss&atilde;o calculada: <strong>${moeda(valorComissao)}</strong>`
     ].join('') : '';
     if (modoRelatorio === 'resumo') {
-      const linhasResumo = lista.map(({ os, servicos }) => {
-        const veiculo = veiculoDeOS(ctx, os);
-        const placa = placaOS(ctx, os) || '-';
-        const modelo = veiculo.modelo || os.veiculoSnapshot?.modelo || os.veiculoModelo || os.veiculo || os.tipoVeiculo || '-';
-        const osNumero = String(os.numero || os.id || '').slice(-6).toUpperCase();
-        const data = dataBR(dataPrincipalOS(os));
-        const listaServicos = servicos.confirmados.length ? servicos.confirmados : servicos.registrados;
-        const totalOS = servicos.confirmados.length ? servicos.totalConfirmado : servicos.totalRegistrado;
-        const nomes = listaServicos.map(s => s.desc).filter(Boolean);
-        const amostra = nomes.slice(0, 2).join('; ');
-        const complemento = nomes.length > 2 ? ` +${nomes.length - 2} outro(s)` : '';
-        const servicoTxt = nomes.length ? ` | ${esc(amostra)}${esc(complemento)}` : ' | sem servi&ccedil;o identificado';
-        return `- ${esc(data)} | O.S. #${esc(osNumero)} | ${esc(placa)} | ${esc(modelo)} | ${esc(os.status || '-')}${servicoTxt}${podeVerValores ? ` | ${moeda(totalOS)}` : ''}`;
-      });
+      const linhasResumo = lista.map(item => formatarOSAtendimento(item, true));
       const resumoValores = podeVerValores ? [
         `<br><strong>Total de O.S.:</strong> ${esc(lista.length)} | <strong>Ve&iacute;culos:</strong> ${esc(veiculosUnicos.size)}`,
         `<br><strong>M&atilde;o de obra confirmada:</strong> ${moeda(totalConfirmado)}`,
         `<br><strong>M&atilde;o de obra finalizada legada:</strong> ${moeda(totalLegadoFinalizado)}`,
-        `<br><strong>Base para comiss&atilde;o:</strong> ${moeda(baseComissao)}`,
-        valorComissao == null ? '' : `<br><strong>Comiss&atilde;o calculada:</strong> ${moeda(valorComissao)}`
+        `<br><strong>Base liberada para comiss&atilde;o:</strong> ${moeda(baseComissao)}`,
+        `<br><strong>Base ainda aguardando execu&ccedil;&atilde;o/finaliza&ccedil;&atilde;o:</strong> ${moeda(baseAguardandoExecucao)}`,
+        valorComissao == null ? '' : `<br><strong>Comiss&atilde;o calculada sobre a base liberada:</strong> ${moeda(valorComissao)}`
       ].join('') : `<br><strong>Total de O.S.:</strong> ${esc(lista.length)} | <strong>Ve&iacute;culos:</strong> ${esc(veiculosUnicos.size)}`;
       const periodoTitulo = periodo.inicio === periodo.fim
         ? `em ${esc(dataBR(periodo.inicio))}`
@@ -823,7 +887,7 @@
       `${lista.length} O.S. em ${veiculosUnicos.size} ve&iacute;culo(s).`,
       linhas.join('<br><br>'),
       resumoComissao,
-      '<br><small>Crit&eacute;rio: execu&ccedil;&atilde;o individual confirmada tem prioridade. O.S. legadas sem marca&ccedil;&atilde;o individual s&atilde;o identificadas separadamente para n&atilde;o afirmar servi&ccedil;o sem prova.</small>'
+      '<br><small>Crit&eacute;rio: somente O.S. em Servi&ccedil;o Aprovado, Em Servi&ccedil;o, Ve&iacute;culo Pronto ou Ve&iacute;culo Entregue entram como atendimento. A libera&ccedil;&atilde;o de comiss&atilde;o continua dependendo da execu&ccedil;&atilde;o confirmada ou da finaliza&ccedil;&atilde;o aceita pela regra legada.</small>'
     ].join('<br>');
   }
 
