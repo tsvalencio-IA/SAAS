@@ -185,9 +185,13 @@
     const opts = options || {};
     const tempo = U.parseNumberBR(servico?.tempo || 0);
     const valorInformado = U.parseNumberBR(servico?.valor || servico?.valorBruto || 0);
-    const descMO = opts.descMO != null
+    const descMOGeral = opts.descMO != null
       ? U.parseDiscountRate(opts.descMO)
       : U.getDescontosCliente(cliente, opts.os || {}).descMO;
+    const descIndividual = U.parseDiscountRate(
+      servico?.descIndividualPct ?? servico?.descIndividual ?? servico?.descontoIndividual ?? servico?.descontoItem ?? servico?.descItem ?? 0
+    );
+    const descMO = 1 - ((1 - descMOGeral) * (1 - descIndividual));
     const resolvido = U.resolvePMSPServico(servico, {
       veiculo: opts.veiculo,
       fallbackValorHora: opts.fallbackValorHora
@@ -234,6 +238,8 @@
       valorBruto: bruto,
       valorFinal,
       descPct: descMO,
+      descGeralPct: descMOGeral,
+      descIndividualPct: descIndividual,
       usaCalculoHora,
       resolvido
     };
@@ -277,6 +283,9 @@
         valorHora: calc.valorHora,
         valorBruto: bruto,
         valorFinal: final,
+        descGeralPct: calc.descGeralPct || 0,
+        descIndividualPct: calc.descIndividualPct || 0,
+        descPct: calc.descPct || 0,
         usaCalculoHora: calc.usaCalculoHora
       };
     });
@@ -284,7 +293,11 @@
       const qtd = U.parseNumberBR(p.qtd || p.q || 1) || 1;
       const valorUnit = U.parseNumberBR(p.venda || p.valor || p.v);
       const bruto = +(qtd * valorUnit).toFixed(2);
-      const final = +(bruto * (1 - descontos.descPeca)).toFixed(2);
+      const descIndividual = U.parseDiscountRate(
+        p.descIndividualPct ?? p.descIndividual ?? p.descontoIndividual ?? p.descontoItem ?? p.descItem ?? 0
+      );
+      const descEfetivo = 1 - ((1 - descontos.descPeca) * (1 - descIndividual));
+      const final = +(bruto * (1 - descEfetivo)).toFixed(2);
       return {
         key: 'peca-' + index,
         tipo: 'peca',
@@ -297,7 +310,10 @@
         qtd,
         valorUnit,
         valorBruto: bruto,
-        valorFinal: final
+        valorFinal: final,
+        descGeralPct: descontos.descPeca,
+        descIndividualPct: descIndividual,
+        descPct: descEfetivo
       };
     });
     return servicos.concat(pecas).filter(it => it.desc || it.codigo || it.valorBruto > 0);

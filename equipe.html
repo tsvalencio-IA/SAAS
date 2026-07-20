@@ -22,7 +22,7 @@ if ('serviceWorker' in navigator) {
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="js/config.js"></script>
-<script src="js/os-utils.js?v=15.15.0"></script>
+<script src="js/os-utils.js?v=21.0.0"></script>
 <script src="js/links-publicos.js"></script>
 <script src="js/tenant-modules.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=JetBrains+Mono:wght@400;700&family=Exo+2:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -406,7 +406,7 @@ body.equipe-page .overlay.open{display:flex!important;}
 <div class="mec-kpi c3 mec-financeiro-only" id="kpiComissao" style="display:none; border-bottom: 2px solid var(--success); cursor:pointer; transition: background 0.2s;" onclick="abrirModal('modalExtratoFunc')" onmouseover="this.style.background='rgba(0, 255, 136, 0.05)'" onmouseout="this.style.background=''">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
             <div>
-              <div class="mec-kpi-label" style="color:var(--success)">COMISSÕES A RECEBER</div>
+              <div class="mec-kpi-label" style="color:var(--success)">COMISSÕES RECEBIDAS</div>
               <div class="mec-kpi-val" id="kMinhaComissao" style="color:var(--success);">R$ 0,00</div>
             </div>
             <div style="font-size:1.4rem; opacity:0.6;">📄</div>
@@ -1591,7 +1591,10 @@ document.addEventListener('DOMContentLoaded',()=>{
 
   statusEquipeDados('Sincronizando pátio da equipe...', 'warn');
   db.collection('ordens_servico').where('tenantId','==',J.tid).onSnapshot(snap=>{
-    dbOS=snap.docs.map(d=>({id:d.id,...d.data()}));
+    const todasOS=snap.docs.map(d=>({id:d.id,...d.data()}));
+    const roleAtual=String(J.role||'').toLowerCase();
+    const podeVerTodas=['gerente','gestor','admin','superadmin','dono'].includes(roleAtual);
+    dbOS=podeVerTodas?todasOS:todasOS.filter(osAtribuidaAoUsuarioEquipe);
     statusEquipeDados('');
     renderKanban(); renderKPIs();
   }, err => {
@@ -1628,55 +1631,35 @@ document.addEventListener('DOMContentLoaded',()=>{
           .where('tenantId', '==', J.tid)
           .where('mecId', '==', J.fid)
           .onSnapshot(finSnap => {
-            let totalPendente = 0;
+            let totalRecebido = 0;
             let extratoHTML = '';
-            
-            // Organiza do mais recente para o mais antigo
             const docs = finSnap.docs.map(d => ({id: d.id, ...d.data()}))
-                                     .sort((a,b) => (b.venc || b.createdAt) > (a.venc || a.createdAt) ? 1 : -1);
+              .filter(fin => fin.isComissao === true)
+              .sort((a,b) => String(b.venc || b.createdAt || '').localeCompare(String(a.venc || a.createdAt || '')));
 
             docs.forEach(fin => {
-              // 1. Calcula o total a receber no card principal (só pendentes)
-              if (fin.isComissao && fin.status === 'Pendente') {
-                totalPendente += (fin.valor || 0);
-              }
-              
-              // 2. Monta as linhas da tabela de Extrato
-              const dataStr = fin.venc ? new Date(fin.venc).toLocaleDateString('pt-BR') : '-';
-              const valorStr = 'OCULTO';
-              
-              let tipoBadge = '';
-              let valorStyle = '';
-              
-              if (fin.isComissao) {
-                  tipoBadge = '<span class="pill pill-cyan">COMISSÃO</span>';
-                  valorStyle = 'color:var(--success)';
-              } else if (fin.tipo === 'Saída') {
-                  if ((fin.desc||'').includes('Vale') || (fin.desc||'').includes('Adiantamento')) {
-                      tipoBadge = '<span class="pill pill-warn">VALE/ADIANT.</span>';
-                      valorStyle = 'color:var(--danger)';
-                  } else {
-                      tipoBadge = '<span class="pill pill-gray">PAGAMENTO</span>';
-                      valorStyle = 'color:var(--text)';
-                  }
-              }
-              
-              const statusBadge = fin.status === 'Pago' ? '<span class="pill pill-green">PAGO/LIQUIDADO</span>' : '<span class="pill pill-warn">PENDENTE</span>';
-
-              extratoHTML += `
-                <tr>
-                  <td style="font-family:var(--fm);font-size:0.7rem;color:var(--muted)">${dataStr}</td>
-                  <td>${tipoBadge}</td>
-                  <td style="font-size:0.8rem">${fin.desc || '-'}</td>
-                  <td>${statusBadge}</td>
-                  <td style="font-family:var(--fm);font-weight:700;${valorStyle}">${valorStr}</td>
-                </tr>
-              `;
+              const statusNormalizado=String(fin.status||'').toLowerCase();
+              const pago=['pago','liquidado','baixado','parcial'].includes(statusNormalizado)||!!fin.pagoEm||!!fin.dataPgto;
+              const cancelado=['cancelado','cancelada','compensado'].includes(statusNormalizado);
+              if(cancelado) return;
+              if(pago) totalRecebido += Number(fin.valor || 0);
+              const dataBase=fin.dataPgto||fin.venc||fin.createdAt;
+              const dataStr = dataBase ? new Date(String(dataBase).length===10 ? dataBase+'T12:00:00' : dataBase).toLocaleDateString('pt-BR') : '-';
+              const statusBadge = pago ? '<span class="pill pill-green">RECEBIDO</span>' : '<span class="pill pill-warn">PENDENTE</span>';
+              const valorStr = pago ? ('R$ '+Number(fin.valor||0).toFixed(2).replace('.',',')) : 'VALOR OCULTO';
+              const osInfo = fin.placa ? ` · ${fin.placa}${fin.veiculo ? ' '+fin.veiculo : ''}` : '';
+              const servicos = (fin.alocacoesComissao||fin.itensComissaoPagos||[]).map(a=>a.servico).filter(Boolean).slice(0,3).join('; ');
+              extratoHTML += `<tr>
+                <td style="font-family:var(--fm);font-size:0.7rem;color:var(--muted)">${dataStr}</td>
+                <td><span class="pill pill-cyan">COMISSÃO</span></td>
+                <td style="font-size:0.8rem">${fin.desc || 'Comissão'}${osInfo}${servicos?`<br><small style="color:var(--muted)">${servicos}</small>`:''}</td>
+                <td>${statusBadge}</td>
+                <td style="font-family:var(--fm);font-weight:700;color:${pago?'var(--success)':'var(--muted)'}">${valorStr}</td>
+              </tr>`;
             });
-            
-            // Injeta o valor no Card
+
             const valEl = document.getElementById('kMinhaComissao');
-            if (valEl) valEl.innerText = 'OCULTO';
+            if (valEl) valEl.innerText = 'R$ '+totalRecebido.toFixed(2).replace('.',',');
             
             // Injeta as linhas no Modal
             const tbExtrato = document.getElementById('tbExtratoFunc');
@@ -1728,7 +1711,9 @@ function osAtribuidaAoUsuarioEquipe(o) {
 }
 
 function renderKPIs(){
-  const minhas = dbOS.filter(o => (!o.mecId && !(o.mecIds || []).length) || osAtribuidaAoUsuarioEquipe(o));
+  const roleAtual=String(J.role||'').toLowerCase();
+  const podeVerTodas=['gerente','gestor','admin','superadmin','dono'].includes(roleAtual);
+  const minhas = podeVerTodas ? dbOS : dbOS.filter(osAtribuidaAoUsuarioEquipe);
   const ativas = minhas.filter(o => !['Entregue','Cancelado','entregue','cancelado'].includes(o.status));
   if($('kMeusOS')) $('kMeusOS').innerText = ativas.length;
   if($('kEmExec')) $('kEmExec').innerText = minhas.filter(o => o.status === 'Andamento' || o.status === 'EmServico').length;
@@ -1767,9 +1752,8 @@ function renderKanban(){
     // Se for gerente, vendedor ou admin, vê TODO o pátio.
     if (['gerente', 'vendedor', 'admin'].includes(String(J.role||'').toLowerCase())) return true;
     
-    // Visibilidade do kanban: mecanico ve todo o patio; KPI/comissao seguem filtrados por J.fid.
-    
-    return true;
+    // Mecânico visualiza somente O.S. em que está vinculado como responsável.
+    return osAtribuidaAoUsuarioEquipe(o);
   });
 
   minhasOS.forEach(o=>{
@@ -1861,6 +1845,9 @@ function prepOS(mode,id=null){
   if (av) av.style.display = 'none';
   if(mode==='edit'&&id){
     const os=dbOS.find(x=>x.id===id); if(!os) return;
+    const roleAtual=String(J.role||'').toLowerCase();
+    const podeVerTodas=['gerente','gestor','admin','superadmin','dono'].includes(roleAtual);
+    if(!podeVerTodas && !osAtribuidaAoUsuarioEquipe(os)) { toast('Esta O.S. não está vinculada ao seu usuário.','warn'); return; }
     window._equipeOSAtual = os;
     $('osId').value=os.id; $('osIdBadge').innerText='OS#'+os.id.slice(-5).toUpperCase();
     $('osTipo').value=os.tipoVeiculo||'carro';
@@ -2131,39 +2118,54 @@ function parseBR(v) {
 // INTEGRAÇÃO DE DEEP DIFF E SALVAMENTO NA O.S.
 async function salvarOS(){
   if(!$v('osCliente')||!$v('osVeiculo')){toast('⚠ Cliente e veículo obrigatórios','warn');return;}
+  const osAtualPreservar = window._equipeOSAtual || {};
   
   const pecas=[];
-  document.querySelectorAll('#containerPecas>div').forEach(r=>{
+  document.querySelectorAll('#containerPecas>div').forEach((r,idx)=>{
     const sel=r.querySelector('.peca-sel');
     const opt=sel?.options[sel?.selectedIndex];
+    const anterior=(osAtualPreservar.pecas||[])[idx]||{};
     pecas.push({
-      estoqueId:sel?.value,
-      desc:opt?.dataset.d||opt?.text||'',
+      ...anterior,
+      estoqueId:sel?.value||anterior.estoqueId||'',
+      desc:opt?.dataset.d||opt?.text||anterior.desc||'',
       qtd:parseBR(r.querySelector('.peca-qtd')?.value||1),
-      venda:parseBR(r.querySelector('.peca-venda')?.value||0)
+      venda:parseBR(r.querySelector('.peca-venda')?.value||anterior.venda||0),
+      descIndividualPct: anterior.descIndividualPct ?? anterior.descontoIndividual ?? 0,
+      descontoIndividual: anterior.descontoIndividual ?? anterior.descIndividualPct ?? 0
     });
   });
 
   const servicos=[];
-  document.querySelectorAll('#containerServicos>div').forEach(r=>{
+  document.querySelectorAll('#containerServicos>div').forEach((r,idx)=>{
     const desc=r.querySelector('.serv-desc')?.value||'';
     const valor=parseBR(r.querySelector('.serv-valor')?.value||0);
     const mecId = r.querySelector('.serv-mec')?.value || '';
     const mec = mecanicosEquipeDaOS(window._equipeOSAtual || {}).find(m => String(m.id) === String(mecId));
+    const anterior=(osAtualPreservar.servicos||[])[idx]||{};
     if(desc) servicos.push({
+      ...anterior,
       desc,
       valor,
+      valorBruto: valor,
       mecId,
-      mecNome: mec?.nome || '',
+      mecNome: mec?.nome || anterior.mecNome || '',
       responsavelId: mecId,
-      responsavelNome: mec?.nome || ''
+      responsavelNome: mec?.nome || anterior.responsavelNome || '',
+      descIndividualPct: anterior.descIndividualPct ?? anterior.descontoIndividual ?? 0,
+      descontoIndividual: anterior.descontoIndividual ?? anterior.descIndividualPct ?? 0
     });
   });
 
-  // O Total é recalculado secretamente para não perder a integridade dos dados no Firebase
+  // O total continua oculto para o mecânico, mas respeita os descontos gerais e individuais salvos pelo gestor.
   let t = parseBR($v('osMO'))||0;
-  pecas.forEach(p => t += (p.qtd * p.venda));
-  servicos.forEach(s => t += s.valor);
+  const clienteCalc=(dbClientes||[]).find(c=>String(c.id)===String($v('osCliente')||''));
+  const itensCalc=(window.JOS?.buildBudgetItems?.({...osAtualPreservar,pecas,servicos},clienteCalc)||[]);
+  t += itensCalc.reduce((soma,item)=>soma+parseBR(item.valorFinal||0),0);
+  itensCalc.forEach(item=>{
+    if(item.tipo==='servico'&&servicos[item.index]) Object.assign(servicos[item.index],{valorFinal:item.valorFinal,descPct:item.descPct,descGeralPct:item.descGeralPct,descIndividualPct:item.descIndividualPct});
+    if(item.tipo==='peca'&&pecas[item.index]) Object.assign(pecas[item.index],{valorFinal:item.valorFinal,total:item.valorFinal,valorBruto:item.valorBruto,descPct:item.descPct,descGeralPct:item.descGeralPct,descIndividualPct:item.descIndividualPct});
+  });
 
   const id = $v('osId');
   const osBaseEquipe = id ? (dbOS.find(x => x.id === id) || {}) : {};
@@ -2704,5 +2706,6 @@ function aplicarSugestaoIA() {
 <script src="js/ia.js?v=19.0.0"></script>
 <script src="js/catalogos-ia.js?v=19.0.0"></script>
 <script src="js/uix-theme-fix.js"></script>
+<script src="js/equipe-comissoes-v21.js?v=21.0.0"></script>
 </body>
 </html>

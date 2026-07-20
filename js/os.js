@@ -40,6 +40,38 @@ const taxaDescontoOS = value => {
   const v = numBR(value);
   return v > 1 ? +(v / 100).toFixed(6) : v;
 };
+
+function combinarDescontosOS(geral, individual) {
+  const g = Math.min(1, Math.max(0, taxaDescontoOS(geral || 0)));
+  const i = Math.min(1, Math.max(0, taxaDescontoOS(individual || 0)));
+  return +(1 - ((1 - g) * (1 - i))).toFixed(6);
+}
+
+function descontoIndividualLinhaOS(row, tipo) {
+  const seletor = tipo === 'servico' ? '.serv-desc-individual' : '.peca-desc-individual';
+  return taxaDescontoOS(row?.querySelector?.(seletor)?.value || row?.dataset?.descontoIndividual || 0);
+}
+
+function instalarDescontoIndividualLinhaOS(row, tipo, valor) {
+  if (!row || row.querySelector('.desconto-individual-os-wrap')) return;
+  const classe = tipo === 'servico' ? 'serv-desc-individual' : 'peca-desc-individual';
+  const label = tipo === 'servico' ? 'DESCONTO DESTE SERVIÇO (%)' : 'DESCONTO DESTA PEÇA (%)';
+  const pct = taxaDescontoOS(valor || 0) * 100;
+  const box = document.createElement('div');
+  box.className = 'desconto-individual-os-wrap';
+  box.style.cssText = 'grid-column:1/-1;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding-top:3px;font-family:var(--fm);font-size:.58rem;color:var(--muted);';
+  box.innerHTML = `<label>${label}</label><input type="text" inputmode="decimal" class="j-input ${classe}" value="${pct ? pct.toFixed(2).replace('.', ',').replace(/,00$/, '') : ''}" placeholder="0" oninput="window.calcOSTotal()" style="width:92px;text-align:right;min-height:32px;" title="Desconto individual, aplicado junto com o desconto geral da O.S.">`;
+  row.appendChild(box);
+}
+
+function focarLinhaNovaOS(row, seletor) {
+  if (!row || !window.event?.isTrusted) return;
+  try { row.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { try { row.scrollIntoView(); } catch(__){} }
+  setTimeout(() => {
+    const campo = row.querySelector(seletor) || row.querySelector('input,select,textarea');
+    try { campo?.focus({ preventScroll: true }); } catch (_) { try { campo?.focus(); } catch(__){} }
+  }, 120);
+}
 const escOS = value => (OSU().escapeHtml ? OSU().escapeHtml(value) : String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
 
 function isFirestoreSentinelOS(value) {
@@ -2169,6 +2201,13 @@ function descontoMaoObraAtualOS() {
   return campo !== '' && campo != null ? taxaDescontoOS(campo) : taxaDescontoOS(dadosGov?.descMO || 0);
 }
 
+function descontoPecasAtualOS() {
+  const ehGov = typeof window._osClienteGovernamental === 'function' && window._osClienteGovernamental();
+  const dadosGov = ehGov && typeof window._osDadosGovernamental === 'function' ? window._osDadosGovernamental() : null;
+  const campo = document.getElementById('osDescPeca')?.value?.trim();
+  return campo !== '' && campo != null ? taxaDescontoOS(campo) : taxaDescontoOS(dadosGov?.descPeca || 0);
+}
+
 function dadosServicoLinhaOS(row) {
   const sel = row?.querySelector?.('.serv-secao-hora');
   const secaoHora = sel?.value || row?.dataset?.secaoHora || '';
@@ -2211,9 +2250,12 @@ function dadosServicoLinhaOS(row) {
 
 function calcularServicoLinhaOS(row, descMO) {
   const dados = dadosServicoLinhaOS(row);
+  const descGeral = taxaDescontoOS(descMO || 0);
+  const descIndividual = descontoIndividualLinhaOS(row, 'servico');
+  const descEfetivo = combinarDescontosOS(descGeral, descIndividual);
   const calc = OSU().calcularServicoMaoObra
     ? OSU().calcularServicoMaoObra(dados, null, {
-        descMO,
+        descMO: descEfetivo,
         veiculo: window._osVeiculoAtual?.(),
         fallbackValorHora: window._osValorHoraCliente?.(),
         usarHoraQuandoDisponivel: true
@@ -2224,15 +2266,19 @@ function calcularServicoLinhaOS(row, descMO) {
         valorHoraTabela: dados.valorHoraTabela,
         valorBruto: dados.valor,
         bruto: dados.valor,
-        valorFinal: +(dados.valor * (1 - numBR(descMO || 0))).toFixed(2),
-        descPct: descMO || 0,
+        valorFinal: +(dados.valor * (1 - descEfetivo)).toFixed(2),
+        descPct: descEfetivo,
         usaCalculoHora: false
       };
   const valorInput = row?.querySelector?.('.serv-valor');
   if (valorInput && calc.usaCalculoHora && document.activeElement !== valorInput) {
     valorInput.value = calc.valorBruto.toFixed(2).replace('.', ',');
   }
-  return Object.assign(dados, calc);
+  return Object.assign(dados, calc, {
+    descGeralPct: descGeral,
+    descIndividualPct: descIndividual,
+    descPct: descEfetivo
+  });
 }
 
 window.atualizarValorServicoPorHora = function(row) {
@@ -2270,7 +2316,10 @@ window.adicionarServicoOS = function() {
     `;
   }
   if($('containerServicosOS')) $('containerServicosOS').appendChild(sel);
+  instalarDescontoIndividualLinhaOS(sel, 'servico', 0);
   window.garantirResponsavelLinhaServicoOS?.(sel, '');
+  window.calcOSTotal?.();
+  focarLinhaNovaOS(sel, '.serv-desc');
 };
 
 window.renderServicoOSRow = function(s) {
@@ -2331,6 +2380,7 @@ window.renderServicoOSRow = function(s) {
     `;
   }
   if($('containerServicosOS')) $('containerServicosOS').appendChild(div);
+  instalarDescontoIndividualLinhaOS(div, 'servico', s.descIndividualPct ?? s.descIndividual ?? s.descontoIndividual ?? 0);
   window.garantirResponsavelLinhaServicoOS?.(div, div.dataset.mecId || '');
   atualizarMetaServicoLinhaOS(div);
 };
@@ -2396,7 +2446,10 @@ window.adicionarPecaOS = function() {
       <div class="peca-estoque-info" style="grid-column:1/-1;font-family:var(--fm);font-size:.62rem;color:var(--muted);line-height:1.45;"></div>
     `;
   }
-  if($('containerPecasOS')) $('containerPecasOS').appendChild(sel); window.calcOSTotal();
+  if($('containerPecasOS')) $('containerPecasOS').appendChild(sel);
+  instalarDescontoIndividualLinhaOS(sel, 'peca', 0);
+  window.calcOSTotal();
+  focarLinhaNovaOS(sel, '.peca-busca-estoque, .peca-desc-livre, .peca-codigo');
 };
 
 
@@ -2660,6 +2713,7 @@ window.renderPecaOSRow = function(p) {
     `;
   }
   if($('containerPecasOS')) $('containerPecasOS').appendChild(div);
+  instalarDescontoIndividualLinhaOS(div, 'peca', p.descIndividualPct ?? p.descIndividual ?? p.descontoIndividual ?? 0);
   atualizarPecaOSInfoRow(div);
 };
 
@@ -2868,9 +2922,9 @@ window.calcOSTotal = function() {
         // Atualiza badge de desconto em tempo real
         const descBox = row.querySelector('.serv-desc-val');
         const pctBox = row.querySelector('.serv-desc-pct');
-        if (pctBox) pctBox.textContent = '-' + (descMO * 100).toFixed(1).replace('.', ',') + '%';
+        if (pctBox) pctBox.textContent = '-' + (numBR(calc.descPct || 0) * 100).toFixed(1).replace('.', ',') + '%';
         if (descBox) descBox.textContent = 'R$ ' + vFinal.toFixed(2).replace('.', ',');
-        atualizarBoxDescontoLinhaOS(row, 'serv', vBruto, vFinal, descMO);
+        atualizarBoxDescontoLinhaOS(row, 'serv', vBruto, vFinal, calc.descPct || 0);
         totalServicos += vFinal;
         if (desc || vBruto || tempo) {
             const sel = row.querySelector('.serv-secao-hora');
@@ -2909,9 +2963,9 @@ window.calcOSTotal = function() {
         const desc = String(calc.desc || '').trim();
         const descBox = row.querySelector('.serv-desc-val');
         const pctBox = row.querySelector('.serv-desc-pct');
-        if (pctBox) pctBox.textContent = '-' + (descMO * 100).toFixed(1).replace('.', ',') + '%';
+        if (pctBox) pctBox.textContent = '-' + (numBR(calc.descPct || 0) * 100).toFixed(1).replace('.', ',') + '%';
         if (descBox) descBox.textContent = 'R$ ' + vFinal.toFixed(2).replace('.', ',');
-        atualizarBoxDescontoLinhaOS(row, 'serv', vBruto, vFinal, descMO);
+        atualizarBoxDescontoLinhaOS(row, 'serv', vBruto, vFinal, calc.descPct || 0);
         totalServicos += vFinal;
         if (desc || vBruto || tempo) {
             const sel = row.querySelector('.serv-secao-hora');
@@ -2944,14 +2998,16 @@ window.calcOSTotal = function() {
         const qtd   = numBR(row.querySelector('.peca-qtd')?.value   || 0);
         const venda = numBR(row.querySelector('.peca-venda')?.value  || 0);
         const vBruto = qtd * venda;
-        const vFinal = +(vBruto * (1 - descPeca)).toFixed(2);
+        const descIndividual = descontoIndividualLinhaOS(row, 'peca');
+        const descEfetivo = combinarDescontosOS(descPeca, descIndividual);
+        const vFinal = +(vBruto * (1 - descEfetivo)).toFixed(2);
         brutoPecas += vBruto;
         // Atualiza badge de desconto em tempo real
         const descBox = row.querySelector('.peca-desc-val');
         const pctBox = row.querySelector('.peca-desc-pct') || row.querySelector('.peca-desc-box div:first-child');
-        if (pctBox) pctBox.textContent = '-' + (descPeca * 100).toFixed(1).replace('.', ',') + '%';
+        if (pctBox) pctBox.textContent = '-' + (descEfetivo * 100).toFixed(1).replace('.', ',') + '%';
         if (descBox) descBox.textContent = 'R$ ' + vFinal.toFixed(2).replace('.', ',');
-        atualizarBoxDescontoLinhaOS(row, 'peca', vBruto, vFinal, descPeca);
+        atualizarBoxDescontoLinhaOS(row, 'peca', vBruto, vFinal, descEfetivo);
         totalPecas += vFinal;
     });
 
@@ -3092,6 +3148,10 @@ async function reconciliarComissoesOS(osId, payload, calculos) {
 
     if (Math.abs(saldoPendente) < 0.01 || !calc) {
       for (const pendente of pendentes) {
+        const saldoManualDividido = pendente.origem === 'saldo_pagamento_comissao_detalhado' || pendente.categoria === 'comissao_os_servico_parcial';
+        // Pagamento extra/dividido criado manualmente pode pertencer a um segundo mecânico
+        // que não está como responsável principal da O.S.; não apagar esse saldo ao salvar a O.S.
+        if (!calc && saldoManualDividido) continue;
         await pendente.ref.update({
           status: 'Cancelado',
           canceladoEm: agora,
@@ -3194,6 +3254,10 @@ window.salvarOS = async function() {
         bruto: valor,
         valorFinal,
         total: valorFinal,
+        descGeralPct: numBR(calc.descGeralPct || 0),
+        descIndividualPct: numBR(calc.descIndividualPct || 0),
+        descontoIndividual: numBR(calc.descIndividualPct || 0),
+        descPct: numBR(calc.descPct || 0),
         tempo,
         codigoInterno,
         codigoTabela,
@@ -3260,8 +3324,12 @@ window.salvarOS = async function() {
       const descLivre = row.querySelector('.peca-desc-livre')?.value || '';
       const qtd = numBR(row.querySelector('.peca-qtd')?.value || 1) || 1;
       const venda = numBR(row.querySelector('.peca-venda')?.value || 0);
+      const descIndividual = descontoIndividualLinhaOS(row, 'peca');
+      const descEfetivo = combinarDescontosOS(descontoPecasAtualOS(), descIndividual);
+      const valorBrutoItem = +(qtd * venda).toFixed(2);
+      const valorFinalItem = +(valorBrutoItem * (1 - descEfetivo)).toFixed(2);
       if (descLivre || codigo) {
-        totalPecas += (qtd * venda);
+        totalPecas += valorFinalItem;
         pecas.push({
           avulsa: true,        // marcador
           estoqueId: '',       // não baixa estoque
@@ -3273,6 +3341,12 @@ window.salvarOS = async function() {
           qtd: qtd,
           custo: 0,
           venda: venda,
+          valorBruto: valorBrutoItem,
+          valorFinal: valorFinalItem,
+          total: valorFinalItem,
+          descIndividualPct: descIndividual,
+          descontoIndividual: descIndividual,
+          descPct: descEfetivo,
           origem: row.dataset?.origemPecaOS || 'manual',
           origemNFItemKey: row.dataset?.origemNFItemKey || '',
           nfId: row.dataset?.pecaNfId || '',
@@ -3300,8 +3374,12 @@ window.salvarOS = async function() {
     const qtd = numBR(row.querySelector('.peca-qtd')?.value || 1) || 1;
     const venda = numBR(row.querySelector('.peca-venda')?.value || 0);
     const custo = numBR(row.querySelector('.peca-custo')?.value || 0);
+    const descIndividual = descontoIndividualLinhaOS(row, 'peca');
+    const descEfetivo = combinarDescontosOS(descontoPecasAtualOS(), descIndividual);
+    const valorBrutoItem = +(qtd * venda).toFixed(2);
+    const valorFinalItem = +(valorBrutoItem * (1 - descEfetivo)).toFixed(2);
     if (!estoqueId && !venda && !custo && !descPeca && !codigo) return;
-    totalPecas += (qtd * venda);
+    totalPecas += valorFinalItem;
 
     pecas.push({
       estoqueId,
@@ -3311,6 +3389,12 @@ window.salvarOS = async function() {
       descricao: descPeca,
       descricaoExibicao: descPeca,
       qtd: qtd, custo: custo, venda: venda,
+      valorBruto: valorBrutoItem,
+      valorFinal: valorFinalItem,
+      total: valorFinalItem,
+      descIndividualPct: descIndividual,
+      descontoIndividual: descIndividual,
+      descPct: descEfetivo,
       baixarEstoqueReal: pecaOSBaixaRealAtiva(row),
       fornecedor: row.dataset?.pecaFornecedor || opt?.dataset?.fornecedor || '',
       nf: row.dataset?.pecaNf || opt?.dataset?.nf || '',
@@ -6889,6 +6973,7 @@ window.renderCiliaPecaOSRow = function(p, servicosRelacionados = []) {
     <button type="button" onclick="this.closest('.cilia-peca-wrap').remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;" title="Remover peça e seus serviços">✕</button>
   `;
   wrap.appendChild(div);
+  instalarDescontoIndividualLinhaOS(div, 'peca', p.descIndividualPct ?? p.descIndividual ?? p.descontoIndividual ?? 0);
 
   const servBloco = document.createElement('div');
   servBloco.className = 'cilia-servs-relacionados';
@@ -6903,6 +6988,7 @@ window.renderCiliaPecaOSRow = function(p, servicosRelacionados = []) {
   wrap.appendChild(servBloco);
 
   if (typeof $ === 'function' && $('containerPecasOS')) $('containerPecasOS').appendChild(wrap);
+  if (p.ciliaManual === true) focarLinhaNovaOS(div, '.peca-desc-livre, .peca-codigo');
   (servicosRelacionados || []).forEach(s => {
     window._ciliaAddServicoRelacionado(servBloco.querySelector('button'), { servico: s, peca: p, auto: false });
   });
@@ -7006,6 +7092,7 @@ window._ciliaAddServicoRelacionado = function(btn, opts = {}) {
     </div>
   `;
   list.appendChild(row);
+  instalarDescontoIndividualLinhaOS(row, 'servico', servico?.descIndividualPct ?? servico?.descIndividual ?? servico?.descontoIndividual ?? 0);
   window.garantirResponsavelLinhaServicoOS?.(row, row.dataset.mecId || '');
   if (!opts.auto && !opts.servico) {
     setTimeout(() => {
