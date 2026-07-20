@@ -330,6 +330,9 @@
   }
 
   function responderJarvisDadosPrecisos(texto, q, ctx, opts) {
+    // Uma placa válida sempre tem prioridade. Sem esta trava, palavras genéricas
+    // como "serviço" podiam ser confundidas com o cadastro "SERVIÇO TERCEIRIZADO".
+    if (extrairPlaca(texto)) return null;
     // Consultas operacionais de O.S./pátio devem cair no bloco próprio,
     // para listar TODAS as O.S. da condição pedida, e não virar resumo genérico.
     if (/\b(o\.?s\.?|os|ordem|ordens|veiculo|veiculos|patio|pátio)\b/.test(q) && /(patio|pátio|entreg|fechad|finaliz|concluid|receb|pagamento|sem receb|sem pagar|abert|abertas|andamento|orcamento|orçamento|triagem|pronto)/.test(q)) {
@@ -344,7 +347,13 @@
     const financeiro = responderFinanceiroDetalhado(texto, q, ctx, opts);
     if (financeiro) return financeiro;
     const func = funcionarioPorPergunta(ctx, q);
-    if (func && podeFinanceiro(opts)) {
+    const consultaPessoaExplicita = /\b(comiss|mecanico|mecanicos|funcionario|funcionarios|colaborador|colaboradores|responsavel|responsaveis)\b/.test(q);
+    const perguntaSoNome = func && (() => {
+      const limpo = norm(texto).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+      const aliases = [func.nome, func.usuario, func.apelido, func.login].map(norm).filter(v => v.length >= 3);
+      return aliases.some(a => limpo === a || (a.split(/\s+/).length > 1 && limpo === a.split(/\s+/)[0]));
+    })();
+    if (func && (consultaPessoaExplicita || perguntaSoNome) && podeFinanceiro(opts)) {
       const pend = ctx.financeiro.filter(f => financeiroEhComissao(f) && financeiroDoFuncionario(f, func) && isPendenteStatus(f.status));
       const pagas = ctx.financeiro.filter(f => financeiroEhComissao(f) && financeiroDoFuncionario(f, func) && isPagoStatus(f.status));
       const totalPend = pend.reduce((s, f) => s + num(f.valor || f.total || 0), 0);
@@ -1047,7 +1056,7 @@
     const p = norm(placa || '');
     return norm(texto)
       .replace(new RegExp(`\\b${p}\\b`, 'g'), ' ')
-      .replace(/\b(?:veiculo|veículo|placa|historico|histórico|resumo|servico|serviço|servicos|serviços|peca|peça|pecas|peças|item|itens|foi|foram|trocado|trocada|trocados|trocadas|substituido|substituida|instalado|instalada|feito|feita|executado|executada|consta|tem|houve|nesse|nessa|neste|nesta|qual|quais|do|da|de|dos|das|no|na|nos|nas|o|a|os|as|em)\b/g, ' ')
+      .replace(/\b(?:veiculo|veículo|placa|historico|histórico|resumo|servico|serviço|servicos|serviços|peca|peça|pecas|peças|item|itens|foi|foram|trocado|trocada|trocados|trocadas|substituido|substituida|instalado|instalada|feito|feita|executado|executada|realizado|realizada|realizados|realizadas|consta|tem|houve|nesse|nessa|neste|nesta|qual|quais|do|da|de|dos|das|no|na|nos|nas|o|a|os|as|em)\b/g, ' ')
       .replace(/[^a-z0-9./-]+/g, ' ')
       .split(/\s+/)
       .filter(t => t.length >= 3);
@@ -1062,21 +1071,27 @@
 
   function responderItemEspecificoDaPlaca(texto, q, ctx, opts, placa, listaOS) {
     const querResumo = /resumo.*(?:servic|peca|item)|(?:servic|peca|item).*resumo/.test(q);
-    const querConfirmar = /foi|foram|troc|substitu|instal|execut|feito|feita|consta|tem/.test(q);
-    if (!querResumo && !querConfirmar) return null;
+    const querServicosRealizados = /(?:qual|quais|liste|mostrar|mostre).*(?:servic).*(?:realiz|execut|feito|fizeram|fizer)|(?:servic).*(?:realiz|execut|feito).*(?:veiculo|placa)/.test(q);
+    const querPecasAplicadas = /(?:qual|quais|liste|mostrar|mostre).*(?:peca|item).*(?:troc|substitu|instal|aplic|usad|coloc)|(?:peca|item).*(?:troc|substitu|instal|aplic|usad|coloc).*(?:veiculo|placa)/.test(q);
+    const querConfirmar = /foi|foram|troc|substitu|instal|execut|realiz|feito|feita|consta|tem/.test(q);
+    if (!querResumo && !querServicosRealizados && !querPecasAplicadas && !querConfirmar) return null;
 
     const osOrdenadas = listaOS.slice().sort((a, b) => String(b.updatedAt || b.createdAt || b.data || '').localeCompare(String(a.updatedAt || a.createdAt || a.data || '')));
-    if (querResumo) {
+    if (querResumo || querServicosRealizados || querPecasAplicadas) {
+      const modo = querServicosRealizados ? 'servico' : (querPecasAplicadas ? 'peca' : 'todos');
       const blocos = osOrdenadas.slice(0, 8).map(o => {
         const itens = itensOrcamentoOS(ctx, o);
-        const relevantes = itens.filter(i => i.aprovado || i.executado || i.legadoFinalizado);
-        const servicos = relevantes.filter(i => i.tipo === 'servico');
-        const pecas = relevantes.filter(i => i.tipo === 'peca');
-        const amostra = relevantes.slice(0, 6).map(i => `- ${esc(i.labelTipo || i.tipo)}: ${esc(i.codigo ? `[${i.codigo}] ` : '')}${esc(i.desc || '-') } | ${statusVerdadeiroItem(o, i)}`);
+        const relevantesBase = itens.filter(i => i.aprovado || i.executado || i.legadoFinalizado);
+        const relevantes = modo === 'todos' ? relevantesBase : relevantesBase.filter(i => i.tipo === modo);
+        const servicos = relevantesBase.filter(i => i.tipo === 'servico');
+        const pecas = relevantesBase.filter(i => i.tipo === 'peca');
+        const amostra = relevantes.slice(0, modo === 'todos' ? 8 : 15).map(i => `- ${esc(i.labelTipo || i.tipo)}: ${esc(i.codigo ? `[${i.codigo}] ` : '')}${esc(i.desc || '-') } | ${statusVerdadeiroItem(o, i)}`);
         const extra = Math.max(0, relevantes.length - amostra.length);
-        return `${resumoOS(ctx, o, Object.assign({}, opts, { comDiagnostico:false, comValores:false }))}<br>Serviços: ${servicos.length} | Peças: ${pecas.length}${amostra.length ? `<br>${amostra.join('<br>')}` : '<br>Nenhum item aprovado/executado identificado.'}${extra ? `<br><small>+ ${extra} item(ns).</small>` : ''}`;
+        const cabQtd = modo === 'servico' ? `Serviços localizados: ${servicos.length}` : modo === 'peca' ? `Peças localizadas: ${pecas.length}` : `Serviços: ${servicos.length} | Peças: ${pecas.length}`;
+        return `${resumoOS(ctx, o, Object.assign({}, opts, { comDiagnostico:false, comValores:false }))}<br>${cabQtd}${amostra.length ? `<br>${amostra.join('<br>')}` : `<br>Nenhum ${modo === 'servico' ? 'serviço' : modo === 'peca' ? 'item de peça' : 'item'} aprovado/executado identificado.`}${extra ? `<br><small>+ ${extra} item(ns).</small>` : ''}`;
       });
-      return `<strong>Resumo de serviços da placa ${esc(placa)}:</strong><br>${blocos.join('<br><br>')}`;
+      const titulo = modo === 'servico' ? `Serviços realizados/localizados na placa ${esc(placa)}` : modo === 'peca' ? `Peças aplicadas/localizadas na placa ${esc(placa)}` : `Resumo de serviços da placa ${esc(placa)}`;
+      return `<strong>${titulo}:</strong><br>${blocos.join('<br><br>')}`;
     }
 
     const termos = termosItemPergunta(texto, placa);
@@ -1223,7 +1238,7 @@
     let embarcado = null;
     let central = null;
     try {
-      const resp = await fetch('data/ia-base-global.json?v=18.0.0', { cache: 'no-store' });
+      const resp = await fetch('data/ia-base-global.json?v=19.0.0', { cache: 'no-store' });
       if (resp.ok) embarcado = await resp.json();
     } catch (e) {
       console.warn('[thIAguinho IA] base global embarcada nao carregada:', e.message || e);
@@ -1307,14 +1322,14 @@
     const q = norm(texto);
     const codigoFabricante = /\b(ds|dni|dpl|brk|aje|jurid|nytron|ranalle|wahler|ete)[-./ ]?\d{3,}\b/.test(q);
     const documental = /catalog|aplic|equival|referencia|codigo|rainha|aje|wahler|dni|nytron|ranalle|dpl|forcecar|brk|brasilkits|jurid|ds automotive/.test(q);
-    const pecaComAplicacao = /(sensor|valvula|bico|pastilha|sapata|tensor|polia|diafragma|bomba|terminal|bucha|rolamento|correia|filtro|chicote|interruptor)/.test(q)
+    const pecaComAplicacao = /(sensor|valvula|bico|pastilha|sapata|tensor|polia|diafragma|bomba|terminal|bucha|rolamento|correia|filtro|chicote|interruptor|tomada|conector|plug|soquete|bobina|ignicao|medidor|boia|flange)/.test(q)
       && /(\b(?:19|20)\d{2}\b|\b1[.,][034568]\b|celta|palio|corsa|gol|uno|fiat|gm|chevrolet|ford|volkswagen|renault|toyota|honda)/.test(q);
     return codigoFabricante || documental || pecaComAplicacao;
   }
 
   function buscarNosCatalogos(q) {
     try {
-      return typeof W.thiaCatalogosBuscar === 'function' ? (W.thiaCatalogosBuscar(q, 3) || []) : [];
+      return typeof W.thiaCatalogosBuscar === 'function' ? (W.thiaCatalogosBuscar(q, 6) || []) : [];
     } catch (e) {
       console.warn('[thIAguinho IA] busca em catálogos:', e?.message || e);
       return [];
