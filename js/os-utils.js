@@ -181,6 +181,54 @@
     return +U.parseNumberBR(value).toFixed(2);
   };
 
+  // V22: desconto individual de cada peça/serviço é armazenado em REAIS.
+  // Mantém leitura compatível com a V21, que gravava o desconto individual como percentual.
+  U.getItemIndividualDiscountValue = function(item, bruto) {
+    const base = Math.max(0, U.parseNumberBR(bruto || 0));
+    const temValorExplicito = item && (
+      item.descontoIndividualTipo === 'valor' ||
+      item.descontoIndividualValor != null ||
+      item.descIndividualValor != null ||
+      item.descontoValorItem != null ||
+      item.descValorItem != null
+    );
+    if (temValorExplicito) {
+      const valor = U.parseNumberBR(
+        item.descontoIndividualValor ?? item.descIndividualValor ?? item.descontoValorItem ?? item.descValorItem ?? item.descontoIndividual ?? 0
+      );
+      return U.roundMoney(Math.min(base, Math.max(0, valor)));
+    }
+    const taxaLegada = U.parseDiscountRate(
+      item?.descIndividualPct ?? item?.descIndividual ?? item?.descontoIndividual ?? item?.descontoItem ?? item?.descItem ?? 0
+    );
+    return U.roundMoney(Math.min(base, Math.max(0, base * taxaLegada)));
+  };
+
+  U.calculateDiscountBreakdown = function(bruto, descontoGeralTaxa, descontoIndividualValor) {
+    const original = U.roundMoney(Math.max(0, U.parseNumberBR(bruto || 0)));
+    const taxaGeral = Math.min(1, Math.max(0, U.parseDiscountRate(descontoGeralTaxa || 0)));
+    const descontoGeralValor = U.roundMoney(original * taxaGeral);
+    const aposGeral = U.roundMoney(Math.max(0, original - descontoGeralValor));
+    const descontoIndividualAplicado = U.roundMoney(Math.min(aposGeral, Math.max(0, U.parseNumberBR(descontoIndividualValor || 0))));
+    const descontoValor = U.roundMoney(descontoGeralValor + descontoIndividualAplicado);
+    const valorFinal = U.roundMoney(Math.max(0, original - descontoValor));
+    const descPct = original > 0 ? +(descontoValor / original).toFixed(6) : 0;
+    return {
+      valorOriginal: original,
+      valorBruto: original,
+      bruto: original,
+      descontoGeralPct: taxaGeral,
+      descGeralPct: taxaGeral,
+      descontoGeralValor,
+      descontoIndividualValor: descontoIndividualAplicado,
+      descIndividualValor: descontoIndividualAplicado,
+      descontoValor,
+      descPct,
+      valorFinal,
+      total: valorFinal
+    };
+  };
+
   U.calcularServicoMaoObra = function(servico, cliente, options) {
     const opts = options || {};
     const tempo = U.parseNumberBR(servico?.tempo || 0);
@@ -188,10 +236,6 @@
     const descMOGeral = opts.descMO != null
       ? U.parseDiscountRate(opts.descMO)
       : U.getDescontosCliente(cliente, opts.os || {}).descMO;
-    const descIndividual = U.parseDiscountRate(
-      servico?.descIndividualPct ?? servico?.descIndividual ?? servico?.descontoIndividual ?? servico?.descontoItem ?? servico?.descItem ?? 0
-    );
-    const descMO = 1 - ((1 - descMOGeral) * (1 - descIndividual));
     const resolvido = U.resolvePMSPServico(servico, {
       veiculo: opts.veiculo,
       fallbackValorHora: opts.fallbackValorHora
@@ -229,17 +273,15 @@
       (opts.usarHoraQuandoDisponivel === true && temHoraExplicita && !valorManualTotal)
     );
     const bruto = usaCalculoHora ? U.roundMoney(tempo * valorHora) : U.roundMoney(valorInformado);
-    const valorFinal = U.roundMoney(bruto * (1 - descMO));
+    const descontoIndividualValor = U.getItemIndividualDiscountValue(servico, bruto);
+    const descontos = U.calculateDiscountBreakdown(bruto, descMOGeral, descontoIndividualValor);
     return {
       tempo,
       valorHora,
       valorHoraTabela: U.parseNumberBR(resolvido.valorHoraTabela || servico?.valorHoraTabela || 0),
-      bruto,
-      valorBruto: bruto,
-      valorFinal,
-      descPct: descMO,
-      descGeralPct: descMOGeral,
-      descIndividualPct: descIndividual,
+      ...descontos,
+      descIndividualPct: bruto > 0 ? +(descontos.descontoIndividualValor / bruto).toFixed(6) : 0,
+      descontoIndividualTipo: 'valor',
       usaCalculoHora,
       resolvido
     };
@@ -277,14 +319,25 @@
         mecNome: s.mecNome || s.mecanicoNome || s.responsavelNome || '',
         responsavelId: s.responsavelId || s.mecId || s.mecanicoId || '',
         responsavelNome: s.responsavelNome || s.mecNome || s.mecanicoNome || '',
+        rateiosComissao: Array.isArray(s.rateiosComissao) ? s.rateiosComissao.map(r => ({
+          mecId: String(r?.mecId || r?.id || '').trim(),
+          mecNome: r?.mecNome || r?.nome || '',
+          valorBase: U.roundMoney(Math.max(0, U.parseNumberBR(r?.valorBase ?? r?.valorDividido ?? r?.baseComissao ?? 0)))
+        })).filter(r => r.mecId) : [],
         tempo: calc.tempo,
         qtd,
         valorUnit,
         valorHora: calc.valorHora,
+        valorOriginal: bruto,
         valorBruto: bruto,
+        descontoGeralValor: calc.descontoGeralValor || 0,
+        descontoIndividualValor: calc.descontoIndividualValor || 0,
+        descontoValor: calc.descontoValor || Math.max(0, bruto - final),
         valorFinal: final,
         descGeralPct: calc.descGeralPct || 0,
         descIndividualPct: calc.descIndividualPct || 0,
+        descIndividualValor: calc.descontoIndividualValor || 0,
+        descontoIndividualTipo: 'valor',
         descPct: calc.descPct || 0,
         usaCalculoHora: calc.usaCalculoHora
       };
@@ -293,11 +346,9 @@
       const qtd = U.parseNumberBR(p.qtd || p.q || 1) || 1;
       const valorUnit = U.parseNumberBR(p.venda || p.valor || p.v);
       const bruto = +(qtd * valorUnit).toFixed(2);
-      const descIndividual = U.parseDiscountRate(
-        p.descIndividualPct ?? p.descIndividual ?? p.descontoIndividual ?? p.descontoItem ?? p.descItem ?? 0
-      );
-      const descEfetivo = 1 - ((1 - descontos.descPeca) * (1 - descIndividual));
-      const final = +(bruto * (1 - descEfetivo)).toFixed(2);
+      const descontoIndividualValor = U.getItemIndividualDiscountValue(p, bruto);
+      const calcDesconto = U.calculateDiscountBreakdown(bruto, descontos.descPeca, descontoIndividualValor);
+      const final = calcDesconto.valorFinal;
       return {
         key: 'peca-' + index,
         tipo: 'peca',
@@ -309,11 +360,17 @@
         tempo: 0,
         qtd,
         valorUnit,
+        valorOriginal: bruto,
         valorBruto: bruto,
+        descontoGeralValor: calcDesconto.descontoGeralValor,
+        descontoIndividualValor: calcDesconto.descontoIndividualValor,
+        descIndividualValor: calcDesconto.descontoIndividualValor,
+        descontoIndividualTipo: 'valor',
+        descontoValor: calcDesconto.descontoValor,
         valorFinal: final,
         descGeralPct: descontos.descPeca,
-        descIndividualPct: descIndividual,
-        descPct: descEfetivo
+        descIndividualPct: bruto > 0 ? +(calcDesconto.descontoIndividualValor / bruto).toFixed(6) : 0,
+        descPct: calcDesconto.descPct
       };
     });
     return servicos.concat(pecas).filter(it => it.desc || it.codigo || it.valorBruto > 0);

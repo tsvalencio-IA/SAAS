@@ -49,18 +49,88 @@ function combinarDescontosOS(geral, individual) {
 
 function descontoIndividualLinhaOS(row, tipo) {
   const seletor = tipo === 'servico' ? '.serv-desc-individual' : '.peca-desc-individual';
-  return taxaDescontoOS(row?.querySelector?.(seletor)?.value || row?.dataset?.descontoIndividual || 0);
+  return Math.max(0, numBR(row?.querySelector?.(seletor)?.value || row?.dataset?.descontoIndividualValor || 0));
 }
+
+function descontoIndividualSalvoValorOS(item, bruto) {
+  if (OSU().getItemIndividualDiscountValue) return OSU().getItemIndividualDiscountValue(item || {}, bruto || 0);
+  const base = Math.max(0, numBR(bruto || 0));
+  if (item?.descontoIndividualTipo === 'valor' || item?.descontoIndividualValor != null || item?.descIndividualValor != null) {
+    return Math.min(base, Math.max(0, numBR(item.descontoIndividualValor ?? item.descIndividualValor ?? item.descontoIndividual ?? 0)));
+  }
+  const taxaLegada = taxaDescontoOS(item?.descIndividualPct ?? item?.descIndividual ?? item?.descontoIndividual ?? 0);
+  return +(base * taxaLegada).toFixed(2);
+}
+
+function calcularDescontosValorOS(bruto, taxaGeral, descontoIndividualValor) {
+  if (OSU().calculateDiscountBreakdown) return OSU().calculateDiscountBreakdown(bruto, taxaGeral, descontoIndividualValor);
+  const original = +Math.max(0, numBR(bruto || 0)).toFixed(2);
+  const geralPct = Math.min(1, Math.max(0, taxaDescontoOS(taxaGeral || 0)));
+  const descontoGeralValor = +(original * geralPct).toFixed(2);
+  const individual = +Math.min(Math.max(0, original - descontoGeralValor), Math.max(0, numBR(descontoIndividualValor || 0))).toFixed(2);
+  const descontoValor = +(descontoGeralValor + individual).toFixed(2);
+  const valorFinal = +Math.max(0, original - descontoValor).toFixed(2);
+  return { valorOriginal: original, valorBruto: original, bruto: original, descontoGeralValor, descontoIndividualValor: individual, descontoValor, valorFinal, total: valorFinal, descGeralPct: geralPct, descPct: original > 0 ? +(descontoValor/original).toFixed(6) : 0 };
+}
+
+function garantirEstilosOSV22() {
+  if (document.getElementById('os-v22-estilos')) return;
+  const style = document.createElement('style');
+  style.id = 'os-v22-estilos';
+  style.textContent = `
+    .desconto-individual-os-wrap{grid-column:1/-1;display:grid;grid-template-columns:minmax(150px,1fr) minmax(105px,130px) minmax(150px,1fr) minmax(105px,130px);gap:7px;align-items:center;width:100%;min-width:0;padding-top:4px;font-family:var(--fm);font-size:.58rem;color:var(--muted)}
+    .desconto-individual-os-wrap .j-input{width:100%!important;min-width:0;text-align:right;min-height:34px}
+    .desconto-individual-os-wrap .os-money-field{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px;align-items:center;min-width:0}
+    .serv-rateio-wrap{grid-column:1/-1;width:100%;min-width:0;border:1px solid rgba(0,212,255,.18);background:rgba(0,212,255,.035);border-radius:5px;padding:8px;box-sizing:border-box}
+    .serv-rateio-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+    .serv-rateio-list{display:grid;gap:6px;min-width:0}
+    .serv-rateio-row{display:grid;grid-template-columns:minmax(150px,1fr) minmax(120px,150px) 34px;gap:7px;align-items:center;min-width:0}
+    .serv-rateio-row .j-select,.serv-rateio-row .j-input{width:100%;min-width:0;max-width:100%;box-sizing:border-box}
+    .serv-rateio-help{font-family:var(--fm);font-size:.56rem;color:var(--muted);line-height:1.35}
+    @media(max-width:720px){
+      .desconto-individual-os-wrap{grid-template-columns:1fr;gap:4px}
+      .desconto-individual-os-wrap label{margin-top:3px}
+      .serv-rateio-row{grid-template-columns:1fr;gap:5px;border:1px solid rgba(255,255,255,.08);padding:7px;border-radius:4px}
+      .serv-rateio-row .serv-rateio-remove{width:100%!important;height:34px!important}
+      .serv-rateio-head button{width:100%}
+      #containerServicosOS>div,#containerPecasOS>div{max-width:100%;min-width:0;overflow:hidden;box-sizing:border-box}
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function atualizarDescontoServicoPorValorCobradoOS(input) {
+  const row = input?.closest?.('#containerServicosOS > div, .cilia-serv-relac');
+  if (!row) return;
+  const bruto = Math.max(0, numBR(row.querySelector('.serv-valor')?.value || 0));
+  const geral = Math.min(1, Math.max(0, taxaDescontoOS(descontoMaoObraAtualOS?.() || 0)));
+  const aposGeral = Math.max(0, +(bruto * (1 - geral)).toFixed(2));
+  const cobrado = Math.max(0, Math.min(aposGeral, numBR(input.value || 0)));
+  const descontoIndividual = Math.max(0, +(aposGeral - cobrado).toFixed(2));
+  const campoDesc = row.querySelector('.serv-desc-individual');
+  if (campoDesc) campoDesc.value = descontoIndividual ? descontoIndividual.toFixed(2).replace('.', ',') : '';
+  row.dataset.descontoIndividualValor = descontoIndividual || '';
+  row.dataset.valorCobradoManual = '1';
+  window.calcOSTotal?.();
+}
+window.atualizarDescontoServicoPorValorCobradoOS = atualizarDescontoServicoPorValorCobradoOS;
 
 function instalarDescontoIndividualLinhaOS(row, tipo, valor) {
   if (!row || row.querySelector('.desconto-individual-os-wrap')) return;
+  garantirEstilosOSV22();
   const classe = tipo === 'servico' ? 'serv-desc-individual' : 'peca-desc-individual';
-  const label = tipo === 'servico' ? 'DESCONTO DESTE SERVIÇO (%)' : 'DESCONTO DESTA PEÇA (%)';
-  const pct = taxaDescontoOS(valor || 0) * 100;
+  const label = tipo === 'servico' ? 'DESCONTO DESTE SERVIÇO (R$)' : 'DESCONTO DESTA PEÇA (R$)';
+  const descontoValor = Math.max(0, numBR(valor || 0));
   const box = document.createElement('div');
   box.className = 'desconto-individual-os-wrap';
-  box.style.cssText = 'grid-column:1/-1;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding-top:3px;font-family:var(--fm);font-size:.58rem;color:var(--muted);';
-  box.innerHTML = `<label>${label}</label><input type="text" inputmode="decimal" class="j-input ${classe}" value="${pct ? pct.toFixed(2).replace('.', ',').replace(/,00$/, '') : ''}" placeholder="0" oninput="window.calcOSTotal()" style="width:92px;text-align:right;min-height:32px;" title="Desconto individual, aplicado junto com o desconto geral da O.S.">`;
+  if (tipo === 'servico') {
+    const bruto = Math.max(0, numBR(row.querySelector('.serv-valor')?.value || 0));
+    const calc = calcularDescontosValorOS(bruto, descontoMaoObraAtualOS?.() || 0, descontoValor);
+    box.innerHTML = `<label>${label}</label><div class="os-money-field"><b style="color:var(--warn)">R$</b><input type="text" inputmode="decimal" class="j-input ${classe}" value="${descontoValor ? descontoValor.toFixed(2).replace('.', ',') : ''}" placeholder="0,00" oninput="this.closest('#containerServicosOS > div, .cilia-serv-relac').dataset.descontoIndividualValor=this.value;this.closest('#containerServicosOS > div, .cilia-serv-relac').dataset.valorCobradoManual='';window.calcOSTotal()" title="Valor em reais descontado deste serviço."></div><label>VALOR COBRADO (R$)</label><div class="os-money-field"><b style="color:var(--ok)">R$</b><input type="text" inputmode="decimal" class="j-input serv-valor-cobrado" value="${calc.valorFinal.toFixed(2).replace('.', ',')}" placeholder="0,00" oninput="window.atualizarDescontoServicoPorValorCobradoOS(this)" title="Valor final cobrado neste serviço. Ao editar, o desconto em reais é recalculado."></div>`;
+  } else {
+    box.innerHTML = `<label>${label}</label><div class="os-money-field"><b style="color:var(--warn)">R$</b><input type="text" inputmode="decimal" class="j-input ${classe}" value="${descontoValor ? descontoValor.toFixed(2).replace('.', ',') : ''}" placeholder="0,00" oninput="this.closest('[data-cilia-piece-index],#containerPecasOS > div').dataset.descontoIndividualValor=this.value;window.calcOSTotal()" title="Valor em reais descontado desta peça."></div><label>VALOR COBRADO</label><div class="os-money-field"><b style="color:var(--ok)">R$</b><input type="text" class="j-input peca-valor-cobrado" value="0,00" readonly tabindex="-1" title="Valor final cobrado após descontos."></div>`;
+  }
+  row.dataset.descontoIndividualValor = descontoValor || '';
   row.appendChild(box);
 }
 
@@ -932,11 +1002,11 @@ function garantirBoxDescontoLinhaOS(row, tipo) {
   if (!box) {
     box = document.createElement('div');
     box.className = `${tipo}-desc-box`;
-    box.style.cssText = 'grid-column:1/-1;display:flex;justify-content:flex-end;gap:12px;align-items:center;font-family:var(--fm);font-size:.66rem;color:var(--muted);border-top:1px dashed rgba(255,255,255,.10);padding-top:5px;margin-top:2px;';
+    box.style.cssText = 'grid-column:1/-1;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px 12px;align-items:center;max-width:100%;min-width:0;font-family:var(--fm);font-size:.66rem;color:var(--muted);border-top:1px dashed rgba(255,255,255,.10);padding-top:5px;margin-top:2px;';
     box.innerHTML = `
       <span class="${tipo}-bruto-val">Bruto: R$ 0,00</span>
-      <span class="${tipo}-desc-pct" style="color:var(--purple,#A78BFA);">-0,0%</span>
-      <span class="${tipo}-desc-econ" style="color:var(--warn);">Desc.: R$ 0,00</span>
+      <span class="${tipo}-desc-pct" style="color:var(--warn);">Desconto: R$ 0,00</span>
+      <span class="${tipo}-desc-econ" style="display:none;"></span>
       <strong class="${tipo}-desc-val" style="color:var(--success);">Líquido: R$ 0,00</strong>`;
     row.appendChild(box);
   }
@@ -952,7 +1022,7 @@ function atualizarBoxDescontoLinhaOS(row, tipo, bruto, liquido, taxa) {
   const econEl = box.querySelector(`.${tipo}-desc-econ`);
   const liqEl = box.querySelector(`.${tipo}-desc-val`);
   if (brutoEl) brutoEl.textContent = `Bruto: ${moedaOS(bruto)}`;
-  if (pctEl) pctEl.textContent = '-' + (taxaDescontoOS(taxa) * 100).toFixed(1).replace('.', ',') + '%';
+  if (pctEl) pctEl.textContent = `Desconto: ${moedaOS(desconto)}`;
   if (econEl) econEl.textContent = `Desc.: ${moedaOS(desconto)}`;
   if (liqEl) liqEl.textContent = `Líquido: ${moedaOS(liquido)}`;
 }
@@ -1699,7 +1769,7 @@ function idsMecanicosDocumentoOS(os) {
     os?.mecId,
     ...(Array.isArray(os?.mecIds) ? os.mecIds : []),
     ...(Array.isArray(os?.mecanicos) ? os.mecanicos.map(m => m?.id || m?.mecId) : []),
-    ...(Array.isArray(os?.servicos) ? os.servicos.map(s => s?.mecId || s?.mecanicoId || s?.responsavelId) : [])
+    ...(Array.isArray(os?.servicos) ? os.servicos.flatMap(s => [s?.mecId || s?.mecanicoId || s?.responsavelId, ...(Array.isArray(s?.rateiosComissao) ? s.rateiosComissao.map(r => r?.mecId || r?.id) : [])]) : [])
   ]);
 }
 
@@ -1746,48 +1816,156 @@ window.renderMecanicosEquipeOS = function(selectedIds) {
 };
 
 function opcoesResponsavelServicoOS(selectedId) {
-  let ids = window.obterMecanicosSelecionadosOS();
-  if (!ids.length) ids = (window.J?.equipe || []).map(f => f.id);
-  if (selectedId) ids = idsUnicosMecanicosOS([...ids, selectedId]);
-  const opcoes = ['<option value="">Responsável não definido</option>'];
-  ids.forEach(id => {
-    const mec = (window.J?.equipe || []).find(f => String(f.id) === String(id));
-    opcoes.push(`<option value="${escOS(id)}" ${String(id) === String(selectedId || '') ? 'selected' : ''}>${escOS(mec?.nome || mec?.usuario || id)}</option>`);
+  const equipe = Array.isArray(window.J?.equipe) ? window.J.equipe : [];
+  const opcoes = ['<option value="">Selecione o mecânico</option>'];
+  equipe.forEach(mec => {
+    const id = String(mec?.id || '').trim();
+    if (!id) return;
+    opcoes.push(`<option value="${escOS(id)}" ${id === String(selectedId || '') ? 'selected' : ''}>${escOS(mec.nome || mec.usuario || id)}</option>`);
   });
   return opcoes.join('');
 }
 
+function normalizarRateiosServicoOS(rateios, fallbackId, valorFinal) {
+  const vistos = new Set();
+  const lista = (Array.isArray(rateios) ? rateios : []).map(r => {
+    const mecId = String(r?.mecId || r?.id || '').trim();
+    if (!mecId || vistos.has(mecId)) return null;
+    vistos.add(mecId);
+    const mec = (window.J?.equipe || []).find(f => String(f.id) === mecId);
+    return {
+      mecId,
+      mecNome: r?.mecNome || r?.nome || mec?.nome || '',
+      valorBase: Math.max(0, numBR(r?.valorBase ?? r?.valorDividido ?? r?.baseComissao ?? 0)),
+      automatico: r?.automatico === true
+    };
+  }).filter(Boolean);
+  if (!lista.length && fallbackId) {
+    const mec = (window.J?.equipe || []).find(f => String(f.id) === String(fallbackId));
+    lista.push({ mecId: String(fallbackId), mecNome: mec?.nome || '', valorBase: Math.max(0, numBR(valorFinal || 0)), automatico: true });
+  }
+  return lista;
+}
+
+function valorFinalAtualLinhaServicoOS(row) {
+  try {
+    const calc = calcularServicoLinhaOS(row, descontoMaoObraAtualOS());
+    return Math.max(0, numBR(calc?.valorFinal || 0));
+  } catch (_) {
+    return Math.max(0, numBR(row?.querySelector?.('.serv-valor-cobrado')?.value || row?.querySelector?.('.serv-valor')?.value || 0));
+  }
+}
+
+function criarLinhaRateioServicoOS(row, rateio) {
+  const linha = document.createElement('div');
+  linha.className = 'serv-rateio-row';
+  linha.dataset.autoValor = rateio?.automatico ? '1' : '';
+  linha.innerHTML = `<select class="j-select serv-mec" aria-label="Mecânico que realizou o serviço">${opcoesResponsavelServicoOS(rateio?.mecId || '')}</select><input type="text" inputmode="decimal" class="j-input serv-rateio-valor" value="${numBR(rateio?.valorBase || 0) ? numBR(rateio.valorBase).toFixed(2).replace('.', ',') : ''}" placeholder="Base dividida R$" title="Parte do valor cobrado atribuída a este mecânico. Informação interna, exibida somente no financeiro."><button type="button" class="serv-rateio-remove" title="Remover mecânico" style="width:34px;height:34px;border:1px solid rgba(255,59,59,.35);background:rgba(255,59,59,.09);color:var(--danger);border-radius:3px;cursor:pointer;">✕</button>`;
+  const sel = linha.querySelector('.serv-mec');
+  const valor = linha.querySelector('.serv-rateio-valor');
+  sel.addEventListener('change', () => {
+    const adicional = Array.from(document.querySelectorAll('#osMecanicosEquipe input[type="checkbox"]')).find(chk => String(chk.value) === String(sel.value || ''));
+    if (adicional && sel.value) adicional.checked = true;
+    window.sincronizarRateiosServicoOS?.(row);
+  });
+  valor.addEventListener('input', () => {
+    linha.dataset.autoValor = '';
+    window.sincronizarRateiosServicoOS?.(row);
+  });
+  linha.querySelector('.serv-rateio-remove').addEventListener('click', () => {
+    const lista = linha.parentElement;
+    if (lista?.querySelectorAll('.serv-rateio-row').length <= 1) {
+      sel.value = '';
+      valor.value = '';
+      linha.dataset.autoValor = '';
+    } else linha.remove();
+    window.sincronizarRateiosServicoOS?.(row);
+  });
+  return linha;
+}
+
+window.obterRateiosLinhaServicoOS = function(row, valorFinalInformado) {
+  if (!row) return [];
+  const valorFinal = Math.max(0, numBR(valorFinalInformado ?? valorFinalAtualLinhaServicoOS(row)));
+  const linhas = Array.from(row.querySelectorAll('.serv-rateio-row'));
+  const rateios = [];
+  const vistos = new Set();
+  linhas.forEach((linha, index) => {
+    const sel = linha.querySelector('.serv-mec');
+    const mecId = String(sel?.value || '').trim();
+    if (!mecId || vistos.has(mecId)) return;
+    vistos.add(mecId);
+    let valorBase = Math.max(0, numBR(linha.querySelector('.serv-rateio-valor')?.value || 0));
+    if (linhas.length === 1 && valorBase <= 0) valorBase = valorFinal;
+    const mec = (window.J?.equipe || []).find(f => String(f.id) === mecId);
+    rateios.push({ mecId, mecNome: mec?.nome || mec?.usuario || '', valorBase: +valorBase.toFixed(2), ordem: index });
+  });
+  return rateios;
+};
+
+window.sincronizarRateiosServicoOS = function(row) {
+  if (!row) return;
+  const rateios = window.obterRateiosLinhaServicoOS(row);
+  const primeiro = rateios[0] || {};
+  row.dataset.mecId = primeiro.mecId || '';
+  row.dataset.mecNome = primeiro.mecNome || '';
+  row.dataset.mecIds = rateios.map(r => r.mecId).join(',');
+  row._rateiosComissaoAtual = rateios;
+  window.renderMecanicosEquipeOS?.();
+};
+
+window.adicionarRateioServicoOS = function(row, rateio) {
+  if (!row) return;
+  const lista = row.querySelector('.serv-rateio-list');
+  if (!lista) return;
+  lista.appendChild(criarLinhaRateioServicoOS(row, rateio || {}));
+  window.sincronizarRateiosServicoOS(row);
+  setTimeout(() => lista.lastElementChild?.querySelector('.serv-mec')?.focus(), 30);
+};
+
 window.garantirResponsavelLinhaServicoOS = function(row, selectedId) {
   if (!row?.querySelector?.('.serv-desc')) return;
+  garantirEstilosOSV22();
   const mecanicoPrincipal = document.getElementById('osMec')?.value || '';
-  const idAtual = selectedId || row.dataset?.mecId || row.querySelector('.serv-mec')?.value || mecanicoPrincipal;
-  let wrap = row.querySelector('.serv-mec-wrap');
+  const idAtual = selectedId || row.dataset?.mecId || mecanicoPrincipal;
+  let wrap = row.querySelector('.serv-rateio-wrap');
   if (!wrap) {
     wrap = document.createElement('div');
-    wrap.className = 'serv-mec-wrap';
-    wrap.style.cssText = 'grid-column:1/-1;display:grid;grid-template-columns:minmax(145px,220px) minmax(180px,1fr);gap:7px;align-items:center;';
-    wrap.innerHTML = '<label style="font-family:var(--fm);font-size:.60rem;color:var(--muted);letter-spacing:.6px;">MECÂNICO RESPONSÁVEL</label><select class="j-select serv-mec" style="font-size:.70rem;"></select>';
+    wrap.className = 'serv-rateio-wrap';
+    wrap.innerHTML = `<div class="serv-rateio-head"><div><b style="font-family:var(--fd);font-size:.68rem;color:var(--cyan);letter-spacing:.5px;">MECÂNICOS E DIVISÃO DO SERVIÇO</b><div class="serv-rateio-help">Interno: serve somente para calcular e pagar comissões. Não aparece na O.S., no PDF ou nas planilhas.</div></div><button type="button" class="btn-ghost serv-rateio-add" style="padding:6px 9px;font-size:.62rem;">+ DIVIDIR COM OUTRO MECÂNICO</button></div><div class="serv-rateio-list"></div>`;
     row.appendChild(wrap);
+    wrap.querySelector('.serv-rateio-add').addEventListener('click', () => window.adicionarRateioServicoOS(row, {}));
+    const valorFinal = valorFinalAtualLinhaServicoOS(row);
+    const salvos = normalizarRateiosServicoOS(row._rateiosComissaoInicial, idAtual, valorFinal);
+    const lista = wrap.querySelector('.serv-rateio-list');
+    (salvos.length ? salvos : [{ mecId: idAtual, valorBase: valorFinal, automatico: true }]).forEach(r => lista.appendChild(criarLinhaRateioServicoOS(row, r)));
+    delete row._rateiosComissaoInicial;
+  } else {
+    wrap.querySelectorAll('.serv-mec').forEach(sel => {
+      const atual = sel.value;
+      sel.innerHTML = opcoesResponsavelServicoOS(atual);
+      sel.value = atual;
+    });
   }
-  const select = wrap.querySelector('.serv-mec');
-  select.innerHTML = opcoesResponsavelServicoOS(idAtual);
-  select.value = idAtual;
-  select.onchange = function() {
-    row.dataset.mecId = this.value || '';
-    const mec = (window.J?.equipe || []).find(f => String(f.id) === String(this.value));
-    row.dataset.mecNome = mec?.nome || '';
-    const adicional = Array.from(document.querySelectorAll('#osMecanicosEquipe input[type="checkbox"]'))
-      .find(chk => String(chk.value) === String(this.value || ''));
-    if (adicional && this.value) adicional.checked = true;
-  };
-  row.dataset.mecId = select.value || '';
-  const mec = (window.J?.equipe || []).find(f => String(f.id) === String(select.value));
-  row.dataset.mecNome = mec?.nome || row.dataset?.mecNome || '';
+  window.sincronizarRateiosServicoOS(row);
+};
+
+window.atualizarValorAutomaticoRateioServicoOS = function(row, valorFinal) {
+  const linhas = Array.from(row?.querySelectorAll?.('.serv-rateio-row') || []);
+  if (linhas.length !== 1) return;
+  const linha = linhas[0];
+  const input = linha.querySelector('.serv-rateio-valor');
+  if (!input) return;
+  if (linha.dataset.autoValor === '1' || !String(input.value || '').trim()) {
+    input.value = Math.max(0, numBR(valorFinal || 0)).toFixed(2).replace('.', ',');
+    linha.dataset.autoValor = '1';
+    window.sincronizarRateiosServicoOS(row);
+  }
 };
 
 window.atualizarResponsaveisServicoOS = function() {
   document.querySelectorAll('#containerServicosOS > div, #containerPecasOS .cilia-serv-relac').forEach(row => {
-    window.garantirResponsavelLinhaServicoOS(row, row.querySelector('.serv-mec')?.value || row.dataset?.mecId || '');
+    window.garantirResponsavelLinhaServicoOS(row, row.dataset?.mecId || '');
   });
 };
 
@@ -1795,15 +1973,18 @@ window.atualizarEquipeMecanicosOS = function() {
   const principalAnterior = String(window._osMecPrincipalAnterior || '');
   const principalAtual = String(document.getElementById('osMec')?.value || '');
   document.querySelectorAll('#containerServicosOS > div, #containerPecasOS .cilia-serv-relac').forEach(row => {
-    const responsavelAtual = String(row.querySelector('.serv-mec')?.value || row.dataset?.mecId || '');
-    const deveHerdarPrincipal = !responsavelAtual || (!!principalAnterior && responsavelAtual === principalAnterior);
-    window.garantirResponsavelLinhaServicoOS(
-      row,
-      deveHerdarPrincipal ? principalAtual : responsavelAtual
-    );
+    window.garantirResponsavelLinhaServicoOS(row, row.dataset?.mecId || principalAtual);
+    const linhas = Array.from(row.querySelectorAll('.serv-rateio-row'));
+    if (linhas.length === 1) {
+      const sel = linhas[0].querySelector('.serv-mec');
+      const atual = String(sel?.value || '');
+      if (!atual || (principalAnterior && atual === principalAnterior)) {
+        sel.value = principalAtual;
+        window.sincronizarRateiosServicoOS(row);
+      }
+    }
   });
   window.renderMecanicosEquipeOS();
-  window.atualizarResponsaveisServicoOS();
   window._osMecPrincipalAnterior = principalAtual;
 };
 
@@ -2251,33 +2432,35 @@ function dadosServicoLinhaOS(row) {
 function calcularServicoLinhaOS(row, descMO) {
   const dados = dadosServicoLinhaOS(row);
   const descGeral = taxaDescontoOS(descMO || 0);
-  const descIndividual = descontoIndividualLinhaOS(row, 'servico');
-  const descEfetivo = combinarDescontosOS(descGeral, descIndividual);
+  const descontoIndividualValor = descontoIndividualLinhaOS(row, 'servico');
+  dados.descontoIndividualTipo = 'valor';
+  dados.descontoIndividualValor = descontoIndividualValor;
+  dados.descIndividualValor = descontoIndividualValor;
   const calc = OSU().calcularServicoMaoObra
     ? OSU().calcularServicoMaoObra(dados, null, {
-        descMO: descEfetivo,
+        descMO: descGeral,
         veiculo: window._osVeiculoAtual?.(),
         fallbackValorHora: window._osValorHoraCliente?.(),
         usarHoraQuandoDisponivel: true
       })
-    : {
+    : Object.assign({
         tempo: dados.tempo,
         valorHora: dados.valorHora,
         valorHoraTabela: dados.valorHoraTabela,
-        valorBruto: dados.valor,
-        bruto: dados.valor,
-        valorFinal: +(dados.valor * (1 - descEfetivo)).toFixed(2),
-        descPct: descEfetivo,
         usaCalculoHora: false
-      };
+      }, calcularDescontosValorOS(dados.valor, descGeral, descontoIndividualValor));
   const valorInput = row?.querySelector?.('.serv-valor');
   if (valorInput && calc.usaCalculoHora && document.activeElement !== valorInput) {
     valorInput.value = calc.valorBruto.toFixed(2).replace('.', ',');
   }
   return Object.assign(dados, calc, {
     descGeralPct: descGeral,
-    descIndividualPct: descIndividual,
-    descPct: descEfetivo
+    descontoIndividualTipo: 'valor',
+    descontoIndividualValor: numBR(calc.descontoIndividualValor ?? descontoIndividualValor),
+    descIndividualValor: numBR(calc.descontoIndividualValor ?? descontoIndividualValor),
+    descIndividualPct: numBR(calc.valorBruto || calc.bruto || 0) > 0 ? +(numBR(calc.descontoIndividualValor ?? descontoIndividualValor) / numBR(calc.valorBruto || calc.bruto || 0)).toFixed(6) : 0,
+    descontoValor: numBR(calc.descontoValor ?? (numBR(calc.valorBruto || calc.bruto || 0) - numBR(calc.valorFinal || 0))),
+    descPct: numBR(calc.descPct || 0)
   });
 }
 
@@ -2326,6 +2509,7 @@ window.renderServicoOSRow = function(s) {
   const div = document.createElement('div');
   div.dataset.mecId = s.mecId || s.mecanicoId || s.responsavelId || '';
   div.dataset.mecNome = s.mecNome || s.mecanicoNome || s.responsavelNome || '';
+  div._rateiosComissaoInicial = Array.isArray(s.rateiosComissao) ? s.rateiosComissao : [];
   div.dataset.codigoInterno = s.codigoInterno || s.codInterno || s.codigoServicoInterno || '';
   div.dataset.codigoTabela = s.codigoTabela || s.codigo || '';
   div.dataset.sistemaTabela = s.sistemaTabela || s.sistema || '';
@@ -2380,7 +2564,7 @@ window.renderServicoOSRow = function(s) {
     `;
   }
   if($('containerServicosOS')) $('containerServicosOS').appendChild(div);
-  instalarDescontoIndividualLinhaOS(div, 'servico', s.descIndividualPct ?? s.descIndividual ?? s.descontoIndividual ?? 0);
+  instalarDescontoIndividualLinhaOS(div, 'servico', descontoIndividualSalvoValorOS(s, vBruto));
   window.garantirResponsavelLinhaServicoOS?.(div, div.dataset.mecId || '');
   atualizarMetaServicoLinhaOS(div);
 };
@@ -2713,7 +2897,7 @@ window.renderPecaOSRow = function(p) {
     `;
   }
   if($('containerPecasOS')) $('containerPecasOS').appendChild(div);
-  instalarDescontoIndividualLinhaOS(div, 'peca', p.descIndividualPct ?? p.descIndividual ?? p.descontoIndividual ?? 0);
+  instalarDescontoIndividualLinhaOS(div, 'peca', descontoIndividualSalvoValorOS(p, numBR(p.valorBruto || ((p.qtd || p.q || 1) * numBR(p.venda || p.v || p.valor || 0)))));
   atualizarPecaOSInfoRow(div);
 };
 
@@ -2884,6 +3068,14 @@ window.renderResumoSecoesOS = function(resumoSecoes) {
     }).join('');
 };
 
+function atualizarCamposValorCobradoLinhaOS(row, tipo, valorFinal) {
+  if (!row) return;
+  const seletor = tipo === 'servico' ? '.serv-valor-cobrado' : '.peca-valor-cobrado';
+  const campo = row.querySelector(seletor);
+  if (campo && document.activeElement !== campo) campo.value = Math.max(0, numBR(valorFinal || 0)).toFixed(2).replace('.', ',');
+  if (tipo === 'servico') window.atualizarValorAutomaticoRateioServicoOS?.(row, valorFinal);
+}
+
 window.calcOSTotal = function() {
     let total = 0;
     let totalServicos = 0;
@@ -2922,8 +3114,9 @@ window.calcOSTotal = function() {
         // Atualiza badge de desconto em tempo real
         const descBox = row.querySelector('.serv-desc-val');
         const pctBox = row.querySelector('.serv-desc-pct');
-        if (pctBox) pctBox.textContent = '-' + (numBR(calc.descPct || 0) * 100).toFixed(1).replace('.', ',') + '%';
+        if (pctBox) pctBox.textContent = '- ' + moedaOS(calc.descontoValor || Math.max(0, vBruto - vFinal));
         if (descBox) descBox.textContent = 'R$ ' + vFinal.toFixed(2).replace('.', ',');
+        atualizarCamposValorCobradoLinhaOS(row, 'servico', vFinal);
         atualizarBoxDescontoLinhaOS(row, 'serv', vBruto, vFinal, calc.descPct || 0);
         totalServicos += vFinal;
         if (desc || vBruto || tempo) {
@@ -2963,8 +3156,9 @@ window.calcOSTotal = function() {
         const desc = String(calc.desc || '').trim();
         const descBox = row.querySelector('.serv-desc-val');
         const pctBox = row.querySelector('.serv-desc-pct');
-        if (pctBox) pctBox.textContent = '-' + (numBR(calc.descPct || 0) * 100).toFixed(1).replace('.', ',') + '%';
+        if (pctBox) pctBox.textContent = '- ' + moedaOS(calc.descontoValor || Math.max(0, vBruto - vFinal));
         if (descBox) descBox.textContent = 'R$ ' + vFinal.toFixed(2).replace('.', ',');
+        atualizarCamposValorCobradoLinhaOS(row, 'servico', vFinal);
         atualizarBoxDescontoLinhaOS(row, 'serv', vBruto, vFinal, calc.descPct || 0);
         totalServicos += vFinal;
         if (desc || vBruto || tempo) {
@@ -2998,15 +3192,17 @@ window.calcOSTotal = function() {
         const qtd   = numBR(row.querySelector('.peca-qtd')?.value   || 0);
         const venda = numBR(row.querySelector('.peca-venda')?.value  || 0);
         const vBruto = qtd * venda;
-        const descIndividual = descontoIndividualLinhaOS(row, 'peca');
-        const descEfetivo = combinarDescontosOS(descPeca, descIndividual);
-        const vFinal = +(vBruto * (1 - descEfetivo)).toFixed(2);
+        const descontoIndividualValor = descontoIndividualLinhaOS(row, 'peca');
+        const calcDesconto = calcularDescontosValorOS(vBruto, descPeca, descontoIndividualValor);
+        const descEfetivo = calcDesconto.descPct;
+        const vFinal = calcDesconto.valorFinal;
         brutoPecas += vBruto;
         // Atualiza badge de desconto em tempo real
         const descBox = row.querySelector('.peca-desc-val');
         const pctBox = row.querySelector('.peca-desc-pct') || row.querySelector('.peca-desc-box div:first-child');
-        if (pctBox) pctBox.textContent = '-' + (descEfetivo * 100).toFixed(1).replace('.', ',') + '%';
+        if (pctBox) pctBox.textContent = '- ' + moedaOS(calcDesconto.descontoValor || Math.max(0, vBruto - vFinal));
         if (descBox) descBox.textContent = 'R$ ' + vFinal.toFixed(2).replace('.', ',');
+        atualizarCamposValorCobradoLinhaOS(row, 'peca', vFinal);
         atualizarBoxDescontoLinhaOS(row, 'peca', vBruto, vFinal, descEfetivo);
         totalPecas += vFinal;
     });
@@ -3078,16 +3274,37 @@ function calcularComissoesPorMecanicoOS(payload, totalPecasFallback) {
     if (temAprovacao && !aprovados.has(item.key)) return;
     const registro = execucao[item.key] || {};
     if (temExecucaoServico && !statusExecucaoComissaoOS(registro.status)) return;
-    const mecId = registro.mecId || registro.responsavelId || item.mecId || item.responsavelId || payload.mecId || '';
-    const grupo = garantir(mecId);
-    if (!grupo) return;
-    const valor = numBR(item.valorFinal || 0);
-    grupo.baseServico += valor;
-    grupo.servicos.push({
-      key: item.key,
-      desc: item.desc || '',
-      valor,
-      statusExecucao: registro.status || (temExecucaoServico ? 'sem_confirmacao' : 'legado_finalizado')
+    const origemServico = (payload?.servicos || [])[item.index] || {};
+    let rateios = Array.isArray(origemServico.rateiosComissao) ? origemServico.rateiosComissao : [];
+    rateios = rateios.map(r => ({
+      mecId: String(r?.mecId || r?.id || '').trim(),
+      mecNome: r?.mecNome || r?.nome || '',
+      valorBase: Math.max(0, numBR(r?.valorBase ?? r?.valorDividido ?? r?.baseComissao ?? 0))
+    })).filter(r => r.mecId && r.valorBase > 0);
+    if (!rateios.length) {
+      const mecId = registro.mecId || registro.responsavelId || item.mecId || item.responsavelId || payload.mecId || '';
+      if (mecId) rateios = [{ mecId: String(mecId), mecNome: item.mecNome || '', valorBase: Math.max(0, numBR(item.valorFinal || 0)) }];
+    }
+    const vistos = new Set();
+    rateios.forEach(rateio => {
+      if (vistos.has(rateio.mecId)) return;
+      vistos.add(rateio.mecId);
+      const grupo = garantir(rateio.mecId);
+      if (!grupo) return;
+      const baseRateada = +Math.min(Math.max(0, numBR(item.valorFinal || 0)), Math.max(0, numBR(rateio.valorBase || 0))).toFixed(2);
+      if (baseRateada <= 0) return;
+      grupo.baseServico += baseRateada;
+      const percentual = numBR(grupo.mec.comissaoServico ?? grupo.mec.comissao ?? 0);
+      grupo.servicos.push({
+        key: item.key,
+        desc: item.desc || '',
+        valor: baseRateada,
+        valorBase: baseRateada,
+        valorServicoCobrado: numBR(item.valorFinal || 0),
+        percentual,
+        valorComissao: +(baseRateada * (percentual / 100)).toFixed(2),
+        statusExecucao: registro.status || (temExecucaoServico ? 'sem_confirmacao' : 'legado_finalizado')
+      });
     });
   });
 
@@ -3100,11 +3317,11 @@ function calcularComissoesPorMecanicoOS(payload, totalPecasFallback) {
   }
 
   return Array.from(mapa.values()).map(grupo => {
-    const percServico = numBR(grupo.mec.comissaoServico ?? 0);
+    const percServico = numBR(grupo.mec.comissaoServico ?? grupo.mec.comissao ?? 0);
     const percPeca = numBR(grupo.mec.comissaoPeca || 0);
     const baseServico = +grupo.baseServico.toFixed(2);
     const basePecas = +grupo.basePecas.toFixed(2);
-    const valorServico = +(baseServico * (percServico / 100)).toFixed(2);
+    const valorServico = +grupo.servicos.reduce((soma, servico) => soma + numBR(servico.valorComissao || 0), 0).toFixed(2);
     const valorPeca = +(basePecas * (percPeca / 100)).toFixed(2);
     return {
       mecId: grupo.mecId,
@@ -3224,6 +3441,7 @@ window.salvarOS = async function() {
 
   const servicos = []; 
   let totalMaoObra = 0;
+  let erroRateioOS = '';
 
   // Função local que lê uma linha de serviço e empurra pro array
   const _lerLinhaServico = (row) => {
@@ -3243,9 +3461,15 @@ window.salvarOS = async function() {
     const valorHoraTabela = numBR(calc.valorHoraTabela || (secaoInfo ? secaoInfo.valor : row.dataset?.valorHoraSecao || 0));
     const secaoHoraLabel = calc.secaoHoraLabel || secaoInfo?.label || row.dataset?.secaoHoraLabel || '';
     const valorHoraManual = row.dataset?.valorHoraManual === '1' || (valorHoraTabela > 0 && valorHora > 0 && Math.abs(valorHora - valorHoraTabela) > 0.009);
-    const mecIdServico = calc.mecId || row.querySelector('.serv-mec')?.value || row.dataset?.mecId || '';
+    const idsRateioBrutos = Array.from(row.querySelectorAll('.serv-rateio-row .serv-mec')).map(sel => String(sel.value || '').trim()).filter(Boolean);
+    if (new Set(idsRateioBrutos).size !== idsRateioBrutos.length && !erroRateioOS) erroRateioOS = `O serviço "${desc || 'sem descrição'}" possui o mesmo mecânico selecionado mais de uma vez.`;
+    const rateiosComissao = window.obterRateiosLinhaServicoOS?.(row, valorFinal) || [];
+    const somaRateios = +rateiosComissao.reduce((soma, r) => soma + numBR(r.valorBase || 0), 0).toFixed(2);
+    if (rateiosComissao.length > 1 && rateiosComissao.some(r => numBR(r.valorBase || 0) <= 0) && !erroRateioOS) erroRateioOS = `Informe o valor dividido para cada mecânico no serviço "${desc || 'sem descrição'}".`;
+    if (somaRateios - valorFinal > 0.011 && !erroRateioOS) erroRateioOS = `A divisão interna do serviço "${desc || 'sem descrição'}" (${moeda(somaRateios)}) supera o valor cobrado (${moeda(valorFinal)}).`;
+    const mecIdServico = rateiosComissao[0]?.mecId || calc.mecId || row.querySelector('.serv-mec')?.value || row.dataset?.mecId || '';
     const mecServico = (window.J?.equipe || []).find(f => String(f.id) === String(mecIdServico));
-    const mecNomeServico = mecServico?.nome || calc.mecNome || row.dataset?.mecNome || '';
+    const mecNomeServico = rateiosComissao[0]?.mecNome || mecServico?.nome || calc.mecNome || row.dataset?.mecNome || '';
     if (desc || valor > 0 || valorFinal > 0 || tempo > 0) {
       servicos.push({
         desc,
@@ -3255,8 +3479,13 @@ window.salvarOS = async function() {
         valorFinal,
         total: valorFinal,
         descGeralPct: numBR(calc.descGeralPct || 0),
+        descontoGeralValor: numBR(calc.descontoGeralValor || 0),
+        descontoIndividualTipo: 'valor',
+        descontoIndividualValor: numBR(calc.descontoIndividualValor || 0),
+        descIndividualValor: numBR(calc.descontoIndividualValor || 0),
+        descontoIndividual: numBR(calc.descontoIndividualValor || 0),
         descIndividualPct: numBR(calc.descIndividualPct || 0),
-        descontoIndividual: numBR(calc.descIndividualPct || 0),
+        descontoValor: numBR(calc.descontoValor || Math.max(0, valor - valorFinal)),
         descPct: numBR(calc.descPct || 0),
         tempo,
         codigoInterno,
@@ -3272,6 +3501,8 @@ window.salvarOS = async function() {
         mecNome: mecNomeServico,
         responsavelId: mecIdServico,
         responsavelNome: mecNomeServico,
+        mecIds: rateiosComissao.map(r => r.mecId),
+        rateiosComissao: rateiosComissao.map(r => ({ mecId: r.mecId, mecNome: r.mecNome || '', valorBase: +numBR(r.valorBase || 0).toFixed(2) })),
         tempaManual: row.dataset?.tempaManual === '1',
         relacionadoCilia: row.dataset?.servRelacionado === '1',
         origemServico: row.dataset?.servRelacionado === '1'
@@ -3286,10 +3517,11 @@ window.salvarOS = async function() {
   document.querySelectorAll('#containerServicosOS > div').forEach(_lerLinhaServico);
   // CORREÇÃO 6: também lê serviços relacionados Cilia (dentro das peças)
   document.querySelectorAll('#containerPecasOS .cilia-serv-relac').forEach(_lerLinhaServico);
+  if (erroRateioOS) { window.toast(erroRateioOS, 'warn'); return; }
 
   let mecanicoIdsOS = idsUnicosMecanicosOS([
     ...window.obterMecanicosSelecionadosOS(),
-    ...servicos.map(s => s.mecId)
+    ...servicos.flatMap(s => [s.mecId, ...(Array.isArray(s.rateiosComissao) ? s.rateiosComissao.map(r => r.mecId) : [])])
   ]);
   let mecanicoPrincipalOS = $v('osMec') || mecanicoIdsOS[0] || '';
   if (mecanicoPrincipalOS) {
@@ -3304,6 +3536,11 @@ window.salvarOS = async function() {
         s.mecNome = unico.nome;
         s.responsavelId = unico.id;
         s.responsavelNome = unico.nome;
+        s.mecIds = [unico.id];
+        s.rateiosComissao = [{ mecId: unico.id, mecNome: unico.nome, valorBase: +numBR(s.valorFinal || 0).toFixed(2) }];
+      } else if (!Array.isArray(s.rateiosComissao) || !s.rateiosComissao.length) {
+        s.mecIds = [s.mecId];
+        s.rateiosComissao = [{ mecId: s.mecId, mecNome: s.mecNome || snapshotMecanicoOS(s.mecId).nome || '', valorBase: +numBR(s.valorFinal || 0).toFixed(2) }];
       }
     });
   }
@@ -3324,10 +3561,11 @@ window.salvarOS = async function() {
       const descLivre = row.querySelector('.peca-desc-livre')?.value || '';
       const qtd = numBR(row.querySelector('.peca-qtd')?.value || 1) || 1;
       const venda = numBR(row.querySelector('.peca-venda')?.value || 0);
-      const descIndividual = descontoIndividualLinhaOS(row, 'peca');
-      const descEfetivo = combinarDescontosOS(descontoPecasAtualOS(), descIndividual);
+      const descontoIndividualValor = descontoIndividualLinhaOS(row, 'peca');
       const valorBrutoItem = +(qtd * venda).toFixed(2);
-      const valorFinalItem = +(valorBrutoItem * (1 - descEfetivo)).toFixed(2);
+      const calcDescontoItem = calcularDescontosValorOS(valorBrutoItem, descontoPecasAtualOS(), descontoIndividualValor);
+      const descEfetivo = calcDescontoItem.descPct;
+      const valorFinalItem = calcDescontoItem.valorFinal;
       if (descLivre || codigo) {
         totalPecas += valorFinalItem;
         pecas.push({
@@ -3344,8 +3582,13 @@ window.salvarOS = async function() {
           valorBruto: valorBrutoItem,
           valorFinal: valorFinalItem,
           total: valorFinalItem,
-          descIndividualPct: descIndividual,
-          descontoIndividual: descIndividual,
+          descontoGeralValor: calcDescontoItem.descontoGeralValor,
+          descontoIndividualTipo: 'valor',
+          descontoIndividualValor: calcDescontoItem.descontoIndividualValor,
+          descIndividualValor: calcDescontoItem.descontoIndividualValor,
+          descontoIndividual: calcDescontoItem.descontoIndividualValor,
+          descIndividualPct: valorBrutoItem > 0 ? +(calcDescontoItem.descontoIndividualValor / valorBrutoItem).toFixed(6) : 0,
+          descontoValor: calcDescontoItem.descontoValor,
           descPct: descEfetivo,
           origem: row.dataset?.origemPecaOS || 'manual',
           origemNFItemKey: row.dataset?.origemNFItemKey || '',
@@ -3374,10 +3617,11 @@ window.salvarOS = async function() {
     const qtd = numBR(row.querySelector('.peca-qtd')?.value || 1) || 1;
     const venda = numBR(row.querySelector('.peca-venda')?.value || 0);
     const custo = numBR(row.querySelector('.peca-custo')?.value || 0);
-    const descIndividual = descontoIndividualLinhaOS(row, 'peca');
-    const descEfetivo = combinarDescontosOS(descontoPecasAtualOS(), descIndividual);
+    const descontoIndividualValor = descontoIndividualLinhaOS(row, 'peca');
     const valorBrutoItem = +(qtd * venda).toFixed(2);
-    const valorFinalItem = +(valorBrutoItem * (1 - descEfetivo)).toFixed(2);
+    const calcDescontoItem = calcularDescontosValorOS(valorBrutoItem, descontoPecasAtualOS(), descontoIndividualValor);
+    const descEfetivo = calcDescontoItem.descPct;
+    const valorFinalItem = calcDescontoItem.valorFinal;
     if (!estoqueId && !venda && !custo && !descPeca && !codigo) return;
     totalPecas += valorFinalItem;
 
@@ -3392,8 +3636,13 @@ window.salvarOS = async function() {
       valorBruto: valorBrutoItem,
       valorFinal: valorFinalItem,
       total: valorFinalItem,
-      descIndividualPct: descIndividual,
-      descontoIndividual: descIndividual,
+      descontoGeralValor: calcDescontoItem.descontoGeralValor,
+      descontoIndividualTipo: 'valor',
+      descontoIndividualValor: calcDescontoItem.descontoIndividualValor,
+      descIndividualValor: calcDescontoItem.descontoIndividualValor,
+      descontoIndividual: calcDescontoItem.descontoIndividualValor,
+      descIndividualPct: valorBrutoItem > 0 ? +(calcDescontoItem.descontoIndividualValor / valorBrutoItem).toFixed(6) : 0,
+      descontoValor: calcDescontoItem.descontoValor,
       descPct: descEfetivo,
       baixarEstoqueReal: pecaOSBaixaRealAtiva(row),
       fornecedor: row.dataset?.pecaFornecedor || opt?.dataset?.fornecedor || '',
@@ -3477,7 +3726,7 @@ window.salvarOS = async function() {
   if ($v('osDescricao')) payload.desc = $v('osDescricao');
   payload.mecId = mecanicoPrincipalOS || _oldOSPreservar?.mecId || '';
   payload.mecNome = snapshotMecanicoOS(payload.mecId, _oldOSPreservar).nome || _oldOSPreservar?.mecNome || '';
-  payload.mecIds = idsUnicosMecanicosOS([payload.mecId, ...mecanicoIdsOS, ...servicos.map(s => s.mecId)]);
+  payload.mecIds = idsUnicosMecanicosOS([payload.mecId, ...mecanicoIdsOS, ...servicos.flatMap(s => [s.mecId, ...(Array.isArray(s.rateiosComissao) ? s.rateiosComissao.map(r => r.mecId) : [])])]);
   payload.mecanicos = payload.mecIds.map(id => snapshotMecanicoOS(id, _oldOSPreservar));
   if ($v('osData')) payload.data = $v('osData');
   if ($v('osKm')) payload.km = $v('osKm');
@@ -4785,7 +5034,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
       resumoSecoesPDF[categoria].horas += tempo;
       resumoSecoesPDF[categoria].total += final;
       addMetaResumoServicoOS(resumoSecoesPDF[categoria], meta);
-      servicos.push({ codigo: meta.codigo || '-', codigoInterno: meta.codigoInterno || '', codigoTabela: meta.codigoTabela || '', sistema: sistema || meta.sistema || '-', tipoVeiculo: meta.tipoVeiculo || '-', desc: desc || '-', tempo, valorHora, descPct: descMO, total: final, categoria });
+      servicos.push({ codigo: meta.codigo || '-', codigoInterno: meta.codigoInterno || '', codigoTabela: meta.codigoTabela || '', sistema: sistema || meta.sistema || '-', tipoVeiculo: meta.tipoVeiculo || '-', desc: desc || '-', tempo, valorHora, bruto, descontoValor: numBR(calc.descontoValor || Math.max(0, bruto - final)), descontoIndividualValor: numBR(calc.descontoIndividualValor || 0), descPct: numBR(calc.descPct || 0), total: final, categoria });
     }
   };
   document.querySelectorAll('#containerServicosOS > div').forEach(_coletarServicoParaPDF);
@@ -4801,10 +5050,12 @@ window.gerarPDFOS = async function(opcoes = {}) {
     const desc = descricaoPecaLinhaOS(row, opt, estoqueId);
     const qtd = numBR(row.querySelector('.peca-qtd')?.value || 0) || 1;
     const unit = numBR(row.querySelector('.peca-venda')?.value || 0);
-    const final = +(qtd * unit * (1 - descPeca)).toFixed(2);
+    const brutoItem = +(qtd * unit).toFixed(2);
+    const calcDescontoItem = calcularDescontosValorOS(brutoItem, descPeca, descontoIndividualLinhaOS(row, 'peca'));
+    const final = calcDescontoItem.valorFinal;
     if (desc || codigo || unit) {
       totalPecas += final;
-      pecas.push([codigo || 'sem oem', desc || '-', qtd, moedaPdf(unit), descPeca ? (descPeca * 100).toFixed(1).replace('.', ',') + '%' : '0,0%', moedaPdf(final)]);
+      pecas.push([codigo || 'sem oem', desc || '-', qtd, moedaPdf(unit), moedaPdf(brutoItem), moedaPdf(calcDescontoItem.descontoValor), moedaPdf(final)]);
     }
   });
 
@@ -4825,7 +5076,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
         if (!resumoSecoesPDF[categoria]) resumoSecoesPDF[categoria] = { horas: 0, total: 0, codigos: new Set(), sistemas: new Set(), tiposVeiculo: new Set() };
         resumoSecoesPDF[categoria].horas += numBR(it.tempo || 0);
         resumoSecoesPDF[categoria].total += numBR(it.valorFinal || 0);
-        servicos.push({ codigo: it.codigo || '-', sistema: it.sistema || '-', tipoVeiculo: '-', desc: it.desc || '-', tempo: numBR(it.tempo || 0), valorHora: numBR(it.valorHora || 0), descPct: descMO, total: numBR(it.valorFinal || 0), categoria });
+        servicos.push({ codigo: it.codigo || '-', sistema: it.sistema || '-', tipoVeiculo: '-', desc: it.desc || '-', tempo: numBR(it.tempo || 0), valorHora: numBR(it.valorHora || 0), bruto: numBR(it.valorBruto || it.valorOriginal || 0), descontoValor: numBR(it.descontoValor || Math.max(0, numBR(it.valorBruto || it.valorOriginal || 0) - numBR(it.valorFinal || 0))), descontoIndividualValor: numBR(it.descontoIndividualValor || 0), descPct: numBR(it.descPct || 0), total: numBR(it.valorFinal || 0), categoria });
         totalServicos += numBR(it.valorFinal || 0);
       } else {
         const tela = pecasTelaPorKeyPDF.get(it.key) || {};
@@ -4835,8 +5086,10 @@ window.gerarPDFOS = async function(opcoes = {}) {
         const descItem = descTela || descSalva || '-';
         const qtdItem = it.qtd || tela.qtd || 1;
         const valorUnitItem = it.valorUnit || tela.valorUnit || 0;
-        const valorFinalItem = it.valorFinal || tela.valorFinal || 0;
-        pecas.push([codigoItem, descItem, qtdItem, moedaPdf(valorUnitItem), descPeca ? (descPeca * 100).toFixed(1).replace('.', ',') + '%' : '0,0%', moedaPdf(valorFinalItem)]);
+        const valorBrutoItem = numBR(it.valorBruto || it.valorOriginal || tela.valorBruto || (qtdItem * valorUnitItem));
+        const valorFinalItem = numBR(it.valorFinal || tela.valorFinal || 0);
+        const descontoValorItem = numBR(it.descontoValor || Math.max(0, valorBrutoItem - valorFinalItem));
+        pecas.push([codigoItem, descItem, qtdItem, moedaPdf(valorUnitItem), moedaPdf(valorBrutoItem), moedaPdf(descontoValorItem), moedaPdf(valorFinalItem)]);
         totalPecas += numBR(valorFinalItem || 0);
       }
     });
@@ -4931,14 +5184,15 @@ window.gerarPDFOS = async function(opcoes = {}) {
     linhaTitulo('SERVIÇOS / MÃO DE OBRA');
     doc.autoTable({
       startY: y,
-      head: [['Cód.', 'Sistema / tipo veic.', 'Descrição do serviço', 'TMO', 'Valor h', 'Desc.', 'Valor']],
+      head: [['Cód.', 'Sistema / tipo veic.', 'Descrição do serviço', 'TMO', 'Valor h', 'Valor original', 'Desconto', 'Valor cobrado']],
       body: servicos.map(s => [
         s.codigo,
         [s.sistema, s.tipoVeiculo && s.tipoVeiculo !== '-' ? `Tipo: ${s.tipoVeiculo}` : ''].filter(Boolean).join('\n'),
         s.desc,
         s.tempo ? s.tempo.toFixed(2).replace('.', ',') : '-',
         moedaPdf(s.valorHora),
-        s.descPct ? (s.descPct * 100).toFixed(1).replace('.', ',') + '%' : '0,0%',
+        moedaPdf(s.bruto || s.total || 0),
+        moedaPdf(s.descontoValor || Math.max(0, numBR(s.bruto || 0) - numBR(s.total || 0))),
         moedaPdf(s.total)
       ]),
       theme: 'grid',
@@ -4946,7 +5200,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
       tableWidth: larguraUtilPdf,
       styles: { fontSize: 6.7, cellPadding: 1.45, lineColor: [190, 198, 210], lineWidth: 0.12, overflow: 'linebreak' },
       headStyles: headStylesPadraoPDF,
-      columnStyles: { 0: { cellWidth: 16 }, 1: { cellWidth: 44 }, 2: { cellWidth: 62 }, 3: { halign: 'center', cellWidth: 12 }, 4: { halign: 'right', cellWidth: 18 }, 5: { halign: 'center', cellWidth: 14 }, 6: { halign: 'right', cellWidth: 20 } }
+      columnStyles: { 0: { cellWidth: 14 }, 1: { cellWidth: 31 }, 2: { cellWidth: 49 }, 3: { halign: 'center', cellWidth: 11 }, 4: { halign: 'right', cellWidth: 17 }, 5: { halign: 'right', cellWidth: 23 }, 6: { halign: 'right', cellWidth: 21 }, 7: { halign: 'right', cellWidth: 24 } }
     });
     y = doc.lastAutoTable.finalY + 6;
   }
@@ -4957,14 +5211,14 @@ window.gerarPDFOS = async function(opcoes = {}) {
     linhaTitulo('PEÇAS / MATERIAIS');
     doc.autoTable({
       startY: y,
-      head: [['Código da peça', 'Descrição', 'Qtd', 'Valor unit.', 'Desc.', 'Valor']],
+      head: [['Código da peça', 'Descrição', 'Qtd', 'Valor unit.', 'Valor original', 'Desconto', 'Valor cobrado']],
       body: pecas,
       theme: 'grid',
       margin: { left: margem, right: margem },
       tableWidth: larguraUtilPdf,
       styles: { fontSize: 7.2, cellPadding: 1.55, lineColor: [190, 198, 210], lineWidth: 0.12, overflow: 'linebreak' },
       headStyles: headStylesPadraoPDF,
-      columnStyles: { 0: { cellWidth: 32 }, 1: { cellWidth: 76 }, 2: { halign: 'center', cellWidth: 12 }, 3: { halign: 'right', cellWidth: 24 }, 4: { halign: 'center', cellWidth: 16 }, 5: { halign: 'right', cellWidth: 26 } }
+      columnStyles: { 0: { cellWidth: 28 }, 1: { cellWidth: 62 }, 2: { halign: 'center', cellWidth: 10 }, 3: { halign: 'right', cellWidth: 22 }, 4: { halign: 'right', cellWidth: 25 }, 5: { halign: 'right', cellWidth: 21 }, 6: { halign: 'right', cellWidth: 25 } }
     });
     y = doc.lastAutoTable.finalY + 6;
   }
@@ -5000,24 +5254,30 @@ window.gerarPDFOS = async function(opcoes = {}) {
     linhaTitulo('ITENS NÃO APROVADOS - HISTÓRICO DO ORÇAMENTO ORIGINAL');
     doc.autoTable({
       startY: y,
-      head: [['Tipo', 'Código', 'Descrição', 'Valor original']],
+      head: [['Tipo', 'Código', 'Descrição', 'Valor original', 'Desconto', 'Valor cobrado']],
       body: itensNaoAprovadosPDF.map(it => {
         const tela = it.tipo === 'peca' ? (pecasTelaPorKeyPDF.get(it.key) || {}) : {};
         const descSalva = it.tipo === 'peca' && descricaoPecaGeradaSistemaOS(it.desc) ? '' : (it.desc || '');
         const descTela = tela.desc || '';
-        return [it.labelTipo || it.tipo, it.codigo || tela.codigo || '-', descTela || descSalva || '-', moedaPdf(it.valorFinal || tela.valorFinal || 0)];
+        const brutoItem = numBR(it.valorBruto || it.valorOriginal || tela.valorBruto || it.valorFinal || tela.valorFinal || 0);
+        const finalItem = numBR(it.valorFinal || tela.valorFinal || 0);
+        const descontoItem = numBR(it.descontoValor || Math.max(0, brutoItem - finalItem));
+        return [it.labelTipo || it.tipo, it.codigo || tela.codigo || '-', descTela || descSalva || '-', moedaPdf(brutoItem), moedaPdf(descontoItem), moedaPdf(finalItem)];
       }),
       theme: 'grid',
       margin: { left: margem, right: margem },
       styles: { fontSize: 7, cellPadding: 1.5, lineColor: [190,198,210], lineWidth: 0.12, overflow: 'linebreak' },
       headStyles: headStylesGarantiaPDF,
-      columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 35 }, 2: { cellWidth: 95 }, 3: { cellWidth: 32, halign: 'right' } }
+      columnStyles: { 0: { cellWidth: 18 }, 1: { cellWidth: 27 }, 2: { cellWidth: 75 }, 3: { cellWidth: 25, halign: 'right' }, 4: { cellWidth: 22, halign: 'right' }, 5: { cellWidth: 25, halign: 'right' } }
     });
     y = doc.lastAutoTable.finalY + 6;
   }
 
   if (y > ph - 34) { doc.addPage(); y = 12; }
   const totalGeral = +(totalServicos + totalPecas + totalGuinchoPdf).toFixed(2);
+  const totalOriginalServicosPDF = +servicos.reduce((sum, item) => sum + numBR(item.bruto || item.total || 0), 0).toFixed(2);
+  const totalOriginalPecasPDF = +pecas.reduce((sum, item) => sum + numBR(String(item[4] || '').replace(/R\$|\s|\./g, '').replace(',', '.')), 0).toFixed(2);
+  const totalDescontoPDF = +((totalOriginalServicosPDF + totalOriginalPecasPDF) - (totalServicos + totalPecas)).toFixed(2);
     doc.autoTable({
       startY: y,
       theme: 'plain',
@@ -5025,14 +5285,16 @@ window.gerarPDFOS = async function(opcoes = {}) {
     tableWidth: 88,
     styles: { fontSize: 9, cellPadding: 1.8 },
     body: [
-      ['TOTAL DE PEÇAS', moedaPdf(totalPecas)],
-      ['TOTAL DE MÃO DE OBRA', moedaPdf(totalServicos)],
+      ['VALOR ORIGINAL DE PEÇAS E SERVIÇOS', moedaPdf(totalOriginalPecasPDF + totalOriginalServicosPDF)],
+      ['DESCONTO TOTAL CONCEDIDO', '- ' + moedaPdf(Math.max(0, totalDescontoPDF))],
+      ['TOTAL DE PEÇAS COBRADO', moedaPdf(totalPecas)],
+      ['TOTAL DE MÃO DE OBRA COBRADO', moedaPdf(totalServicos)],
       ['DESLOCAMENTO / GUINCHO', moedaPdf(totalGuinchoPdf)],
       [aprovacaoPDFAtiva ? 'VALOR APROVADO / CONTRATO' : 'VALOR DO CONTRATO', moedaPdf(totalGeral)]
     ],
     columnStyles: { 0: { fontStyle: visualizacaoEconomicaPDF ? 'normal' : 'bold', halign: 'right', cellWidth: 56 }, 1: { fontStyle: visualizacaoEconomicaPDF ? 'normal' : 'bold', halign: 'right', cellWidth: 32 } },
     didParseCell: data => {
-      if (data.row.index === 3) {
+      if (data.row.index === 5) {
         data.cell.styles.fillColor = visualizacaoEconomicaPDF ? [255, 255, 255] : [205, 200, 160];
         data.cell.styles.fontSize = 12;
         data.cell.styles.fontStyle = visualizacaoEconomicaPDF ? 'normal' : 'bold';
@@ -6973,7 +7235,7 @@ window.renderCiliaPecaOSRow = function(p, servicosRelacionados = []) {
     <button type="button" onclick="this.closest('.cilia-peca-wrap').remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;" title="Remover peça e seus serviços">✕</button>
   `;
   wrap.appendChild(div);
-  instalarDescontoIndividualLinhaOS(div, 'peca', p.descIndividualPct ?? p.descIndividual ?? p.descontoIndividual ?? 0);
+  instalarDescontoIndividualLinhaOS(div, 'peca', descontoIndividualSalvoValorOS(p, numBR(p.valorBruto || ((p.qtd || p.q || 1) * numBR(p.venda || p.valor || 0)))));
 
   const servBloco = document.createElement('div');
   servBloco.className = 'cilia-servs-relacionados';
@@ -7048,6 +7310,7 @@ window._ciliaAddServicoRelacionado = function(btn, opts = {}) {
   row.dataset.tempaManual = servico?.tempaManual ? '1' : (itemTempa ? '' : '1');
   row.dataset.mecId = servico?.mecId || servico?.mecanicoId || servico?.responsavelId || '';
   row.dataset.mecNome = servico?.mecNome || servico?.mecanicoNome || servico?.responsavelNome || '';
+  row._rateiosComissaoInicial = Array.isArray(servico?.rateiosComissao) ? servico.rateiosComissao : [];
 
   if (itemTempa) {
     const { secaoInfo } = _ciliaResolverValorHoraTempa(itemTempa, ctxBase);
@@ -7092,7 +7355,7 @@ window._ciliaAddServicoRelacionado = function(btn, opts = {}) {
     </div>
   `;
   list.appendChild(row);
-  instalarDescontoIndividualLinhaOS(row, 'servico', servico?.descIndividualPct ?? servico?.descIndividual ?? servico?.descontoIndividual ?? 0);
+  instalarDescontoIndividualLinhaOS(row, 'servico', descontoIndividualSalvoValorOS(servico, numBR(servico?.valorBruto || servico?.valor || valor || 0)));
   window.garantirResponsavelLinhaServicoOS?.(row, row.dataset.mecId || '');
   if (!opts.auto && !opts.servico) {
     setTimeout(() => {

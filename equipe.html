@@ -22,7 +22,7 @@ if ('serviceWorker' in navigator) {
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="js/config.js"></script>
-<script src="js/os-utils.js?v=21.0.0"></script>
+<script src="js/os-utils.js?v=22.0.0"></script>
 <script src="js/links-publicos.js"></script>
 <script src="js/tenant-modules.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=JetBrains+Mono:wght@400;700&family=Exo+2:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -1700,14 +1700,17 @@ document.addEventListener('DOMContentLoaded',()=>{
 // KPIs
 // ============================================================
 function osAtribuidaAoUsuarioEquipe(o) {
+  if (typeof window.equipePodeConsultarOSV21 === 'function') return window.equipePodeConsultarOSV21(o);
   const fid = String(J.fid || '').trim();
   if (!fid) return false;
-  if (String(o?.mecId || '') === fid) return true;
-  if ((Array.isArray(o?.mecIds) ? o.mecIds : []).some(id => String(id || '') === fid)) return true;
-  if ((Array.isArray(o?.mecanicos) ? o.mecanicos : []).some(m => String(m?.id || m?.mecId || '') === fid)) return true;
-  return (Array.isArray(o?.servicos) ? o.servicos : []).some(s =>
-    String(s?.mecId || s?.mecanicoId || s?.responsavelId || '') === fid
-  );
+  const servicos = Array.isArray(o?.servicos) ? o.servicos : [];
+  const temAtribuicao = servicos.some(s => (Array.isArray(s?.rateiosComissao) && s.rateiosComissao.length) || s?.mecId || s?.mecanicoId || s?.responsavelId);
+  if (temAtribuicao) return servicos.some(s => {
+    const rateios = Array.isArray(s?.rateiosComissao) ? s.rateiosComissao : [];
+    if (rateios.length) return rateios.some(r => String(r?.mecId || r?.id || '') === fid);
+    return String(s?.mecId || s?.mecanicoId || s?.responsavelId || '') === fid;
+  });
+  return String(o?.mecId || '') === fid || (Array.isArray(o?.mecIds) ? o.mecIds : []).some(id => String(id || '') === fid);
 }
 
 function renderKPIs(){
@@ -1867,7 +1870,9 @@ function prepOS(mode,id=null){
     $('tlData').value=JSON.stringify(os.timeline||[]);
     renderTimeline();
     if(os.pecas) os.pecas.forEach(p=>renderPecaRow(p));
-    if(os.servicos) os.servicos.forEach(s=>renderServicoRow(s));
+    if(os.servicos) os.servicos.forEach((s,servicoIndex)=>{
+      if (podeVerTodas || window.equipeServicoPertenceAoUsuarioV22?.(s, os)) renderServicoRow(s, servicoIndex);
+    });
     aplicarMarcadoresAprovacaoEquipe(os);
   }
 }
@@ -1954,14 +1959,18 @@ function aplicarMarcadoresAprovacaoEquipe(os) {
   const mk = key => `<div class="aprovacao-item-badge" style="font-family:var(--fm);font-size:.56rem;letter-spacing:.7px;color:${keys.has(key) ? 'var(--success)' : 'var(--danger)'};padding:2px 4px;border:1px solid ${keys.has(key) ? 'rgba(0,255,136,.25)' : 'rgba(255,59,59,.25)'};border-radius:2px;white-space:nowrap;">${keys.has(key) ? 'APROVADO' : 'NÃO APROVADO'}</div>`;
   document.querySelectorAll('#containerServicos>div').forEach((row, idx) => {
     row.querySelector('.aprovacao-item-badge')?.remove();
-    row.insertAdjacentHTML('beforeend', mk('servico-' + idx));
+    const originalIndex = row.dataset.servicoIndex !== undefined && row.dataset.servicoIndex !== '' ? Number(row.dataset.servicoIndex) : idx;
+    row.insertAdjacentHTML('beforeend', mk('servico-' + originalIndex));
   });
   document.querySelectorAll('#containerPecas>div').forEach((row, idx) => {
     row.querySelector('.aprovacao-item-badge')?.remove();
     row.insertAdjacentHTML('beforeend', mk('peca-' + idx));
   });
   const cliente = (dbClientes || []).find(c => c.id === os?.clienteId);
-  const itens = U.buildBudgetItems?.(os, cliente) || [];
+  const todosItens = U.buildBudgetItems?.(os, cliente) || [];
+  const roleAtual = String(J.role || '').toLowerCase();
+  const podeVerTudo = ['gerente','gestor','admin','superadmin','dono'].includes(roleAtual);
+  const itens = podeVerTudo ? todosItens : todosItens.filter(it => it.tipo !== 'servico' || window.equipeServicoPertenceAoUsuarioV22?.((os.servicos || [])[it.index], os));
   const aprovados = itens.filter(it => keys.has(it.key));
   const pendentes = itens.filter(it => !keys.has(it.key));
   const moeda = U.moeda || (v => 'R$ ' + parseBR(v).toFixed(2).replace('.', ','));
@@ -2013,11 +2022,10 @@ function mecanicosEquipeDaOS(os) {
   (Array.isArray(os?.mecanicos) ? os.mecanicos : []).forEach(m => adicionar(m?.id || m?.mecId, m?.nome || m?.mecNome, m?.cargo));
   (Array.isArray(os?.mecIds) ? os.mecIds : []).forEach(id => adicionar(id, id, ''));
   adicionar(os?.mecId, os?.mecNome, '');
-  (Array.isArray(os?.servicos) ? os.servicos : []).forEach(s => adicionar(
-    s?.mecId || s?.mecanicoId || s?.responsavelId,
-    s?.mecNome || s?.mecanicoNome || s?.responsavelNome,
-    ''
-  ));
+  (Array.isArray(os?.servicos) ? os.servicos : []).forEach(s => {
+    adicionar(s?.mecId || s?.mecanicoId || s?.responsavelId, s?.mecNome || s?.mecanicoNome || s?.responsavelNome, '');
+    (Array.isArray(s?.rateiosComissao) ? s.rateiosComissao : []).forEach(r => adicionar(r?.mecId || r?.id, r?.mecNome || r?.nome, ''));
+  });
   adicionar(J.fid, J.nome, J.role);
   return Array.from(mapa.values());
 }
@@ -2030,8 +2038,9 @@ function opcoesMecanicoServicoEquipe(selectedId, os) {
 }
 
 // ADICIONAR SERVIÇOS (DINÂMICO POR CARGO)
-function adicionarServico(s=null){
+function adicionarServico(s=null, originalIndex=null){
   const div=document.createElement('div');
+  if (originalIndex !== null && originalIndex !== undefined) div.dataset.servicoIndex = String(originalIndex);
   const podeVerPreco = ['gerente', 'vendedor', 'admin'].includes(J.role);
   const podeAlterarResponsavel = ['gerente', 'gestor', 'admin', 'superadmin'].includes(String(J.role || '').toLowerCase());
   const mecIdServico = s?.mecId || s?.mecanicoId || s?.responsavelId || window._equipeOSAtual?.mecId || J.fid || '';
@@ -2054,7 +2063,7 @@ function adicionarServico(s=null){
   `;
   $('containerServicos').appendChild(div);
 }
-function renderServicoRow(s){ adicionarServico(s); }
+function renderServicoRow(s, originalIndex){ adicionarServico(s, originalIndex); }
 
 // ADICIONAR PEÇAS (DINÂMICO POR CARGO)
 function adicionarPeca(){
@@ -2136,14 +2145,17 @@ async function salvarOS(){
     });
   });
 
-  const servicos=[];
+  const servicos=Array.isArray(osAtualPreservar.servicos) ? osAtualPreservar.servicos.map(s=>({...s})) : [];
   document.querySelectorAll('#containerServicos>div').forEach((r,idx)=>{
     const desc=r.querySelector('.serv-desc')?.value||'';
     const valor=parseBR(r.querySelector('.serv-valor')?.value||0);
-    const mecId = r.querySelector('.serv-mec')?.value || '';
+    const originalIndexRaw=r.dataset.servicoIndex;
+    const originalIndex=originalIndexRaw!==undefined&&originalIndexRaw!==''?Number(originalIndexRaw):-1;
+    const anterior=originalIndex>=0?(servicos[originalIndex]||{}):{};
+    const mecId = r.querySelector('.serv-mec')?.value || anterior.mecId || '';
     const mec = mecanicosEquipeDaOS(window._equipeOSAtual || {}).find(m => String(m.id) === String(mecId));
-    const anterior=(osAtualPreservar.servicos||[])[idx]||{};
-    if(desc) servicos.push({
+    if(!desc)return;
+    const atualizado={
       ...anterior,
       desc,
       valor,
@@ -2152,9 +2164,14 @@ async function salvarOS(){
       mecNome: mec?.nome || anterior.mecNome || '',
       responsavelId: mecId,
       responsavelNome: mec?.nome || anterior.responsavelNome || '',
-      descIndividualPct: anterior.descIndividualPct ?? anterior.descontoIndividual ?? 0,
-      descontoIndividual: anterior.descontoIndividual ?? anterior.descIndividualPct ?? 0
-    });
+      rateiosComissao: Array.isArray(anterior.rateiosComissao) ? anterior.rateiosComissao : [],
+      descontoIndividualTipo: anterior.descontoIndividualTipo || (anterior.descontoIndividualValor != null ? 'valor' : anterior.descontoIndividualTipo),
+      descontoIndividualValor: anterior.descontoIndividualValor ?? anterior.descIndividualValor ?? 0,
+      descIndividualValor: anterior.descIndividualValor ?? anterior.descontoIndividualValor ?? 0,
+      descIndividualPct: anterior.descIndividualPct ?? 0,
+      descontoIndividual: anterior.descontoIndividualValor ?? anterior.descontoIndividual ?? 0
+    };
+    if(originalIndex>=0)servicos[originalIndex]=atualizado;else servicos.push(atualizado);
   });
 
   // O total continua oculto para o mecânico, mas respeita os descontos gerais e individuais salvos pelo gestor.
@@ -2163,8 +2180,22 @@ async function salvarOS(){
   const itensCalc=(window.JOS?.buildBudgetItems?.({...osAtualPreservar,pecas,servicos},clienteCalc)||[]);
   t += itensCalc.reduce((soma,item)=>soma+parseBR(item.valorFinal||0),0);
   itensCalc.forEach(item=>{
-    if(item.tipo==='servico'&&servicos[item.index]) Object.assign(servicos[item.index],{valorFinal:item.valorFinal,descPct:item.descPct,descGeralPct:item.descGeralPct,descIndividualPct:item.descIndividualPct});
-    if(item.tipo==='peca'&&pecas[item.index]) Object.assign(pecas[item.index],{valorFinal:item.valorFinal,total:item.valorFinal,valorBruto:item.valorBruto,descPct:item.descPct,descGeralPct:item.descGeralPct,descIndividualPct:item.descIndividualPct});
+    const descontos={
+      valorOriginal:item.valorOriginal??item.valorBruto??0,
+      valorBruto:item.valorBruto??item.valorOriginal??0,
+      valorFinal:item.valorFinal??0,
+      total:item.valorFinal??0,
+      descontoGeralValor:item.descontoGeralValor??0,
+      descontoIndividualTipo:'valor',
+      descontoIndividualValor:item.descontoIndividualValor??item.descIndividualValor??0,
+      descIndividualValor:item.descIndividualValor??item.descontoIndividualValor??0,
+      descontoValor:item.descontoValor??Math.max(0,parseBR(item.valorBruto||0)-parseBR(item.valorFinal||0)),
+      descPct:item.descPct??0,
+      descGeralPct:item.descGeralPct??0,
+      descIndividualPct:item.descIndividualPct??0
+    };
+    if(item.tipo==='servico'&&servicos[item.index]) Object.assign(servicos[item.index],descontos);
+    if(item.tipo==='peca'&&pecas[item.index]) Object.assign(pecas[item.index],descontos);
   });
 
   const id = $v('osId');
@@ -2706,6 +2737,6 @@ function aplicarSugestaoIA() {
 <script src="js/ia.js?v=19.0.0"></script>
 <script src="js/catalogos-ia.js?v=19.0.0"></script>
 <script src="js/uix-theme-fix.js"></script>
-<script src="js/equipe-comissoes-v21.js?v=21.0.0"></script>
+<script src="js/equipe-comissoes-v21.js?v=22.0.0"></script>
 </body>
 </html>

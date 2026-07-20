@@ -1266,9 +1266,9 @@
     setCell(ws, 'B' + row, 'ITEM / CÓDIGO');
     setCell(ws, 'D' + row, 'DESCRIÇÃO');
     setCell(ws, 'E' + row, 'QTD / H');
-    setCell(ws, 'F' + row, 'UNIT. / R$/H');
-    setCell(ws, 'G' + row, 'DESC.');
-    setCell(ws, 'H' + row, 'TOTAL');
+    setCell(ws, 'F' + row, 'VALOR ORIGINAL');
+    setCell(ws, 'G' + row, 'DESCONTO R$');
+    setCell(ws, 'H' + row, 'VALOR COBRADO');
     bordarLinhaOS(ws, row, 'grupo');
     ['E','F','G','H'].forEach(col => { ws.getCell(col + row).alignment = { horizontal: 'center', vertical: 'middle', shrinkToFit: true }; });
     ws.getRow(row).height = 18;
@@ -1312,8 +1312,8 @@
       setCell(ws, 'B' + row, textoItemPeca(p));
       setCell(ws, 'D' + row, p.desc || 'PEÇA SEM DESCRIÇÃO');
       setNumberCell(ws, 'E' + row, p.qtd, '0.##');
-      setMoneyCell(ws, 'F' + row, p.valorUnit);
-      setPercentCell(ws, 'G' + row, p.descPct);
+      setMoneyCell(ws, 'F' + row, p.bruto || p.valorOriginal || 0);
+      setMoneyCell(ws, 'G' + row, p.descontoValor || Math.max(0, n(p.bruto || 0) - n(p.total || 0)));
       setMoneyCell(ws, 'H' + row, p.total);
       bordarLinhaOS(ws, row, 'peca');
       ws.getRow(row).height = Math.max(24, 13 * String(ws.getCell('B' + row).value || '').split('\n').length);
@@ -1324,8 +1324,8 @@
         setCell(ws, 'B' + row, textoItemServico(s));
         setCell(ws, 'D' + row, s.desc || 'SERVIÇO SEM DESCRIÇÃO');
         setNumberCell(ws, 'E' + row, s.tempo, '0.00');
-        setMoneyCell(ws, 'F' + row, s.valorHora);
-        setPercentCell(ws, 'G' + row, s.descPct);
+        setMoneyCell(ws, 'F' + row, s.bruto || s.valorOriginal || 0);
+        setMoneyCell(ws, 'G' + row, s.descontoValor || Math.max(0, n(s.bruto || 0) - n(s.total || 0)));
         setMoneyCell(ws, 'H' + row, s.total);
         bordarLinhaOS(ws, row, 'servico');
         ws.getRow(row).height = Math.max(28, 12 * String(ws.getCell('B' + row).value || '').split('\n').length);
@@ -1347,8 +1347,8 @@
         setCell(ws, 'B' + row, textoItemServico(s));
         setCell(ws, 'D' + row, s.desc || 'SERVIÇO SEM DESCRIÇÃO');
         setNumberCell(ws, 'E' + row, s.tempo, '0.00');
-        setMoneyCell(ws, 'F' + row, s.valorHora);
-        setPercentCell(ws, 'G' + row, s.descPct);
+        setMoneyCell(ws, 'F' + row, s.bruto || s.valorOriginal || 0);
+        setMoneyCell(ws, 'G' + row, s.descontoValor || Math.max(0, n(s.bruto || 0) - n(s.total || 0)));
         setMoneyCell(ws, 'H' + row, s.total);
         bordarLinhaOS(ws, row, 'servico');
         ws.getRow(row).height = Math.max(28, 12 * String(ws.getCell('B' + row).value || '').split('\n').length);
@@ -1384,8 +1384,8 @@
         setCell(ws, 'B' + row, textoItemPeca(p));
         setCell(ws, 'D' + row, p.desc || 'PEÇA SEM DESCRIÇÃO');
         setNumberCell(ws, 'E' + row, p.qtd, '0.##');
-        setMoneyCell(ws, 'F' + row, p.valorUnit);
-        setPercentCell(ws, 'G' + row, p.descPct);
+        setMoneyCell(ws, 'F' + row, p.bruto || p.valorOriginal || 0);
+        setMoneyCell(ws, 'G' + row, p.descontoValor || Math.max(0, n(p.bruto || 0) - n(p.total || 0)));
         setMoneyCell(ws, 'H' + row, p.total);
         bordarLinhaOS(ws, row, 'peca');
         ws.getRow(row).height = Math.max(24, 13 * String(ws.getCell('B' + row).value || '').split('\n').length);
@@ -1396,8 +1396,8 @@
           setCell(ws, 'B' + row, textoItemServico(s));
           setCell(ws, 'D' + row, s.desc || 'SERVIÇO SEM DESCRIÇÃO');
           setNumberCell(ws, 'E' + row, s.tempo, '0.00');
-          setMoneyCell(ws, 'F' + row, s.valorHora);
-          setPercentCell(ws, 'G' + row, s.descPct);
+          setMoneyCell(ws, 'F' + row, s.bruto || s.valorOriginal || 0);
+          setMoneyCell(ws, 'G' + row, s.descontoValor || Math.max(0, n(s.bruto || 0) - n(s.total || 0)));
           setMoneyCell(ws, 'H' + row, s.total);
           bordarLinhaOS(ws, row, 'servico');
           ws.getRow(row).height = Math.max(28, 12 * String(ws.getCell('B' + row).value || '').split('\n').length);
@@ -1410,8 +1410,8 @@
         setCell(ws, 'B' + row, textoItemServico(s));
         setCell(ws, 'D' + row, s.desc || 'SERVIÇO SEM DESCRIÇÃO');
         setNumberCell(ws, 'E' + row, s.tempo, '0.00');
-        setMoneyCell(ws, 'F' + row, s.valorHora);
-        setPercentCell(ws, 'G' + row, s.descPct);
+        setMoneyCell(ws, 'F' + row, s.bruto || s.valorOriginal || 0);
+        setMoneyCell(ws, 'G' + row, s.descontoValor || Math.max(0, n(s.bruto || 0) - n(s.total || 0)));
         setMoneyCell(ws, 'H' + row, s.total);
         bordarLinhaOS(ws, row, 'servico');
         ws.getRow(row).height = Math.max(28, 12 * String(ws.getCell('B' + row).value || '').split('\n').length);
@@ -1436,8 +1436,8 @@
           setCell(ws, 'B' + row, textoItemServico(s));
           setCell(ws, 'D' + row, s.desc || 'SERVIÇO SEM DESCRIÇÃO');
           setNumberCell(ws, 'E' + row, s.tempo, '0.00');
-          setMoneyCell(ws, 'F' + row, s.valorHora);
-          setPercentCell(ws, 'G' + row, s.descPct);
+          setMoneyCell(ws, 'F' + row, s.bruto || s.valorOriginal || 0);
+          setMoneyCell(ws, 'G' + row, s.descontoValor || Math.max(0, n(s.bruto || 0) - n(s.total || 0)));
           setMoneyCell(ws, 'H' + row, s.total);
           bordarLinhaOS(ws, row, 'servico');
           ws.getRow(row).height = Math.max(28, 12 * String(ws.getCell('B' + row).value || '').split('\n').length);
@@ -1509,8 +1509,8 @@
     setCell(ws, 'B' + row, 'TIPO / CÓDIGO');
     setCell(ws, 'D' + row, 'DESCRIÇÃO');
     setCell(ws, 'E' + row, 'QTD / H');
-    setCell(ws, 'F' + row, 'UNIT. / R$/H');
-    setCell(ws, 'G' + row, 'DESC.');
+    setCell(ws, 'F' + row, 'VALOR ORIGINAL');
+    setCell(ws, 'G' + row, 'DESCONTO R$');
     setCell(ws, 'H' + row, 'TOTAL ORIGINAL');
     bordarLinhaOS(ws, row, 'grupo');
     row++;
@@ -1596,7 +1596,11 @@
         tempo,
         valorHora,
         bruto: valorBrutoServico,
-        descPct: descMO,
+        valorOriginal: valorBrutoServico,
+        descontoGeralValor: n(calcServico.descontoGeralValor || 0),
+        descontoIndividualValor: n(calcServico.descontoIndividualValor || 0),
+        descontoValor: n(calcServico.descontoValor || Math.max(0, valorBrutoServico - totalFinal)),
+        descPct: n(calcServico.descPct || (valorBrutoServico > 0 ? (valorBrutoServico - totalFinal) / valorBrutoServico : 0)),
         total: totalFinal,
         relacionadoCilia: !!s.relacionadoCilia,
         ciliaPieceIndex: s.ciliaPieceIndex != null ? String(s.ciliaPieceIndex) : '',
@@ -1608,15 +1612,24 @@
     const linhasPecasOriginal = pecas.map((p, index) => {
       const qtd = n(p.qtd || p.q || 1) || 1;
       const valorUnit = n(p.venda || p.valor || p.v);
-      const totalFinal = +(qtd * valorUnit * (1 - descPeca)).toFixed(2);
+      const brutoItem = +(qtd * valorUnit).toFixed(2);
+      const descontoIndividualValor = U().getItemIndividualDiscountValue ? U().getItemIndividualDiscountValue(p, brutoItem) : n(p.descontoIndividualValor || 0);
+      const calcDesconto = U().calculateDiscountBreakdown
+        ? U().calculateDiscountBreakdown(brutoItem, descPeca, descontoIndividualValor)
+        : { valorFinal: +(brutoItem * (1 - descPeca) - descontoIndividualValor).toFixed(2), descontoGeralValor: +(brutoItem * descPeca).toFixed(2), descontoIndividualValor, descontoValor: +(brutoItem - Math.max(0, brutoItem * (1 - descPeca) - descontoIndividualValor)).toFixed(2), descPct: brutoItem > 0 ? (brutoItem - Math.max(0, brutoItem * (1 - descPeca) - descontoIndividualValor)) / brutoItem : 0 };
+      const totalFinal = Math.max(0, n(calcDesconto.valorFinal || 0));
       return {
         key: 'peca-' + index,
         codigo: limparTexto(p.codigo || p.cod || p.codigoOriginal || p.codigoOEM || p.oem || p.partNumber || p.numeroPeca || 'sem oem') || 'sem oem',
         desc: limparTexto(p.desc || p.descricao || ''),
         qtd,
         valorUnit,
-        bruto: +(qtd * valorUnit).toFixed(2),
-        descPct: descPeca,
+        bruto: brutoItem,
+        valorOriginal: brutoItem,
+        descontoGeralValor: n(calcDesconto.descontoGeralValor || 0),
+        descontoIndividualValor: n(calcDesconto.descontoIndividualValor || 0),
+        descontoValor: n(calcDesconto.descontoValor || Math.max(0, brutoItem - totalFinal)),
+        descPct: n(calcDesconto.descPct || (brutoItem > 0 ? (brutoItem - totalFinal) / brutoItem : 0)),
         total: totalFinal,
         ciliaPieceIndex: p.ciliaPieceIndex != null ? String(p.ciliaPieceIndex) : ''
       };
@@ -1868,32 +1881,42 @@
     aplicarAjustesCabecalho(ws);
     await inserirLogoOficinaExcelJS(wb, ws, logoExportar);
     setCell(ws, 'B18', 'CÓD. SERVIÇO / SISTEMA / TIPO VEÍCULO');
-    setCell(ws, 'D18', 'DESCRIÇÃO DO SERVIÇO');
+    setCell(ws, 'D18', 'DESCRIÇÃO DO SERVIÇO / VALOR HORA');
+    setCell(ws, 'E18', 'TMO');
+    setCell(ws, 'F18', 'VALOR ORIGINAL');
+    setCell(ws, 'G18', 'DESCONTO R$');
+    setCell(ws, 'H18', 'VALOR COBRADO');
 
     prepararLinhasDados(ws, SERV_START, servEnd, linhasServ.length);
     linhasServ.forEach((s, idx) => {
       const r = SERV_START + idx;
       ws.getRow(r).hidden = false;
       setCell(ws, 'B' + r, textoSistemaServico(s));
-      setCell(ws, 'D' + r, s.desc);
+      setCell(ws, 'D' + r, `${s.desc}${n(s.valorHora || 0) ? `\nValor hora: R$ ${n(s.valorHora).toFixed(2).replace('.', ',')}` : ''}`);
       ws.getRow(r).height = Math.max(ws.getRow(r).height || 18, (s.codigo || s.tipoVeiculo) ? 36 : 18);
       ws.getCell('B' + r).alignment = { ...(ws.getCell('B' + r).alignment || {}), wrapText: true, shrinkToFit: true, vertical: 'middle' };
       ws.getCell('D' + r).alignment = { ...(ws.getCell('D' + r).alignment || {}), wrapText: true, shrinkToFit: true, vertical: 'middle' };
       setCell(ws, 'E' + r, s.tempo);
-      setMoneyCell(ws, 'F' + r, s.valorHora);
-      setPercentCell(ws, 'G' + r, s.descPct);
+      setMoneyCell(ws, 'F' + r, s.bruto || s.valorOriginal || 0);
+      setMoneyCell(ws, 'G' + r, s.descontoValor || Math.max(0, n(s.bruto || 0) - n(s.total || 0)));
       setMoneyCell(ws, 'H' + r, s.total);
     });
 
+    setCell(ws, 'B' + (pecaStart - 1), 'CÓDIGO DA PEÇA (ORIGINAL/OEM)');
+    setCell(ws, 'D' + (pecaStart - 1), 'DESCRIÇÃO / VALOR UNITÁRIO');
+    setCell(ws, 'E' + (pecaStart - 1), 'QTD');
+    setCell(ws, 'F' + (pecaStart - 1), 'VALOR ORIGINAL');
+    setCell(ws, 'G' + (pecaStart - 1), 'DESCONTO R$');
+    setCell(ws, 'H' + (pecaStart - 1), 'VALOR COBRADO');
     prepararLinhasDados(ws, pecaStart, pecaEnd, linhasPecas.length);
     linhasPecas.forEach((p, idx) => {
       const r = pecaStart + idx;
       ws.getRow(r).hidden = false;
       setCell(ws, 'B' + r, p.codigo);
-      setCell(ws, 'D' + r, p.desc);
+      setCell(ws, 'D' + r, `${p.desc}${n(p.valorUnit || 0) ? `\nValor unitário: R$ ${n(p.valorUnit).toFixed(2).replace('.', ',')}` : ''}`);
       setCell(ws, 'E' + r, p.qtd);
-      setMoneyCell(ws, 'F' + r, p.valorUnit);
-      setPercentCell(ws, 'G' + r, p.descPct);
+      setMoneyCell(ws, 'F' + r, p.bruto || p.valorOriginal || 0);
+      setMoneyCell(ws, 'G' + r, p.descontoValor || Math.max(0, n(p.bruto || 0) - n(p.total || 0)));
       setMoneyCell(ws, 'H' + r, p.total);
     });
 
@@ -1974,9 +1997,9 @@
       [`ENDERECO: ${dc.endereco}`],
       [`FISCAL DO CONTRATO: ${dc.fiscal}`],
       [],
-      ['COD. SERVICO / SISTEMA / TIPO VEICULO','DESCRICAO DO SERVICO','TMO','VALOR','DESC.','VALOR']
+      ['COD. SERVICO / SISTEMA / TIPO VEICULO','DESCRICAO DO SERVICO / VALOR HORA','TMO','VALOR ORIGINAL','DESCONTO R$','VALOR COBRADO']
     ];
-    linhasServ.forEach(s => rows.push([textoSistemaServico(s), s.desc, s.tempo, s.valorHora, s.descPct, s.total]));
+    linhasServ.forEach(s => rows.push([textoSistemaServico(s), `${s.desc}${n(s.valorHora||0)?` | Valor hora R$ ${n(s.valorHora).toFixed(2).replace('.',',')}`:''}`, s.tempo, s.bruto || s.valorOriginal || 0, s.descontoValor || Math.max(0,n(s.bruto||0)-n(s.total||0)), s.total]));
     rows.push(['TOTAL DE SERVICOS', '', linhasServ.reduce((sum, s) => sum + s.tempo, 0), '', '', linhasServ.reduce((sum, s) => sum + s.total, 0)]);
     if (resumoSecoes.length) {
       rows.push([]);
@@ -1984,22 +2007,22 @@
       resumoSecoes.forEach(([secao, item]) => rows.push([textoResumoSecao(secao, item), '', '', '', item.horas, item.total]));
     }
     rows.push([]);
-    rows.push(['CODIGO DA PECA (CODIGO ORIGINAL)','DESCRICAO','QTD','VALOR UNITARIO REGISTRADO','DESC','VALOR']);
-    linhasPecas.forEach(p => rows.push([p.codigo, p.desc, p.qtd, p.valorUnit, p.descPct, p.total]));
+    rows.push(['CODIGO DA PECA (CODIGO ORIGINAL)','DESCRICAO / VALOR UNITARIO','QTD','VALOR ORIGINAL','DESCONTO R$','VALOR COBRADO']);
+    linhasPecas.forEach(p => rows.push([p.codigo, `${p.desc}${n(p.valorUnit||0)?` | Valor unitario R$ ${n(p.valorUnit).toFixed(2).replace('.',',')}`:''}`, p.qtd, p.bruto || p.valorOriginal || 0, p.descontoValor || Math.max(0,n(p.bruto||0)-n(p.total||0)), p.total]));
     rows.push(['TOTAL DE PECAS', '', '', '', '', linhasPecas.reduce((sum, p) => sum + p.total, 0)]);
 
     const composicao = agruparComposicaoOS(linhasPecas, linhasServ);
     rows.push([]);
     rows.push(['COMPOSICAO DA O.S. POR PECA E SERVICO VINCULADO']);
-    rows.push(['ITEM / CODIGO','DESCRICAO','QTD/H','UNIT./R$/H','DESC.','TOTAL']);
+    rows.push(['ITEM / CODIGO','DESCRICAO','QTD/H','VALOR ORIGINAL','DESCONTO R$','VALOR COBRADO']);
     composicao.grupos.forEach(g => {
       const p = g.peca;
-      rows.push([textoItemPeca(p), p.desc, p.qtd, p.valorUnit, p.descPct, p.total]);
-      g.servicos.forEach(s => rows.push([textoItemServico(s), s.desc, s.tempo, s.valorHora, s.descPct, s.total]));
+      rows.push([textoItemPeca(p), `${p.desc}${n(p.valorUnit||0)?` | Unit. R$ ${n(p.valorUnit).toFixed(2).replace('.',',')}`:''}`, p.qtd, p.bruto || p.valorOriginal || 0, p.descontoValor || Math.max(0,n(p.bruto||0)-n(p.total||0)), p.total]);
+      g.servicos.forEach(s => rows.push([textoItemServico(s), `${s.desc}${n(s.valorHora||0)?` | R$/h ${n(s.valorHora).toFixed(2).replace('.',',')}`:''}`, s.tempo, s.bruto || s.valorOriginal || 0, s.descontoValor || Math.max(0,n(s.bruto||0)-n(s.total||0)), s.total]));
     });
     if (composicao.soltos.length) {
       rows.push(['SERVICOS GERAIS / SEM PECA VINCULADA']);
-      composicao.soltos.forEach(s => rows.push([textoItemServico(s), s.desc, s.tempo, s.valorHora, s.descPct, s.total]));
+      composicao.soltos.forEach(s => rows.push([textoItemServico(s), `${s.desc}${n(s.valorHora||0)?` | R$/h ${n(s.valorHora).toFixed(2).replace('.',',')}`:''}`, s.tempo, s.bruto || s.valorOriginal || 0, s.descontoValor || Math.max(0,n(s.bruto||0)-n(s.total||0)), s.total]));
     }
 
     const brutoPecas = linhasPecas.reduce((sum, p) => sum + n(p.bruto || 0), 0);
@@ -2029,8 +2052,8 @@
     if (aprovacaoInfo?.naoAprovados?.length) {
       rows.push([]);
       rows.push(['ITENS NAO APROVADOS - HISTORICO DO ORCAMENTO ORIGINAL']);
-      rows.push(['TIPO / CODIGO','DESCRICAO','QTD/H','UNIT./R$/H','DESC.','TOTAL ORIGINAL']);
-      aprovacaoInfo.naoAprovados.forEach(it => rows.push([it.labelTipo || it.tipo, it.desc || '-', it.tipo === 'peca' ? (it.qtd || 1) : (it.tempo || 0), it.valorUnit || it.valorHora || 0, 'NAO APROVADO', it.valorFinal || 0]));
+      rows.push(['TIPO / CODIGO','DESCRICAO','QTD/H','VALOR ORIGINAL','DESCONTO R$','VALOR COBRADO']);
+      aprovacaoInfo.naoAprovados.forEach(it => { const bruto=n(it.valorBruto||it.valorOriginal||it.valorFinal||0), final=n(it.valorFinal||0); rows.push([it.labelTipo || it.tipo, it.desc || '-', it.tipo === 'peca' ? (it.qtd || 1) : (it.tempo || 0), bruto, n(it.descontoValor||Math.max(0,bruto-final)), final]); });
     }
     rows.push([aprovacaoInfo?.ativa ? 'VALOR APROVADO / CONTRATO' : 'VALOR DO CONTRATO', '', '', '', '', total]);
     rows.push([dataExtenso(dt.cidade || dc.cidade)]);
@@ -2072,17 +2095,17 @@
       [`FISCAL DO CONTRATO: ${dc.fiscal}`],
       [],
       ['COMPOSICAO DA O.S. POR PECA E SERVICO VINCULADO'],
-      ['ITEM / CODIGO','DESCRICAO','QTD/H','UNIT./R$/H','DESC.','TOTAL']
+      ['ITEM / CODIGO','DESCRICAO','QTD/H','VALOR ORIGINAL','DESCONTO R$','VALOR COBRADO']
     ];
     const composicao = agruparComposicaoOS(linhasPecas, linhasServ);
     composicao.grupos.forEach(g => {
       const p = g.peca;
-      rows.push([textoItemPeca(p), p.desc, p.qtd, p.valorUnit, p.descPct, p.total]);
-      g.servicos.forEach(item => rows.push([textoItemServico(item), item.desc, item.tempo, item.valorHora, item.descPct, item.total]));
+      rows.push([textoItemPeca(p), `${p.desc}${n(p.valorUnit||0)?` | Unit. R$ ${n(p.valorUnit).toFixed(2).replace('.',',')}`:''}`, p.qtd, p.bruto || p.valorOriginal || 0, p.descontoValor || Math.max(0,n(p.bruto||0)-n(p.total||0)), p.total]);
+      g.servicos.forEach(item => rows.push([textoItemServico(item), `${item.desc}${n(item.valorHora||0)?` | R$/h ${n(item.valorHora).toFixed(2).replace('.',',')}`:''}`, item.tempo, item.bruto || item.valorOriginal || 0, item.descontoValor || Math.max(0,n(item.bruto||0)-n(item.total||0)), item.total]));
     });
     if (composicao.soltos.length) {
       rows.push(['SERVICOS GERAIS / SEM PECA VINCULADA']);
-      composicao.soltos.forEach(item => rows.push([textoItemServico(item), item.desc, item.tempo, item.valorHora, item.descPct, item.total]));
+      composicao.soltos.forEach(item => rows.push([textoItemServico(item), `${item.desc}${n(item.valorHora||0)?` | R$/h ${n(item.valorHora).toFixed(2).replace('.',',')}`:''}`, item.tempo, item.bruto || item.valorOriginal || 0, item.descontoValor || Math.max(0,n(item.bruto||0)-n(item.total||0)), item.total]));
     }
     const brutoPecas = linhasPecas.reduce((sum, p) => sum + n(p.bruto || 0), 0);
     const liquidoPecas = linhasPecas.reduce((sum, p) => sum + n(p.total || 0), 0);
@@ -2107,8 +2130,8 @@
     if (aprovacaoInfo?.naoAprovados?.length) {
       rows.push([]);
       rows.push(['ITENS NAO APROVADOS - HISTORICO DO ORCAMENTO ORIGINAL']);
-      rows.push(['TIPO / CODIGO','DESCRICAO','QTD/H','UNIT./R$/H','DESC.','TOTAL ORIGINAL']);
-      aprovacaoInfo.naoAprovados.forEach(it => rows.push([it.labelTipo || it.tipo, it.desc || '-', it.tipo === 'peca' ? (it.qtd || 1) : (it.tempo || 0), it.valorUnit || it.valorHora || 0, 'NAO APROVADO', it.valorFinal || 0]));
+      rows.push(['TIPO / CODIGO','DESCRICAO','QTD/H','VALOR ORIGINAL','DESCONTO R$','VALOR COBRADO']);
+      aprovacaoInfo.naoAprovados.forEach(it => { const bruto=n(it.valorBruto||it.valorOriginal||it.valorFinal||0), final=n(it.valorFinal||0); rows.push([it.labelTipo || it.tipo, it.desc || '-', it.tipo === 'peca' ? (it.qtd || 1) : (it.tempo || 0), bruto, n(it.descontoValor||Math.max(0,bruto-final)), final]); });
     }
     rows.push([aprovacaoInfo?.ativa ? 'VALOR APROVADO / CONTRATO' : 'VALOR DO CONTRATO', '', '', '', '', total]);
     rows.push([dataExtenso(dt.cidade || dc.cidade)]);
