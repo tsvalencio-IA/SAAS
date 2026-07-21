@@ -1,7 +1,7 @@
 {
   "name": "thiaguinho-erp-cliente",
-  "version": "1.0.26-2",
-  "description": "thIAguinho ERP V26.2 — usabilidade do painel Equipe com tarefas ativas, itens concluídos recolhidos e orçamento detalhado preservado. Powered by thIAguinho Soluções Digitais",
+  "version": "1.0.26-3",
+  "description": "thIAguinho ERP V26.3 — financeiro Jarvis responsivo com filtros por comissão/salário/gastos internos, ações em lote e cotação da O.S. recolhível. Powered by thIAguinho Soluções Digitais",
   "main": "electron/main.js",
   "scripts": {
     "build": "bash scripts/build-web.sh",
