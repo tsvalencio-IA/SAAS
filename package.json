@@ -1,7 +1,7 @@
 {
   "name": "thiaguinho-erp-cliente",
-  "version": "1.0.26",
-  "description": "thIAguinho ERP V26 — consulta de atendimentos por mecânico filtrada por status operacional e rateio individual, preservando integralmente a base V24. Powered by thIAguinho Soluções Digitais",
+  "version": "1.0.26-1",
+  "description": "thIAguinho ERP V26.1 — hotfix do painel Equipe para sessão, pátio e IA do próprio mecânico, preservando a V26. Powered by thIAguinho Soluções Digitais",
   "main": "electron/main.js",
   "scripts": {
     "build": "bash scripts/build-web.sh",

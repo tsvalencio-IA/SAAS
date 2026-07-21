@@ -1,4 +1,4 @@
-const CACHE='oficin-ia-v26-atendimento-mecanico-status-rateio-20260720';
+const CACHE='oficin-ia-v26-1-hotfix-equipe-sessao-20260721';
 const ASSETS=[
   './checklist.html','./js/checklist.js','./js/config.js','./data/checklist-model.json',
   './checklist.webmanifest','./assets/icons/checklist-192.png','./assets/icons/checklist-512.png'
