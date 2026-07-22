@@ -905,7 +905,6 @@ function irTab(id,el){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   $(id)?.classList.add('active'); el?.classList.add('active');
   if(id==='t-chat') iniciarChatEquipeDados();
-  if(id==='t-kanban') iniciarEstoqueEquipeDados();
   repararLayoutEquipe();
 }
 
@@ -1589,31 +1588,20 @@ document.addEventListener('DOMContentLoaded',()=>{
     });
   }
 
-  statusEquipeDados('Sincronizando pátio da equipe...', 'warn');
-  db.collection('ordens_servico').where('tenantId','==',J.tid).onSnapshot(snap=>{
-    const todasOS=snap.docs.map(d=>({id:d.id,...d.data()}));
-    const roleAtual=String(J.role||'').toLowerCase();
-    const podeVerTodas=['gerente','gestor','admin','superadmin','dono'].includes(roleAtual);
-    dbOS=podeVerTodas?todasOS:todasOS.filter(osAtribuidaAoUsuarioEquipe);
-    statusEquipeDados('');
-    renderKanban(); renderKPIs();
-  }, err => {
-    console.error('[Equipe] Falha ao carregar O.S.', err);
-    statusEquipeDados('Não foi possível carregar as O.S. da equipe. Verifique permissão do Firestore, tenant da sessão e conexão.', 'err');
-    renderKanbanFalhaEquipe('Falha ao carregar O.S.');
-  });
-  db.collection('clientes').where('tenantId','==',J.tid).onSnapshot(snap=>{
-    dbClientes=snap.docs.map(d=>({id:d.id,...d.data()}));
-    popularSelects();
-  });
-  db.collection('veiculos').where('tenantId','==',J.tid).onSnapshot(snap=>{
-    dbVeiculos=snap.docs.map(d=>({id:d.id,...d.data()}));
-    popularSelects();
-  });
-  // Estoque é necessário apenas ao manipular peças da O.S.; aguarda o
-  // primeiro intervalo ocioso para não competir com o carregamento do pátio.
-  if('requestIdleCallback' in window) requestIdleCallback(iniciarEstoqueEquipeDados,{timeout:1400});
-  else setTimeout(iniciarEstoqueEquipeDados,450);
+  if (typeof window.equipeEconomiaV265Start === 'function') {
+    window.equipeEconomiaV265Start();
+  } else {
+    statusEquipeDados('Sincronizando pátio da equipe...', 'warn');
+    db.collection('ordens_servico').where('tenantId','==',J.tid).onSnapshot(snap=>{
+      const todasOS=snap.docs.map(d=>({id:d.id,...d.data()}));
+      const roleAtual=String(J.role||'').toLowerCase();
+      const podeVerTodas=['gerente','gestor','admin','superadmin','dono'].includes(roleAtual);
+      dbOS=podeVerTodas?todasOS:todasOS.filter(osAtribuidaAoUsuarioEquipe);
+      statusEquipeDados(''); renderKanban(); renderKPIs();
+    }, err => { console.error('[Equipe] Falha ao carregar O.S.', err); renderKanbanFalhaEquipe('Falha ao carregar O.S.'); });
+    db.collection('clientes').where('tenantId','==',J.tid).onSnapshot(snap=>{dbClientes=snap.docs.map(d=>({id:d.id,...d.data()}));popularSelects();});
+    db.collection('veiculos').where('tenantId','==',J.tid).onSnapshot(snap=>{dbVeiculos=snap.docs.map(d=>({id:d.id,...d.data()}));popularSelects();});
+  }
 
 // VERIFICA PERMISSÃO DE COMISSÃO DO GESTOR E MONTA EXTRATO
   db.collection('oficinas').doc(J.tid).onSnapshot(doc => {
@@ -2739,5 +2727,6 @@ function aplicarSugestaoIA() {
 <script src="js/uix-theme-fix.js"></script>
 <script src="js/equipe-comissoes-v21.js?v=26.1.0"></script>
 <script src="js/equipe-usabilidade-v262.js?v=26.2.0"></script>
+<script src="js/equipe-firestore-economico-v265.js?v=26.5.0"></script>
 </body>
 </html>

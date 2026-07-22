@@ -1,4 +1,4 @@
-const CACHE='oficin-ia-v26-3-financeiro-jarvis-20260721';
+const CACHE='oficin-ia-v26-5-firestore-economico-20260722';
 const ASSETS=[
   './checklist.html','./js/checklist.js','./js/config.js','./data/checklist-model.json',
   './checklist.webmanifest','./assets/icons/checklist-192.png','./assets/icons/checklist-512.png'
