@@ -892,6 +892,7 @@
   }
 
   function installFiscalListeners() {
+    if (W.__THIA_FIRESTORE_ECONOMICO_V265__) { W._hardeningFiscalListeners = true; return; }
     if (W._hardeningFiscalListeners || !db() || !J().tid) return;
     W._hardeningFiscalListeners = true;
     const listen = (col, target, renderer) => {
@@ -1170,6 +1171,8 @@
     await batch.commit();
     toast(`Pacote ${p.numero || id} baixado pelos boletos reais. Titulos originais permanecem agrupados.`, 'ok');
   };
+
+  W.renderPacotesBoletosHardening = renderPacotesBoletos;
 
   function wrapToggleFinanceiroAgrupado() {
     if (typeof W.toggleStatusFin !== 'function' || W.toggleStatusFin.__thiaAgrupadoWrap) return;
