@@ -1,5 +1,5 @@
 /**
- * OFICIN-IA V26.12 — Jarvis: banco profissional + inventário responsivo definitivo.
+ * OFICIN-IA V26.12.1 — Hotfix mínimo do inventário responsivo no celular.
  * Preserva coleções, documentos, regras de negócio e funções existentes.
  */
 (function (W, D) {
@@ -7,7 +7,7 @@
   if (W.__JARVIS_FIRESTORE_PRO_V2612__) return;
   W.__JARVIS_FIRESTORE_PRO_V2612__ = true;
 
-  const VERSION = '26.12.0';
+  const VERSION = '26.12.1';
   const RT = () => W.ThiaFirestoreV2612;
   const db = () => W.db || W.J?.db;
   const J = () => W.J || {};
@@ -254,7 +254,7 @@
         #s-estoque .thia-inventory-v2612 .j-table{display:block!important;width:100%!important;max-width:100%!important;overflow:visible!important;}
         #s-estoque .thia-inventory-v2612 table{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;}
         #s-estoque .thia-inventory-v2612 thead{display:none!important;}
-        #s-estoque .thia-inventory-v2612 .j-card-body .j-table > #tbEstoque,
+        #s-estoque .j-card.thia-inventory-v2612:not(.j-minimized) .j-card-body > .j-table > #tbEstoque,
         #s-estoque .thia-inventory-v2612 #tbEstoque{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;padding:9px!important;}
         #s-estoque .thia-inventory-v2612 #tbEstoque > tr{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;margin:0 0 12px!important;padding:12px!important;border:1px solid var(--border)!important;border-radius:10px!important;background:var(--surf2)!important;}
         #s-estoque .thia-inventory-v2612 #tbEstoque > tr > td{display:grid!important;grid-template-columns:minmax(96px,34%) minmax(0,1fr)!important;gap:10px!important;width:100%!important;max-width:100%!important;min-width:0!important;padding:7px 0!important;border:0!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;text-align:left!important;}
@@ -311,6 +311,7 @@
     installChatHistoryHooks();
     installInventoryFix();
     D.documentElement.dataset.thiaDatabaseMode = 'profissional-v2612';
+    D.documentElement.dataset.thiaInventoryFix = VERSION;
     console.info('[OFICIN-IA] Jarvis Firestore profissional e inventário V' + VERSION + ' ativos');
   }
 

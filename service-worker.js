@@ -1,4 +1,4 @@
-const CACHE='oficin-ia-v26-12-firestore-profissional-20260723';
+const CACHE='oficin-ia-v26-12-1-inventario-mobile-20260723';
 const ASSETS=[
   './checklist.html','./js/checklist.js','./js/config.js','./data/checklist-model.json',
   './checklist.webmanifest','./assets/icons/checklist-192.png','./assets/icons/checklist-512.png'
