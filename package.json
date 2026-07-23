@@ -1,7 +1,7 @@
 {
   "name": "thiaguinho-erp-cliente",
-  "version": "1.0.26-7",
-  "description": "thIAguinho ERP V26.7 — cards independentes, fornecedores responsivos e menu iOS corrigido, preservando filtros fiscais, IA, Tempária e Firestore econômico. Powered by thIAguinho Soluções Digitais",
+  "version": "1.0.26-8",
+  "description": "thIAguinho ERP V26.8 — cards fiscais separados, responsividade automática do Jarvis, filtros fiscais por peça/destino, IA de vínculos/auditoria e Tempária automática somente para cliente oficial, preservando Firestore econômico. Powered by thIAguinho Soluções Digitais",
   "main": "electron/main.js",
   "scripts": {
     "build": "bash scripts/build-web.sh",
