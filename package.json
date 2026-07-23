@@ -1,7 +1,7 @@
 {
   "name": "thiaguinho-erp-cliente",
-  "version": "1.0.26-9",
-  "description": "thIAguinho ERP V26.9 — responsividade mobile de clientes, veículos e fornecedores, filtros de saldo do inventário e rastreamento Kardex conectado às notas fiscais, preservando V26.7/V26.8, Firestore econômico e regras de negócio. Powered by thIAguinho Soluções Digitais",
+  "version": "1.0.26-10",
+  "description": "thIAguinho ERP V26.10 — correção cumulativa do inventário sem ciclo de renderização, filtros de saldo, Kardex e responsividade integral no celular e computador, preservando V26.7/V26.8/V26.9, Firestore econômico e regras de negócio. Powered by thIAguinho Soluções Digitais",
   "main": "electron/main.js",
   "scripts": {
     "build": "bash scripts/build-web.sh",

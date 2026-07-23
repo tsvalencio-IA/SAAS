@@ -1,14 +1,14 @@
 /**
- * thIAguinho SaaS V26.9 — responsividade mobile definitiva e Kardex de estoque.
- * Camada aditiva: preserva Firebase, estoque, notas fiscais, vínculos e regras de negócio.
+ * thIAguinho SaaS V26.10 — correção cumulativa do inventário, Kardex e responsividade.
+ * Corrige a V26.9 sem alterar Firebase, regras de negócio, notas fiscais, clientes ou fornecedores.
  * Powered by thIAguinho Soluções Digitais.
  */
 (function (W, D) {
   'use strict';
-  if (W.__THIA_JARVIS_MOBILE_KARDEX_V269__) return;
-  W.__THIA_JARVIS_MOBILE_KARDEX_V269__ = true;
+  if (W.__THIA_JARVIS_INVENTARIO_V2610__) return;
+  W.__THIA_JARVIS_INVENTARIO_V2610__ = true;
 
-  const VERSION = '26.9.0';
+  const VERSION = '26.10.0';
   const byId = id => D.getElementById(id);
   const num = value => {
     const n = Number(String(value == null ? 0 : value).replace(',', '.'));
@@ -25,19 +25,30 @@
   };
 
   function installCSS() {
-    if (byId('jarvisMobileKardexV269CSS')) return;
+    byId('jarvisMobileKardexV269CSS')?.remove();
+    if (byId('jarvisInventarioV2610CSS')) return;
     const style = D.createElement('style');
-    style.id = 'jarvisMobileKardexV269CSS';
+    style.id = 'jarvisInventarioV2610CSS';
     style.textContent = `
       *,*::before,*::after{box-sizing:border-box;}
-      html,body{max-width:100%;overflow-x:hidden!important;}
-      .content,.section,.j-card,.j-card-body,.j-card-header{min-width:0!important;max-width:100%!important;}
+      .content,.section,.j-card,.j-card-header,.j-card-body{min-width:0!important;max-width:100%!important;}
       .j-input,.j-select,input,select,textarea,button{max-width:100%;}
 
-      /* Barra de filtros do inventário */
+      /* Grade automática: evita apertar Inventário e Fornecedores em colunas estreitas. */
+      #s-estoque>div{
+        display:grid!important;
+        grid-template-columns:repeat(auto-fit,minmax(min(100%,720px),1fr))!important;
+        gap:16px!important;
+        align-items:start!important;
+        width:100%!important;
+        min-width:0!important;
+      }
+      #s-estoque>div>.j-card{width:100%!important;min-width:0!important;max-width:100%!important;}
+
+      /* Filtros reais do inventário. */
       #estoqueFiltrosV269{
         display:grid;
-        grid-template-columns:minmax(220px,1fr) minmax(170px,230px);
+        grid-template-columns:minmax(240px,1fr) minmax(190px,260px);
         gap:10px;
         padding:12px;
         border-bottom:1px solid var(--border);
@@ -48,14 +59,13 @@
         display:block;margin-bottom:5px;font-family:var(--fm);font-size:.58rem;
         letter-spacing:1px;text-transform:uppercase;color:var(--muted);
       }
-      #estoqueFiltrosV269 input,#estoqueFiltrosV269 select{
-        width:100%!important;min-width:0!important;
-      }
+      #estoqueFiltrosV269 input,#estoqueFiltrosV269 select{width:100%!important;min-width:0!important;}
       #estoqueResumoV269{
         grid-column:1/-1;font-family:var(--fm);font-size:.64rem;color:var(--muted);
         line-height:1.45;overflow-wrap:anywhere;
       }
       #tbEstoqueBusca{display:none!important;}
+      #estoqueMobileCardsFix,#estoqueMobileV269{display:none!important;}
       .btn-kardex-v269{border-color:rgba(0,212,255,.48)!important;color:var(--cyan)!important;}
       .kardex-highlight-v269{animation:kardexPulseV269 1.7s ease 2;}
       @keyframes kardexPulseV269{
@@ -63,16 +73,62 @@
         50%{box-shadow:0 0 0 4px rgba(0,212,255,.25),0 0 28px rgba(0,212,255,.18);}
       }
 
-      /* Novo inventário mobile; o renderer antigo fica preservado, mas oculto. */
-      #estoqueMobileV269{display:none;}
-
-      /* Desktop: ações da tabela sempre cabem */
-      #tbEstoque td:last-child{white-space:normal!important;}
-      #tbEstoque td:last-child .acoes-estoque-v269{
-        display:grid;grid-template-columns:repeat(2,minmax(72px,1fr));gap:5px;min-width:150px;
+      /* Inventário desktop: tabela inteira cabe na largura disponível. */
+      #s-estoque .j-card:first-child .j-card-body{overflow-x:hidden!important;}
+      #s-estoque .j-card:first-child table.j-table{
+        display:table!important;width:100%!important;max-width:100%!important;
+        min-width:0!important;table-layout:fixed!important;
       }
-      #tbEstoque td:last-child .acoes-estoque-v269 button{
-        width:100%;min-width:0;white-space:normal;line-height:1.15;padding:7px 5px;
+      #s-estoque .j-card:first-child table.j-table>thead{display:table-header-group!important;}
+      #s-estoque #tbEstoque{display:table-row-group!important;width:100%!important;}
+      #s-estoque #tbEstoque tr{display:table-row!important;}
+      #s-estoque #tbEstoque td{
+        display:table-cell!important;min-width:0!important;max-width:100%!important;
+        white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;
+        vertical-align:middle!important;padding:10px 8px!important;
+      }
+      #s-estoque .j-card:first-child th{white-space:normal!important;overflow-wrap:anywhere!important;}
+      #s-estoque .j-card:first-child th:nth-child(1),#s-estoque #tbEstoque td:nth-child(1){width:12%;}
+      #s-estoque .j-card:first-child th:nth-child(2),#s-estoque #tbEstoque td:nth-child(2){width:28%;}
+      #s-estoque .j-card:first-child th:nth-child(3),#s-estoque #tbEstoque td:nth-child(3){width:10%;}
+      #s-estoque .j-card:first-child th:nth-child(4),#s-estoque #tbEstoque td:nth-child(4){width:10%;}
+      #s-estoque .j-card:first-child th:nth-child(5),#s-estoque #tbEstoque td:nth-child(5){width:6%;}
+      #s-estoque .j-card:first-child th:nth-child(6),#s-estoque #tbEstoque td:nth-child(6){width:6%;}
+      #s-estoque .j-card:first-child th:nth-child(7),#s-estoque #tbEstoque td:nth-child(7){width:10%;}
+      #s-estoque .j-card:first-child th:nth-child(8),#s-estoque #tbEstoque td:nth-child(8){width:18%;}
+      .acoes-estoque-v2610{
+        display:grid!important;grid-template-columns:1fr!important;gap:6px!important;
+        width:100%!important;min-width:0!important;
+      }
+      .acoes-estoque-v2610 button{
+        width:100%!important;min-width:0!important;max-width:100%!important;
+        margin:0!important;padding:7px 5px!important;white-space:normal!important;
+        line-height:1.15!important;overflow-wrap:anywhere!important;
+      }
+
+      /* Fornecedores: tabela ou cards, nunca conteúdo cortado. */
+      .j-card-fornecedores,.j-card-fornecedores .j-card-body{min-width:0!important;max-width:100%!important;overflow:hidden!important;}
+      .j-card-fornecedores table.j-table{width:100%!important;max-width:100%!important;min-width:0!important;table-layout:fixed!important;}
+      .j-card-fornecedores th,.j-card-fornecedores td{white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;min-width:0!important;}
+      .j-card-fornecedores td:last-child button{display:block;width:100%!important;min-width:0!important;margin:4px 0!important;white-space:normal!important;}
+
+      /* Clientes e veículos no computador também respeitam a largura do card. */
+      #s-clientes table.j-table{width:100%!important;max-width:100%!important;min-width:0!important;table-layout:fixed!important;}
+      #s-clientes th,#s-clientes td{white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;min-width:0!important;}
+
+      @container (max-width:620px){
+        .j-card-fornecedores table.j-table,.j-card-fornecedores table.j-table tbody,
+        .j-card-fornecedores table.j-table tr,.j-card-fornecedores table.j-table td{
+          display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;
+        }
+        .j-card-fornecedores table.j-table thead{display:none!important;}
+        .j-card-fornecedores #tbFornec{padding:10px!important;}
+        .j-card-fornecedores #tbFornec tr{padding:12px!important;margin:0 0 12px!important;border:1px solid var(--border)!important;border-radius:10px!important;background:var(--surf2)!important;overflow:hidden!important;}
+        .j-card-fornecedores #tbFornec td{padding:8px 0!important;border:0!important;}
+        .j-card-fornecedores #tbFornec td::before{content:attr(data-label);display:block;margin-bottom:4px;font-family:var(--fm);font-size:.56rem;color:var(--muted);letter-spacing:1.1px;text-transform:uppercase;}
+        .j-card-fornecedores #tbFornec td:last-child{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important;}
+        .j-card-fornecedores #tbFornec td:last-child::before{grid-column:1/-1;}
+        .j-card-fornecedores #tbFornec td:last-child button{margin:0!important;min-height:44px!important;}
       }
 
       @media(max-width:900px){
@@ -80,116 +136,78 @@
       }
 
       @media(max-width:768px){
-        body{width:100%!important;}
-        .content{padding-left:10px!important;padding-right:10px!important;}
-        .section{width:100%!important;overflow-x:hidden!important;}
-        .j-card{overflow:hidden!important;}
+        html,body{width:100%!important;max-width:100%!important;overflow-x:hidden!important;}
+        .content{padding-left:10px!important;padding-right:10px!important;overflow-x:hidden!important;}
+        .section{width:100%!important;min-width:0!important;overflow-x:hidden!important;}
+        .j-card{width:100%!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;}
         .j-card-header{flex-direction:column!important;align-items:stretch!important;gap:10px!important;}
-        .j-card-header>.btn-primary,.j-card-header>.btn-success,.j-card-header>.btn-ghost{width:100%!important;min-height:46px;}
         .j-collapse-tools{width:100%!important;grid-template-columns:1fr!important;}
+        .j-card-header button,.j-collapse-tools button{width:100%!important;min-width:0!important;min-height:44px!important;}
 
-        /* Clientes e veículos viram cards verticais reais. */
-        #s-clientes .j-card-body{overflow:hidden!important;padding:0!important;}
-        #s-clientes table,#s-clientes tbody{display:block!important;width:100%!important;max-width:100%!important;}
-        #s-clientes thead{display:none!important;}
-        #tbClientesBusca,#tbVeiculosBusca{display:block!important;padding:10px!important;}
-        #tbClientesBusca tr,#tbVeiculosBusca tr,
-        #tbClientesBusca td,#tbVeiculosBusca td{display:block!important;width:100%!important;max-width:100%!important;padding:0!important;border:0!important;}
-        #buscaClientesCadastro,#buscaVeiculosCadastro{
-          width:100%!important;max-width:100%!important;min-width:0!important;font-size:16px!important;
-          white-space:normal!important;text-overflow:ellipsis;
+        #estoqueFiltrosV269{grid-template-columns:1fr!important;padding:10px!important;}
+        #estoqueFiltrosV269 input,#estoqueFiltrosV269 select{font-size:16px!important;min-height:46px!important;}
+
+        /* Inventário mobile usa as próprias linhas reais como cards: sem segunda lista paralela. */
+        #s-estoque .j-card:first-child .j-card-body{overflow:hidden!important;padding:0!important;}
+        #s-estoque .j-card:first-child table.j-table{
+          display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;
+          table-layout:auto!important;overflow:hidden!important;
         }
-        #tbClientes,#tbVeiculos{padding:10px!important;}
-        #tbClientes tr,#tbVeiculos tr{
+        #s-estoque .j-card:first-child table.j-table>thead{display:none!important;}
+        #s-estoque #tbEstoque{
+          display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;padding:10px!important;
+        }
+        #s-estoque #tbEstoque tr{
           display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;
           margin:0 0 12px!important;padding:12px!important;border:1px solid var(--border)!important;
-          border-radius:10px!important;background:var(--surf2)!important;overflow:hidden!important;
+          border-radius:12px!important;background:var(--surf2)!important;overflow:hidden!important;
         }
-        #tbClientes td,#tbVeiculos td{
-          display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;
-          padding:8px 0!important;border:0!important;white-space:normal!important;
+        #s-estoque #tbEstoque td{
+          display:grid!important;grid-template-columns:minmax(92px,34%) minmax(0,1fr)!important;
+          gap:10px!important;width:100%!important;max-width:100%!important;min-width:0!important;
+          padding:7px 0!important;border:0!important;white-space:normal!important;
           overflow-wrap:anywhere!important;word-break:break-word!important;text-align:left!important;
         }
-        #tbClientes td::before,#tbVeiculos td::before{
-          content:attr(data-label);display:block;margin-bottom:4px;font-family:var(--fm);
-          font-size:.56rem;line-height:1.3;color:var(--muted);letter-spacing:1.2px;text-transform:uppercase;
+        #s-estoque #tbEstoque td::before{
+          content:attr(data-label);font-family:var(--fm);font-size:.56rem;color:var(--muted);
+          letter-spacing:1px;text-transform:uppercase;min-width:0;
         }
-        #tbClientes td:last-child,#tbVeiculos td:last-child{
-          display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important;
-        }
+        #s-estoque #tbEstoque td:last-child{display:block!important;}
+        #s-estoque #tbEstoque td:last-child::before{display:block;margin-bottom:7px;}
+        .acoes-estoque-v2610{grid-template-columns:1fr!important;gap:8px!important;}
+        .acoes-estoque-v2610 button{min-height:44px!important;}
+
+        /* Clientes e veículos: cards verticais completos. */
+        #s-clientes .j-card-body{overflow:hidden!important;padding:0!important;}
+        #s-clientes table,#s-clientes tbody{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;}
+        #s-clientes thead{display:none!important;}
+        #tbClientesBusca,#tbVeiculosBusca{display:block!important;padding:10px!important;}
+        #tbClientesBusca tr,#tbVeiculosBusca tr,#tbClientesBusca td,#tbVeiculosBusca td{display:block!important;width:100%!important;max-width:100%!important;padding:0!important;border:0!important;}
+        #buscaClientesCadastro,#buscaVeiculosCadastro{width:100%!important;min-width:0!important;max-width:100%!important;font-size:16px!important;}
+        #tbClientes,#tbVeiculos{padding:10px!important;}
+        #tbClientes tr,#tbVeiculos tr{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;margin:0 0 12px!important;padding:12px!important;border:1px solid var(--border)!important;border-radius:10px!important;background:var(--surf2)!important;overflow:hidden!important;}
+        #tbClientes td,#tbVeiculos td{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;padding:8px 0!important;border:0!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;text-align:left!important;}
+        #tbClientes td::before,#tbVeiculos td::before{content:attr(data-label);display:block;margin-bottom:4px;font-family:var(--fm);font-size:.56rem;color:var(--muted);letter-spacing:1.1px;text-transform:uppercase;}
+        #tbClientes td:last-child,#tbVeiculos td:last-child{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important;}
         #tbClientes td:last-child::before,#tbVeiculos td:last-child::before{grid-column:1/-1;}
-        #tbClientes td:last-child button,#tbVeiculos td:last-child button{
-          width:100%!important;min-width:0!important;min-height:42px!important;margin:0!important;
-          white-space:normal!important;overflow-wrap:anywhere!important;
-        }
-        #tbClientes .pill,#tbVeiculos .pill{max-width:100%;white-space:normal;}
-        #tbVeiculos .placa-badge{display:inline-flex;max-width:100%;overflow-wrap:anywhere;}
+        #tbClientes td:last-child button,#tbVeiculos td:last-child button{width:100%!important;min-width:0!important;min-height:44px!important;margin:0!important;}
 
-        /* Fornecedores: nenhum texto ou ação pode sair do card. */
-        .j-card-fornecedores,.j-card-fornecedores .j-card-body{overflow:hidden!important;}
-        .j-card-fornecedores table,.j-card-fornecedores tbody{
-          display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;
-        }
-        .j-card-fornecedores thead{display:none!important;}
+        /* Fallback iOS para fornecedores. */
+        .j-card-fornecedores table.j-table,.j-card-fornecedores table.j-table tbody,
+        .j-card-fornecedores table.j-table tr,.j-card-fornecedores table.j-table td{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;}
+        .j-card-fornecedores table.j-table thead{display:none!important;}
         .j-card-fornecedores #tbFornec{padding:10px!important;}
-        .j-card-fornecedores #tbFornec tr{
-          display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;
-          padding:12px!important;margin:0 0 12px!important;border:1px solid var(--border)!important;
-          border-radius:10px!important;background:var(--surf2)!important;overflow:hidden!important;
-        }
-        .j-card-fornecedores #tbFornec td{
-          display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;
-          padding:8px 0!important;border:0!important;white-space:normal!important;
-          overflow-wrap:anywhere!important;word-break:break-word!important;
-        }
-        .j-card-fornecedores #tbFornec td::before{
-          content:attr(data-label);display:block;margin-bottom:4px;font-family:var(--fm);
-          font-size:.56rem;color:var(--muted);letter-spacing:1.1px;text-transform:uppercase;
-        }
-        .j-card-fornecedores #tbFornec td:last-child{
-          display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important;
-        }
+        .j-card-fornecedores #tbFornec tr{padding:12px!important;margin:0 0 12px!important;border:1px solid var(--border)!important;border-radius:10px!important;background:var(--surf2)!important;overflow:hidden!important;}
+        .j-card-fornecedores #tbFornec td{padding:8px 0!important;border:0!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;}
+        .j-card-fornecedores #tbFornec td::before{content:attr(data-label);display:block;margin-bottom:4px;font-family:var(--fm);font-size:.56rem;color:var(--muted);letter-spacing:1.1px;text-transform:uppercase;}
+        .j-card-fornecedores #tbFornec td:last-child{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important;}
         .j-card-fornecedores #tbFornec td:last-child::before{grid-column:1/-1;}
-        .j-card-fornecedores #tbFornec td:last-child button{
-          display:flex!important;align-items:center!important;justify-content:center!important;
-          width:100%!important;max-width:100%!important;min-width:0!important;min-height:44px!important;
-          margin:0!important;padding:8px 5px!important;white-space:normal!important;overflow:hidden!important;
-        }
-
-        /* Inventário mobile sem tabela de 760px e sem rolagem lateral. */
-        #estoqueFiltrosV269{grid-template-columns:1fr!important;padding:10px!important;}
-        #estoqueFiltrosV269 input,#estoqueFiltrosV269 select{font-size:16px!important;min-height:46px;}
-        #s-estoque .j-card:first-child .j-card-body{overflow:hidden!important;}
-        #s-estoque .j-card:first-child .j-card-body>.j-table{display:none!important;}
-        #estoqueMobileCardsFix{display:none!important;}
-        #estoqueMobileV269{display:block!important;padding:10px!important;}
-        #estoqueMobileV269 .em-v269-head{
-          display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px;margin-bottom:10px;
-          font-family:var(--fm);font-size:.64rem;color:var(--muted);text-transform:uppercase;
-        }
-        #estoqueMobileV269 .em-v269-list{display:grid;grid-template-columns:1fr;gap:12px;}
-        #estoqueMobileV269 .em-v269-card{
-          width:100%;max-width:100%;min-width:0;border:1px solid var(--border);border-radius:14px;
-          padding:14px;background:var(--surf2);overflow:hidden;
-        }
-        #estoqueMobileV269 .em-v269-code{font-family:var(--fm);font-size:.7rem;color:var(--muted);overflow-wrap:anywhere;}
-        #estoqueMobileV269 .em-v269-title{font-weight:800;font-size:1rem;line-height:1.25;margin-top:5px;overflow-wrap:anywhere;word-break:break-word;}
-        #estoqueMobileV269 .em-v269-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px;}
-        #estoqueMobileV269 .em-v269-field{min-width:0;}
-        #estoqueMobileV269 .em-v269-k{font-family:var(--fm);font-size:.56rem;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;}
-        #estoqueMobileV269 .em-v269-v{font-family:var(--fm);font-size:.76rem;font-weight:700;margin-top:3px;overflow-wrap:anywhere;word-break:break-word;}
-        #estoqueMobileV269 .em-v269-status{display:inline-flex;margin-top:12px;padding:5px 9px;border-radius:999px;font-family:var(--fm);font-size:.62rem;font-weight:800;border:1px solid var(--border);}
-        #estoqueMobileV269 .em-v269-status.zero,#estoqueMobileV269 .em-v269-status.critical{color:var(--danger);border-color:rgba(255,59,59,.45);}
-        #estoqueMobileV269 .em-v269-status.stock{color:var(--success);border-color:rgba(0,255,136,.35);}
-        #estoqueMobileV269 .em-v269-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;}
-        #estoqueMobileV269 .em-v269-actions button{width:100%!important;min-width:0!important;min-height:46px!important;white-space:normal!important;line-height:1.2;}
+        .j-card-fornecedores #tbFornec td:last-child button{width:100%!important;min-width:0!important;min-height:44px!important;margin:0!important;}
       }
 
       @media(max-width:420px){
-        #tbClientes td:last-child,#tbVeiculos td:last-child,
-        .j-card-fornecedores #tbFornec td:last-child,
-        #estoqueMobileV269 .em-v269-actions{grid-template-columns:1fr!important;}
-        #estoqueMobileV269 .em-v269-grid{grid-template-columns:1fr!important;}
+        #tbClientes td:last-child,#tbVeiculos td:last-child,.j-card-fornecedores #tbFornec td:last-child{grid-template-columns:1fr!important;}
+        #s-estoque #tbEstoque td{grid-template-columns:1fr!important;gap:4px!important;}
       }
     `;
     D.head.appendChild(style);
@@ -208,7 +226,9 @@
   function labelAllResponsiveRows() {
     labelRows('tbClientes', ['Nome / acesso', 'WhatsApp', 'Veículos', 'Ações']);
     labelRows('tbVeiculos', ['Placa', 'Tipo', 'Modelo', 'Dono', 'KM', 'Ações']);
-    labelRows('tbFornec', ['Razão social', 'Documento / contato', 'Endereço', 'Ações']);
+    const supplierHeaders = Array.from(byId('tbFornec')?.closest('table')?.querySelectorAll('thead th') || []).map(th => th.textContent.trim());
+    labelRows('tbFornec', supplierHeaders.length ? supplierHeaders : ['Razão social', 'Documento / contato', 'Endereço', 'Ações']);
+    byId('tbFornec')?.closest('.j-card')?.classList.add('j-card-fornecedores');
   }
 
   function stockCode(p) {
@@ -233,6 +253,7 @@
 
   function currentStockFilters() {
     return {
+      raw:byId('estoqueBuscaV269')?.value || W._estoqueBuscaPecas || '',
       q:norm(byId('estoqueBuscaV269')?.value || W._estoqueBuscaPecas || ''),
       status:byId('estoqueStatusV269')?.value || 'all'
     };
@@ -242,20 +263,20 @@
     const filters = currentStockFilters();
     return (Array.isArray(source) ? source : []).filter(p => {
       if (filters.q && !stockText(p).includes(filters.q)) return false;
-      const st = stockStatus(p);
       const qtd = num(p?.qtd ?? p?.quantidade ?? p?.saldo ?? 0);
+      const st = stockStatus(p);
       if (filters.status === 'stock' && qtd <= 0) return false;
       if (filters.status === 'zero' && qtd !== 0) return false;
-      if (filters.status === 'critical' && !['critical','zero'].includes(st)) return false;
+      if (filters.status === 'critical' && !['zero','critical'].includes(st)) return false;
       return true;
     });
   }
 
   function ensureStockFilters() {
     const tbody = byId('tbEstoque');
-    const body = tbody?.closest('.j-card-body');
     const table = tbody?.closest('table');
-    if (!tbody || !body || !table) return false;
+    const body = tbody?.closest('.j-card-body');
+    if (!tbody || !table || !body) return false;
 
     let toolbar = byId('estoqueFiltrosV269');
     if (!toolbar) {
@@ -282,148 +303,80 @@
       if (oldSearch?.value) byId('estoqueBuscaV269').value = oldSearch.value;
       byId('estoqueBuscaV269')?.addEventListener('input', () => {
         W._estoqueBuscaPecas = byId('estoqueBuscaV269').value;
-        renderStockV269();
+        renderStockStable();
       });
-      byId('estoqueStatusV269')?.addEventListener('change', renderStockV269);
-    }
-
-    let mobile = byId('estoqueMobileV269');
-    if (!mobile) {
-      mobile = D.createElement('div');
-      mobile.id = 'estoqueMobileV269';
-      body.insertBefore(mobile, table);
+      byId('estoqueStatusV269')?.addEventListener('change', renderStockStable);
     }
     return true;
   }
 
-  function supplierName(p) {
-    return p?.fornecedor || p?.fornecedorNome || p?.nomeFornecedor || p?.ultimaFornecedor || '-';
-  }
-
-  function nfName(p) {
-    return p?.nfNumero || p?.notaFiscal || p?.ultimaNF || p?.nf || '-';
-  }
-
-  function renderMobileStock(list, total) {
-    const box = byId('estoqueMobileV269');
-    if (!box) return;
-    const zero = list.filter(p => stockStatus(p) === 'zero').length;
-    const critical = list.filter(p => ['zero','critical'].includes(stockStatus(p))).length;
-    if (!list.length) {
-      box.innerHTML = `<div class="em-v269-head"><span>Peças localizadas</span><span>0 de ${esc(total)}</span></div>
-        <div style="padding:10px 2px;color:var(--muted);font-family:var(--fm);font-size:.72rem;">Nenhuma peça corresponde à pesquisa e ao filtro selecionado.</div>`;
-      return;
-    }
-    box.innerHTML = `<div class="em-v269-head"><span>Peças localizadas</span><span>${esc(list.length)} de ${esc(total)} · zeradas ${esc(zero)} · críticas ${esc(critical)}</span></div>
-      <div class="em-v269-list">${list.map(p => {
-        const qtd = num(p?.qtd ?? p?.quantidade ?? p?.saldo ?? 0);
-        const min = num(p?.min ?? p?.minimo ?? 0);
-        const st = stockStatus(p);
-        const statusLabel = st === 'zero' ? 'ZERADA' : st === 'critical' ? 'CRÍTICA' : 'EM ESTOQUE';
-        const id = esc(p?.id || '');
-        return `<article class="em-v269-card" data-stock-id="${id}">
-          <div class="em-v269-code">Código: ${esc(stockCode(p) || '-')}</div>
-          <div class="em-v269-title">${esc(p?.desc || p?.descricao || 'Peça sem descrição')}</div>
-          <div class="em-v269-grid">
-            <div class="em-v269-field"><div class="em-v269-k">Quantidade</div><div class="em-v269-v">${esc(qtd)}</div></div>
-            <div class="em-v269-field"><div class="em-v269-k">Mínimo</div><div class="em-v269-v">${esc(min)}</div></div>
-            <div class="em-v269-field"><div class="em-v269-k">Custo</div><div class="em-v269-v">${esc(moeda(p?.custo || p?.valorCompra || p?.precoCusto || 0))}</div></div>
-            <div class="em-v269-field"><div class="em-v269-k">Venda</div><div class="em-v269-v">${esc(moeda(p?.venda || p?.precoVenda || 0))}</div></div>
-            <div class="em-v269-field"><div class="em-v269-k">Fornecedor</div><div class="em-v269-v">${esc(supplierName(p))}</div></div>
-            <div class="em-v269-field"><div class="em-v269-k">Última NF</div><div class="em-v269-v">${esc(nfName(p))}</div></div>
-          </div>
-          <div class="em-v269-status ${st}">${statusLabel}</div>
-          <div class="em-v269-actions">
-            <button type="button" class="btn-ghost" onclick="window.prepPeca&&window.prepPeca('edit','${id}');window.abrirModal&&window.abrirModal('modalPeca')">EDITAR PEÇA</button>
-            <button type="button" class="btn-ghost btn-kardex-v269" onclick="window.rastrearPecaKardexV269('${id}')">RASTREAR / KARDEX</button>
-          </div>
-        </article>`;
-      }).join('')}</div>`;
-  }
-
-  function enhanceDesktopStockRows(list) {
+  function renderStockStable() {
     const tbody = byId('tbEstoque');
-    if (!tbody) return;
-    const rows = Array.from(tbody.rows || []).filter(row => !row.cells?.[0]?.hasAttribute('colspan'));
-    rows.forEach((row, index) => {
-      const p = list[index];
-      if (!p) return;
-      row.dataset.stockId = p.id || '';
-      const cell = row.cells[row.cells.length - 1];
-      if (!cell) return;
-      let actions = cell.querySelector('.acoes-estoque-v269');
-      if (!actions) {
-        const existing = Array.from(cell.children || []);
-        actions = D.createElement('div');
-        actions.className = 'acoes-estoque-v269';
-        existing.forEach(el => actions.appendChild(el));
-        cell.appendChild(actions);
-      }
-      if (!actions.querySelector('.btn-kardex-v269')) {
-        const button = D.createElement('button');
-        button.type = 'button';
-        button.className = 'btn-ghost btn-kardex-v269';
-        button.textContent = 'KARDEX';
-        button.title = 'Rastrear compras, notas, aplicações e vínculos desta peça';
-        button.addEventListener('click', () => W.rastrearPecaKardexV269(p.id));
-        actions.appendChild(button);
+    if (!tbody || !ensureStockFilters()) return;
+    const all = Array.isArray(W.J?.estoque) ? W.J.estoque : [];
+    const filters = currentStockFilters();
+    W._estoqueBuscaPecas = filters.raw;
+    const list = filteredStockList(all);
+
+    tbody.innerHTML = list.map(p => {
+      const id = esc(p?.id || '');
+      const qtd = num(p?.qtd ?? p?.quantidade ?? p?.saldo ?? 0);
+      const min = num(p?.min ?? p?.minimo ?? 0);
+      const st = stockStatus(p);
+      const critical = st === 'zero' || st === 'critical';
+      const detail = [p?.marca,p?.ncm,p?.cfop].filter(Boolean).map(esc).join(' | ');
+      return `<tr class="${critical ? 'stock-critical' : ''}" data-stock-id="${id}">
+        <td data-label="Ref / Código" style="font-family:var(--fm);font-size:.75rem;color:var(--muted)">${esc(stockCode(p) || '-')}</td>
+        <td data-label="Descrição"><strong>${esc(p?.desc || p?.descricao || '-')}</strong>${detail ? `<br><small>${detail}</small>` : ''}</td>
+        <td data-label="Custo" style="font-family:var(--fm)">${esc(moeda(p?.custo || p?.valorCompra || p?.precoCusto || 0))}</td>
+        <td data-label="Venda" style="font-family:var(--fm);color:var(--success)">${esc(moeda(p?.venda || p?.precoVenda || 0))}</td>
+        <td data-label="Quantidade" style="font-family:var(--fm);font-weight:700;color:${critical ? 'var(--danger)' : 'var(--text)'}">${esc(qtd)}</td>
+        <td data-label="Mínimo" style="font-family:var(--fm);color:var(--muted)">${esc(min)}</td>
+        <td data-label="Status">${critical ? '<span class="pill pill-danger">CRÍTICO</span>' : '<span class="pill pill-green">OK</span>'}</td>
+        <td data-label="Ações"><div class="acoes-estoque-v2610">
+          <button type="button" class="btn-ghost" data-stock-action="edit" data-stock-id="${id}">EDITAR</button>
+          <button type="button" class="btn-danger" data-stock-action="delete" data-stock-id="${id}">EXCLUIR</button>
+          <button type="button" class="btn-ghost btn-kardex-v269" data-stock-action="kardex" data-stock-id="${id}">KARDEX</button>
+        </div></td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">${filters.q || filters.status !== 'all' ? 'Nenhuma peça encontrada para a pesquisa e o filtro selecionados' : 'Nenhum item'}</td></tr>`;
+
+    const summary = byId('estoqueResumoV269');
+    if (summary) {
+      const positive = list.filter(p => num(p?.qtd ?? p?.quantidade ?? p?.saldo ?? 0) > 0).length;
+      const zero = list.filter(p => stockStatus(p) === 'zero').length;
+      const critical = list.filter(p => ['zero','critical'].includes(stockStatus(p))).length;
+      summary.textContent = `${list.length} peça(s) localizada(s) de ${all.length} · em estoque ${positive} · zeradas ${zero} · críticas ${critical}`;
+    }
+  }
+  renderStockStable.__thiaV2610Stock = true;
+
+  function installStableRenderer() {
+    installCSS();
+    ensureStockFilters();
+    if (W.renderEstoque !== renderStockStable) W.renderEstoque = renderStockStable;
+    renderStockStable();
+  }
+
+  function ensureStockActions() {
+    const tbody = byId('tbEstoque');
+    if (!tbody || tbody.dataset.thiaV2610Actions === '1') return;
+    tbody.dataset.thiaV2610Actions = '1';
+    tbody.addEventListener('click', event => {
+      const button = event.target.closest?.('[data-stock-action]');
+      if (!button || !tbody.contains(button)) return;
+      event.preventDefault();
+      const id = button.dataset.stockId || '';
+      const action = button.dataset.stockAction;
+      if (action === 'edit') {
+        W.prepPeca?.('edit', id);
+        W.abrirModal?.('modalPeca');
+      } else if (action === 'delete') {
+        W.excluirPecaDef?.(id);
+      } else if (action === 'kardex') {
+        W.rastrearPecaKardexV269?.(id);
       }
     });
-  }
-
-  let originalRenderStock = null;
-  let rendering = false;
-
-  function renderStockV269() {
-    if (rendering) return;
-    if (!ensureStockFilters()) return;
-    const J = W.J || {};
-    const all = Array.isArray(J.estoque) ? J.estoque : [];
-    const list = filteredStockList(all);
-    const oldInput = byId('buscaEstoquePecas');
-    const newInput = byId('estoqueBuscaV269');
-    const oldTerm = W._estoqueBuscaPecas;
-    const rawSearch = newInput?.value || '';
-
-    rendering = true;
-    try {
-      if (oldInput) oldInput.value = '';
-      W._estoqueBuscaPecas = '';
-      if (originalRenderStock) {
-        const saved = J.estoque;
-        J.estoque = list;
-        try { originalRenderStock.call(W); }
-        finally { J.estoque = saved; }
-      }
-      if (oldInput) oldInput.value = rawSearch;
-      W._estoqueBuscaPecas = rawSearch;
-      renderMobileStock(list, all.length);
-      enhanceDesktopStockRows(list);
-      const summary = byId('estoqueResumoV269');
-      if (summary) {
-        const zero = list.filter(p => stockStatus(p) === 'zero').length;
-        const positive = list.filter(p => num(p?.qtd) > 0).length;
-        const critical = list.filter(p => ['zero','critical'].includes(stockStatus(p))).length;
-        summary.textContent = `${list.length} peça(s) localizada(s) de ${all.length} · em estoque ${positive} · zeradas ${zero} · críticas ${critical}`;
-      }
-    } finally {
-      rendering = false;
-      if (!rawSearch) W._estoqueBuscaPecas = oldTerm || '';
-    }
-  }
-
-  function wrapStockRender() {
-    const fn = W.renderEstoque;
-    if (typeof fn !== 'function') return false;
-    if (fn.__thiaV269Stock) return true;
-    originalRenderStock = fn;
-    const wrapped = function () {
-      renderStockV269();
-    };
-    wrapped.__thiaV269Stock = true;
-    wrapped.__original = fn;
-    W.renderEstoque = wrapped;
-    return true;
   }
 
   function ensureKardexBanner(p, code) {
@@ -449,17 +402,16 @@
     const search = byId('fiscalPecaBuscaV266');
     const card = byId('fiscalPecasCardV268') || byId('fiscalPecasV266');
     if (!search || !card) {
-      if ((attempt || 0) < 24) setTimeout(() => openFiscalCardAndSearch(p, (attempt || 0) + 1), 160);
+      if ((attempt || 0) < 30) setTimeout(() => openFiscalCardAndSearch(p, (attempt || 0) + 1), 160);
       return;
     }
     const independentCard = card.closest?.('.j-card') || card;
-    if (independentCard.classList?.contains('j-minimized')) {
-      independentCard.classList.remove('j-minimized');
-      const toggle = independentCard.querySelector('.j-collapse-toggle');
-      if (toggle) {
-        toggle.textContent = '−';
-        toggle.setAttribute('aria-expanded', 'true');
-      }
+    independentCard.classList?.remove('j-minimized');
+    card.classList?.remove('minimized');
+    const toggle = independentCard.querySelector?.('.j-collapse-toggle');
+    if (toggle) {
+      toggle.textContent = '−';
+      toggle.setAttribute('aria-expanded', 'true');
     }
     ['fiscalPecaDestinoV266','fiscalPecaStatusV266','fiscalPecaInicioV266','fiscalPecaFimV266'].forEach(id => {
       const el = byId(id); if (el) el.value = '';
@@ -486,11 +438,11 @@
     setTimeout(() => openFiscalCardAndSearch(p, 0), 80);
   };
 
-  function observeTables() {
+  function observeResponsiveTables() {
     ['tbClientes','tbVeiculos','tbFornec'].forEach(id => {
       const el = byId(id);
-      if (!el || el.dataset.thiaV269Observed === '1') return;
-      el.dataset.thiaV269Observed = '1';
+      if (!el || el.dataset.thiaV2610Observed === '1') return;
+      el.dataset.thiaV2610Observed = '1';
       new MutationObserver(labelAllResponsiveRows).observe(el, { childList:true, subtree:true });
     });
   }
@@ -498,41 +450,19 @@
   function boot() {
     installCSS();
     labelAllResponsiveRows();
-    observeTables();
-    wrapStockRender();
-    ensureStockFilters();
-    renderStockV269();
+    observeResponsiveTables();
+    ensureStockActions();
+    installStableRenderer();
   }
 
   if (D.readyState === 'loading') D.addEventListener('DOMContentLoaded', boot, { once:true });
   else boot();
-  [100,300,700,1400,2800,5200,9000].forEach(ms => setTimeout(boot, ms));
 
-  const observer = new MutationObserver(mutations => {
-    let relabel = false;
-    let stock = false;
-    for (const mutation of mutations) {
-      if (mutation.type !== 'childList' || !mutation.addedNodes.length) continue;
-      const target = mutation.target;
-      if (target?.id === 'tbClientes' || target?.id === 'tbVeiculos' || target?.id === 'tbFornec') relabel = true;
-      if (target?.id === 'tbEstoque') stock = true;
-    }
-    if (relabel) labelAllResponsiveRows();
-    if (stock && !rendering) {
-      const all = W.J?.estoque || [];
-      const list = filteredStockList(all);
-      renderMobileStock(list, all.length);
-      enhanceDesktopStockRows(list);
-    }
-  });
-  observer.observe(D.documentElement, { childList:true, subtree:true });
-
-  W.addEventListener('resize', () => {
-    labelAllResponsiveRows();
-    renderStockV269();
-  });
+  [100,300,700,1400,2800,5200,9200,11000].forEach(ms => setTimeout(boot, ms));
+  W.addEventListener('resize', labelAllResponsiveRows);
   W.addEventListener('orientationchange', () => setTimeout(boot, 250));
 
-  W.thiaRenderEstoqueV269 = renderStockV269;
-  console.info('[OFICIN-IA] Responsividade e Kardex V' + VERSION + ' instalados');
+  W.thiaRenderEstoqueV269 = renderStockStable;
+  W.thiaRenderEstoqueV2610 = renderStockStable;
+  console.info('[OFICIN-IA] Inventário, Kardex e responsividade V' + VERSION + ' instalados');
 })(window, document);
