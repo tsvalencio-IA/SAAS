@@ -1,5 +1,5 @@
 /**
- * thIAguinho SaaS V26.10 — correção cumulativa do inventário, Kardex e responsividade.
+ * thIAguinho SaaS V26.11 — correção mobile cumulativa do inventário, Kardex e responsividade.
  * Corrige a V26.9 sem alterar Firebase, regras de negócio, notas fiscais, clientes ou fornecedores.
  * Powered by thIAguinho Soluções Digitais.
  */
@@ -8,7 +8,7 @@
   if (W.__THIA_JARVIS_INVENTARIO_V2610__) return;
   W.__THIA_JARVIS_INVENTARIO_V2610__ = true;
 
-  const VERSION = '26.10.0';
+  const VERSION = '26.11.0';
   const byId = id => D.getElementById(id);
   const num = value => {
     const n = Number(String(value == null ? 0 : value).replace(',', '.'));
@@ -24,7 +24,21 @@
     catch (_) { return `R$ ${num(value).toFixed(2).replace('.', ',')}`; }
   };
 
+  function markInventoryCard() {
+    const tbody = byId('tbEstoque');
+    const card = tbody?.closest?.('.j-card');
+    if (!card) return null;
+    const section = byId('s-estoque');
+    section?.querySelectorAll?.('.j-card-inventario-v2611').forEach(el => {
+      if (el !== card) el.classList.remove('j-card-inventario-v2611');
+    });
+    card.classList.add('j-card-inventario-v2611');
+    card.dataset.thiaInventoryCard = '26.11';
+    return card;
+  }
+
   function installCSS() {
+    markInventoryCard();
     byId('jarvisMobileKardexV269CSS')?.remove();
     if (byId('jarvisInventarioV2610CSS')) return;
     const style = D.createElement('style');
@@ -74,28 +88,28 @@
       }
 
       /* Inventário desktop: tabela inteira cabe na largura disponível. */
-      #s-estoque .j-card:first-child .j-card-body{overflow-x:hidden!important;}
-      #s-estoque .j-card:first-child table.j-table{
+      #s-estoque .j-card-inventario-v2611 .j-card-body{overflow-x:hidden!important;}
+      #s-estoque .j-card-inventario-v2611 table.j-table{
         display:table!important;width:100%!important;max-width:100%!important;
         min-width:0!important;table-layout:fixed!important;
       }
-      #s-estoque .j-card:first-child table.j-table>thead{display:table-header-group!important;}
-      #s-estoque #tbEstoque{display:table-row-group!important;width:100%!important;}
+      #s-estoque .j-card-inventario-v2611 table.j-table>thead{display:table-header-group!important;}
+      #s-estoque .j-card-inventario-v2611 #tbEstoque{display:table-row-group!important;width:100%!important;}
       #s-estoque #tbEstoque tr{display:table-row!important;}
-      #s-estoque #tbEstoque td{
+      #s-estoque .j-card-inventario-v2611 #tbEstoque td{
         display:table-cell!important;min-width:0!important;max-width:100%!important;
         white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;
         vertical-align:middle!important;padding:10px 8px!important;
       }
-      #s-estoque .j-card:first-child th{white-space:normal!important;overflow-wrap:anywhere!important;}
-      #s-estoque .j-card:first-child th:nth-child(1),#s-estoque #tbEstoque td:nth-child(1){width:12%;}
-      #s-estoque .j-card:first-child th:nth-child(2),#s-estoque #tbEstoque td:nth-child(2){width:28%;}
-      #s-estoque .j-card:first-child th:nth-child(3),#s-estoque #tbEstoque td:nth-child(3){width:10%;}
-      #s-estoque .j-card:first-child th:nth-child(4),#s-estoque #tbEstoque td:nth-child(4){width:10%;}
-      #s-estoque .j-card:first-child th:nth-child(5),#s-estoque #tbEstoque td:nth-child(5){width:6%;}
-      #s-estoque .j-card:first-child th:nth-child(6),#s-estoque #tbEstoque td:nth-child(6){width:6%;}
-      #s-estoque .j-card:first-child th:nth-child(7),#s-estoque #tbEstoque td:nth-child(7){width:10%;}
-      #s-estoque .j-card:first-child th:nth-child(8),#s-estoque #tbEstoque td:nth-child(8){width:18%;}
+      #s-estoque .j-card-inventario-v2611 th{white-space:normal!important;overflow-wrap:anywhere!important;}
+      #s-estoque .j-card-inventario-v2611 th:nth-child(1),#s-estoque #tbEstoque td:nth-child(1){width:12%;}
+      #s-estoque .j-card-inventario-v2611 th:nth-child(2),#s-estoque #tbEstoque td:nth-child(2){width:28%;}
+      #s-estoque .j-card-inventario-v2611 th:nth-child(3),#s-estoque #tbEstoque td:nth-child(3){width:10%;}
+      #s-estoque .j-card-inventario-v2611 th:nth-child(4),#s-estoque #tbEstoque td:nth-child(4){width:10%;}
+      #s-estoque .j-card-inventario-v2611 th:nth-child(5),#s-estoque #tbEstoque td:nth-child(5){width:6%;}
+      #s-estoque .j-card-inventario-v2611 th:nth-child(6),#s-estoque #tbEstoque td:nth-child(6){width:6%;}
+      #s-estoque .j-card-inventario-v2611 th:nth-child(7),#s-estoque #tbEstoque td:nth-child(7){width:10%;}
+      #s-estoque .j-card-inventario-v2611 th:nth-child(8),#s-estoque #tbEstoque td:nth-child(8){width:18%;}
       .acoes-estoque-v2610{
         display:grid!important;grid-template-columns:1fr!important;gap:6px!important;
         width:100%!important;min-width:0!important;
@@ -148,32 +162,34 @@
         #estoqueFiltrosV269 input,#estoqueFiltrosV269 select{font-size:16px!important;min-height:46px!important;}
 
         /* Inventário mobile usa as próprias linhas reais como cards: sem segunda lista paralela. */
-        #s-estoque .j-card:first-child .j-card-body{overflow:hidden!important;padding:0!important;}
-        #s-estoque .j-card:first-child table.j-table{
+        #s-estoque .j-card-inventario-v2611{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;}
+        #s-estoque .j-card-inventario-v2611 .j-card-body{display:block!important;overflow:hidden!important;padding:0!important;width:100%!important;max-width:100%!important;min-width:0!important;}
+        #s-estoque .j-card-inventario-v2611 .j-card-body > table.j-table{min-width:0!important;}
+        #s-estoque .j-card-inventario-v2611 table.j-table{
           display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;
           table-layout:auto!important;overflow:hidden!important;
         }
-        #s-estoque .j-card:first-child table.j-table>thead{display:none!important;}
-        #s-estoque #tbEstoque{
+        #s-estoque .j-card-inventario-v2611 table.j-table>thead{display:none!important;}
+        #s-estoque .j-card-inventario-v2611 #tbEstoque{
           display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;padding:10px!important;
         }
-        #s-estoque #tbEstoque tr{
-          display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;
+        #s-estoque .j-card-inventario-v2611 #tbEstoque tr{
+          display:block!important;visibility:visible!important;opacity:1!important;width:100%!important;max-width:100%!important;min-width:0!important;
           margin:0 0 12px!important;padding:12px!important;border:1px solid var(--border)!important;
           border-radius:12px!important;background:var(--surf2)!important;overflow:hidden!important;
         }
-        #s-estoque #tbEstoque td{
+        #s-estoque .j-card-inventario-v2611 #tbEstoque td{
           display:grid!important;grid-template-columns:minmax(92px,34%) minmax(0,1fr)!important;
           gap:10px!important;width:100%!important;max-width:100%!important;min-width:0!important;
           padding:7px 0!important;border:0!important;white-space:normal!important;
           overflow-wrap:anywhere!important;word-break:break-word!important;text-align:left!important;
         }
-        #s-estoque #tbEstoque td::before{
+        #s-estoque .j-card-inventario-v2611 #tbEstoque td::before{
           content:attr(data-label);font-family:var(--fm);font-size:.56rem;color:var(--muted);
           letter-spacing:1px;text-transform:uppercase;min-width:0;
         }
-        #s-estoque #tbEstoque td:last-child{display:block!important;}
-        #s-estoque #tbEstoque td:last-child::before{display:block;margin-bottom:7px;}
+        #s-estoque .j-card-inventario-v2611 #tbEstoque td:last-child{display:block!important;}
+        #s-estoque .j-card-inventario-v2611 #tbEstoque td:last-child::before{display:block;margin-bottom:7px;}
         .acoes-estoque-v2610{grid-template-columns:1fr!important;gap:8px!important;}
         .acoes-estoque-v2610 button{min-height:44px!important;}
 
@@ -207,7 +223,7 @@
 
       @media(max-width:420px){
         #tbClientes td:last-child,#tbVeiculos td:last-child,.j-card-fornecedores #tbFornec td:last-child{grid-template-columns:1fr!important;}
-        #s-estoque #tbEstoque td{grid-template-columns:1fr!important;gap:4px!important;}
+        #s-estoque .j-card-inventario-v2611 #tbEstoque td{grid-template-columns:1fr!important;gap:4px!important;}
       }
     `;
     D.head.appendChild(style);
@@ -273,6 +289,7 @@
   }
 
   function ensureStockFilters() {
+    markInventoryCard();
     const tbody = byId('tbEstoque');
     const table = tbody?.closest('table');
     const body = tbody?.closest('.j-card-body');
@@ -311,6 +328,7 @@
   }
 
   function renderStockStable() {
+    markInventoryCard();
     const tbody = byId('tbEstoque');
     if (!tbody || !ensureStockFilters()) return;
     const all = Array.isArray(W.J?.estoque) ? W.J.estoque : [];
@@ -350,6 +368,8 @@
     }
   }
   renderStockStable.__thiaV2610Stock = true;
+  renderStockStable.__thiaV2611Stock = true;
+  renderStockStable.__estoqueMobileFixWrap = true;
 
   function installStableRenderer() {
     installCSS();
@@ -448,6 +468,7 @@
   }
 
   function boot() {
+    markInventoryCard();
     installCSS();
     labelAllResponsiveRows();
     observeResponsiveTables();
