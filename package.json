@@ -1,7 +1,7 @@
 {
   "name": "thiaguinho-erp-cliente",
-  "version": "1.0.26-5",
-  "description": "thIAguinho ERP V26.5 — Firestore econômico com cache por validade, carregamento por tela, IA sob demanda e listeners fiscais suspensos. Powered by thIAguinho Soluções Digitais",
+  "version": "1.0.26-6",
+  "description": "thIAguinho ERP V26.6 — filtros fiscais por peça/destino, IA de vínculos/auditoria e Tempária automática somente para cliente oficial, preservando Firestore econômico. Powered by thIAguinho Soluções Digitais",
   "main": "electron/main.js",
   "scripts": {
     "build": "bash scripts/build-web.sh",
