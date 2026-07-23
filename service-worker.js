@@ -1,4 +1,4 @@
-const CACHE='oficin-ia-v26-11-inventario-mobile-real-20260723';
+const CACHE='oficin-ia-v26-12-firestore-profissional-20260723';
 const ASSETS=[
   './checklist.html','./js/checklist.js','./js/config.js','./data/checklist-model.json',
   './checklist.webmanifest','./assets/icons/checklist-192.png','./assets/icons/checklist-512.png'
@@ -17,16 +17,15 @@ self.addEventListener('fetch',event=>{
   const url=new URL(req.url);
   if(url.origin!==self.location.origin) return;
 
-  // Páginas: rede primeiro para receber a versão nova; cache apenas como contingência offline.
-  if(req.mode==='navigate'){
+  const isFreshCode = req.mode==='navigate' || /\.(?:html?|js|css|json|webmanifest)$/i.test(url.pathname);
+  if(isFreshCode){
     event.respondWith(fetch(req).then(res=>{
       if(res&&res.ok){const copy=res.clone();caches.open(CACHE).then(c=>c.put(req,copy));}
       return res;
-    }).catch(()=>caches.match(req).then(r=>r||caches.match('./index.html'))));
+    }).catch(()=>caches.match(req).then(r=>r||(req.mode==='navigate'?caches.match('./index.html'):Response.error()))));
     return;
   }
 
-  // Arquivos estáticos: resposta imediata do cache e atualização silenciosa em segundo plano.
   event.respondWith(caches.match(req).then(cached=>{
     const network=fetch(req).then(res=>{
       if(res&&res.ok){const copy=res.clone();caches.open(CACHE).then(c=>c.put(req,copy));}

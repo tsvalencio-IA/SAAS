@@ -1,7 +1,7 @@
 {
   "name": "thiaguinho-erp-cliente",
-  "version": "1.0.26-11",
-  "description": "thIAguinho ERP V26.11 — correção cumulativa do inventário real no mobile, sem lista paralela e sem seletor posicional, preservando filtros, Kardex, ações, V26.7/V26.8/V26.9/V26.10, Firestore econômico e regras de negócio. Powered by thIAguinho Soluções Digitais",
+  "version": "1.0.26-12",
+  "description": "thIAguinho ERP V26.12 — otimização profissional e compatível do Firestore em produção: consultas por cliente e mecânico, listeners únicos, cache, fiscal sob demanda, auditoria limitada e inventário responsivo real, sem alterar histórico, coleções ou regras de negócio. Powered by thIAguinho Soluções Digitais",
   "main": "electron/main.js",
   "scripts": {
     "build": "bash scripts/build-web.sh",

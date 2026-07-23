@@ -16,11 +16,12 @@
   if (W.__THIA_FIRESTORE_ECONOMICO_V265__) return;
   W.__THIA_FIRESTORE_ECONOMICO_V265__ = true;
 
-  const VERSION = '26.5.0';
+  const VERSION = '26.12.0';
   const J = () => W.J || {};
   const db = () => W.db || J().db;
   const byId = id => D.getElementById(id);
   const now = () => Date.now();
+  const metric = (key, source, snap) => { try { W.ThiaFirestoreV2612?.track?.('jarvis:' + key, source, snap); } catch (_) {} };
   const norm = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const plate = value => String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
@@ -29,28 +30,28 @@
   W._hardeningFiscalListeners = true;
 
   const CONFIG = {
-    os: { collection:'ordens_servico', target:'os', ttl:5*60*1000, live:true,
+    os: { collection:'ordens_servico', target:'os', ttl:10*60*1000, live:true,
       sort:(a,b)=>String(b.updatedAt||b.createdAt||b.data||'').localeCompare(String(a.updatedAt||a.createdAt||a.data||'')) },
-    clientes: { collection:'clientes', target:'clientes', ttl:30*60*1000,
+    clientes: { collection:'clientes', target:'clientes', ttl:2*60*60*1000,
       sort:(a,b)=>norm(a.nome||a.razaoSocial).localeCompare(norm(b.nome||b.razaoSocial)) },
-    veiculos: { collection:'veiculos', target:'veiculos', ttl:20*60*1000,
+    veiculos: { collection:'veiculos', target:'veiculos', ttl:60*60*1000,
       sort:(a,b)=>plate(a.placa).localeCompare(plate(b.placa)) },
-    estoque: { collection:'estoqueItems', target:'estoque', ttl:10*60*1000,
+    estoque: { collection:'estoqueItems', target:'estoque', ttl:60*60*1000,
       sort:(a,b)=>norm(a.desc||a.descricao).localeCompare(norm(b.desc||b.descricao)) },
-    financeiro: { collection:'financeiro', target:'financeiro', ttl:10*60*1000,
+    financeiro: { collection:'financeiro', target:'financeiro', ttl:30*60*1000,
       sort:(a,b)=>String(b.venc||b.data||b.createdAt||'').localeCompare(String(a.venc||a.data||a.createdAt||'')) },
-    equipe: { collection:'funcionarios', target:'equipe', ttl:30*60*1000,
+    equipe: { collection:'funcionarios', target:'equipe', ttl:2*60*60*1000,
       sort:(a,b)=>norm(a.nome).localeCompare(norm(b.nome)) },
-    fornecedores: { collection:'fornecedores', target:'fornecedores', ttl:30*60*1000,
+    fornecedores: { collection:'fornecedores', target:'fornecedores', ttl:2*60*60*1000,
       sort:(a,b)=>norm(a.nome||a.razaoSocial).localeCompare(norm(b.nome||b.razaoSocial)) },
-    vendas: { collection:'vendas_pecas', target:'vendasAutopecas', ttl:10*60*1000,
+    vendas: { collection:'vendas_pecas', target:'vendasAutopecas', ttl:30*60*1000,
       sort:(a,b)=>String(b.data||b.createdAt||'').localeCompare(String(a.data||a.createdAt||'')) },
-    auditoria: { collection:'lixeira_auditoria', target:'auditoria', ttl:30*60*1000,
+    auditoria: { collection:'lixeira_auditoria', target:'auditoria', ttl:2*60*60*1000,
       sort:(a,b)=>String(b.ts||b.createdAt||'').localeCompare(String(a.ts||a.createdAt||'')) },
-    notasFiscaisEntrada: { collection:'notas_fiscais_entrada', target:'notasFiscaisEntrada', ttl:15*60*1000 },
-    nfItensVinculos: { collection:'nf_itens_vinculos', target:'nfItensVinculos', ttl:15*60*1000 },
-    estoqueMovimentos: { collection:'estoque_movimentos', target:'estoqueMovimentos', ttl:15*60*1000 },
-    pacotesBoletos: { collection:'pacotes_boletos', target:'pacotesBoletos', ttl:15*60*1000 }
+    notasFiscaisEntrada: { collection:'notas_fiscais_entrada', target:'notasFiscaisEntrada', ttl:60*60*1000 },
+    nfItensVinculos: { collection:'nf_itens_vinculos', target:'nfItensVinculos', ttl:60*60*1000 },
+    estoqueMovimentos: { collection:'estoque_movimentos', target:'estoqueMovimentos', ttl:60*60*1000 },
+    pacotesBoletos: { collection:'pacotes_boletos', target:'pacotesBoletos', ttl:60*60*1000 }
   };
 
   const COLLECTION_TO_KEY = Object.fromEntries(Object.entries(CONFIG).map(([k,v]) => [v.collection, k]));
@@ -150,7 +151,9 @@
     const q = queryFor(key);
     if (!q) return [];
     try {
+      metric(key, 'cache-request');
       const snap = await q.get({ source:'cache' });
+      metric(key, 'cache-result', snap);
       if (!snap.empty || !(J()[CONFIG[key].target] || []).length) applyDocs(key, snap.docs, 'cache');
       return snap.docs;
     } catch (_) { return []; }
@@ -161,7 +164,9 @@
     if (!q) return [];
     const st = stateOf(key);
     if (!force && isFresh(key) && st.loaded) return J()[CONFIG[key].target] || [];
+    metric(key, 'server-request');
     const snap = await q.get({ source:'server' });
+    metric(key, 'server-result', snap);
     setStamp(key);
     return applyDocs(key, snap.docs, 'server');
   }
@@ -204,7 +209,9 @@
     if (!q) return [];
     return new Promise(resolve => {
       let first = true;
+      metric(key, 'listen-open');
       st.liveUnsub = q.onSnapshot({ includeMetadataChanges:true }, snap => {
+        metric(key, 'listen-event', snap);
         const fromCache = !!snap.metadata?.fromCache;
         applyDocs(key, snap.docs, fromCache ? 'cache-live' : 'server-live');
         if (!fromCache) setStamp(key);
@@ -227,7 +234,7 @@
     }, remaining);
   }
 
-  function stopOSLater(delay=180000) {
+  function stopOSLater(delay=60000) {
     const st = stateOf('os');
     clearTimeout(st.stopTimer);
     st.stopTimer = setTimeout(() => {
@@ -246,8 +253,10 @@
   const modalOpen = id => byId(id)?.classList.contains('open');
   const sectionNeedsOS = key => ['dashboard','kanban','clientes','financeiro','equipe'].includes(key) || modalOpen('modalOS');
 
+  let fiscalRequested = false;
   async function loadFiscal(force=false) {
-    return Promise.all(['notasFiscaisEntrada','nfItensVinculos','estoqueMovimentos','pacotesBoletos'].map(k => loadOnce(k,{force})));
+    fiscalRequested = true;
+    return Promise.all(['notasFiscaisEntrada','nfItensVinculos','estoqueMovimentos'].map(k => loadOnce(k,{force})));
   }
 
   const SECTION_KEYS = {
@@ -255,7 +264,7 @@
     agenda:['clientes','veiculos','equipe'],
     kanban:['os','clientes','veiculos'],
     clientes:['clientes','veiculos','os'],
-    estoque:['estoque','fornecedores','fiscal'],
+    estoque:['estoque','fornecedores'],
     vendas:['estoque','equipe','vendas'],
     financeiro:['financeiro','equipe','fornecedores','os','pacotesBoletos'],
     equipe:['equipe','financeiro','os'],
@@ -436,7 +445,7 @@
     setSyncText('SINCRONIZANDO…');
     try {
       await Promise.all(keys.map(k => ensureKey(k,{force:true})));
-      if (key === 'estoque') await loadFiscal(true);
+      if (key === 'estoque' && fiscalRequested) await loadFiscal(true);
       setSyncText('SINCRONIZADO');
       W.toast?.('✓ Dados desta tela atualizados', 'ok');
     } catch (err) {
@@ -560,7 +569,10 @@
     wrapIA();
     W.thiaEnsureDataFor?.(activeKey());
     D.documentElement.dataset.thiaFirestoreMode = 'economico-v265';
-    console.info('[OFICIN-IA] Firestore econômico V' + VERSION + ' ativo');
+    W.thiaLoadFiscalV2612 = loadFiscal;
+    W.thiaEnsureKeyV2612 = ensureKey;
+    W.thiaFirestoreEconomyStateV2612 = { states, CONFIG, get fiscalRequested(){ return fiscalRequested; } };
+    console.info('[OFICIN-IA] Firestore profissional V' + VERSION + ' ativo');
   }
 
   if (D.readyState === 'loading') D.addEventListener('DOMContentLoaded', install, { once:true });
