@@ -344,15 +344,165 @@
     return /OFICIAL|GOVERNO|PMSP|POLICIA|POLÍCIA|MILITAR|BPM|PREFEITURA|ESTADO|MUNICIP|SECRETARIA|ORGAO PUBLICO/.test(indicadores);
   };
 
+  // V22.4.1 — também reconhece registros antigos que perderam os metadados
+  // de origem ao serem reabertos/salvos como peça avulsa de cliente oficial.
+  // A identificação exige correspondência forte com pecasReais e com o custo
+  // real da NF; assim uma peça comercial legítima, com valor de orçamento
+  // diferente, permanece normalmente na O.S.
+  function normalizarCodigoPecaReal(value) {
+    return String(value == null ? '' : value)
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+
+  function normalizarDescricaoPecaReal(value) {
+    return String(value == null ? '' : value)
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+  }
+
+  function codigoFortePecaReal(value) {
+    const codigo = normalizarCodigoPecaReal(value);
+    if (!codigo || codigo.length < 3) return '';
+    if (/^(SEMOEM|SEM|OEM|NI|NA|SN|SNCODIGO|NAOINFORMADO|000+)$/.test(codigo)) return '';
+    return codigo;
+  }
+
+  function codigosPecaReal(item) {
+    return Array.from(new Set([
+      item?.codigo,
+      item?.cod,
+      item?.codigoExibicao,
+      item?.codigoComercial,
+      item?.codigoFornecedor,
+      item?.oem,
+      item?.codigoOEM,
+      item?.partNumber,
+      item?.numeroPeca
+    ].map(codigoFortePecaReal).filter(Boolean)));
+  }
+
+  function descricaoPecaReal(item) {
+    return normalizarDescricaoPecaReal(
+      item?.desc || item?.descricao || item?.descricaoExibicao || item?.descLivre ||
+      item?.descricaoPeca || item?.nomePeca || item?.nome || item?.item || ''
+    );
+  }
+
+  function quantidadePecaReal(item) {
+    return U.parseNumberBR(item?.qtd ?? item?.q ?? item?.quantidadeOperacionalTotal ?? item?.quantidadeFiscal ?? item?.quantidade ?? 1) || 1;
+  }
+
+  function valoresUnitariosPecaOrcamento(item) {
+    return Array.from(new Set([
+      item?.venda,
+      item?.valor,
+      item?.v,
+      item?.valorUnit,
+      item?.valorUnitario,
+      item?.custo,
+      item?.c
+    ].map(U.parseNumberBR).filter(v => v > 0).map(v => +v.toFixed(4))));
+  }
+
+  function custosUnitariosPecaReal(item) {
+    const qtd = quantidadePecaReal(item);
+    const total = U.parseNumberBR(item?.totalCompra ?? item?.valorTotal ?? item?.total ?? 0);
+    const valores = [
+      item?.valorCompra,
+      item?.custo,
+      item?.valorUnitarioFiscal,
+      item?.valorUnitario,
+      item?.custoUnitario,
+      item?.precoCompra,
+      item?.valor
+    ].map(U.parseNumberBR).filter(v => v > 0);
+    if (total > 0 && qtd > 0) valores.push(total / qtd);
+    return Array.from(new Set(valores.map(v => +v.toFixed(4))));
+  }
+
+  function valoresCoincidemPecaReal(peca, real) {
+    const publicos = valoresUnitariosPecaOrcamento(peca);
+    const custos = custosUnitariosPecaReal(real);
+    return publicos.some(v => custos.some(c => Math.abs(v - c) <= Math.max(0.03, Math.abs(c) * 0.0005)));
+  }
+
+  function descricoesCoincidemPecaReal(peca, real) {
+    const a = descricaoPecaReal(peca);
+    const b = descricaoPecaReal(real);
+    if (!a || !b) return false;
+    if (a === b) return true;
+    if (a.length < 12 || b.length < 12) return false;
+    const menor = a.length <= b.length ? a : b;
+    const maior = a.length > b.length ? a : b;
+    return menor.length >= 16 && maior.includes(menor);
+  }
+
+  function referenciasNFCoincidemPecaReal(peca, real) {
+    const refsPeca = [peca?.nfId, peca?.nf, peca?.nfNumero, peca?.numeroNF]
+      .map(normalizarCodigoPecaReal).filter(Boolean);
+    const refsReal = [real?.nfId, real?.nf, real?.nfNumero, real?.numeroNF]
+      .map(normalizarCodigoPecaReal).filter(Boolean);
+    return refsPeca.some(ref => refsReal.includes(ref));
+  }
+
+  U.getRealParts = function(os) {
+    const listas = [
+      os?.pecasReais,
+      os?.pecasRealmenteTrocadas,
+      os?.itensReais
+    ];
+    const out = [];
+    const vistos = new Set();
+    listas.forEach(lista => (Array.isArray(lista) ? lista : []).forEach(real => {
+      if (!real || typeof real !== 'object') return;
+      const chave = normalizarCodigoPecaReal(real.origemNFItemKey || real.idReal || real.pecaRealId || '') ||
+        [codigosPecaReal(real)[0] || '', descricaoPecaReal(real), quantidadePecaReal(real), custosUnitariosPecaReal(real)[0] || 0].join('|');
+      if (chave && vistos.has(chave)) return;
+      if (chave) vistos.add(chave);
+      out.push(real);
+    }));
+    return out;
+  };
+
+  U.isBudgetPieceLinkedToRealPart = function(os, peca) {
+    if (!peca || typeof peca !== 'object') return false;
+    if (U.isProtectedRealPart(peca)) return true;
+
+    const reais = U.getRealParts(os);
+    if (!reais.length) return false;
+
+    const chavePeca = normalizarCodigoPecaReal(peca.origemNFItemKey || peca.idReal || peca.pecaRealId || '');
+    const codigosPeca = codigosPecaReal(peca);
+    const qtdPeca = quantidadePecaReal(peca);
+
+    return reais.some(real => {
+      const chaveReal = normalizarCodigoPecaReal(real.origemNFItemKey || real.idReal || real.pecaRealId || '');
+      if (chavePeca && chaveReal && chavePeca === chaveReal) return true;
+
+      const codigosReal = codigosPecaReal(real);
+      const codigoIgual = codigosPeca.some(codigo => codigosReal.includes(codigo));
+      const descricaoIgual = descricoesCoincidemPecaReal(peca, real);
+      const valorIgual = valoresCoincidemPecaReal(peca, real);
+      const qtdIgual = Math.abs(qtdPeca - quantidadePecaReal(real)) < 0.0001;
+      const nfIgual = referenciasNFCoincidemPecaReal(peca, real);
+
+      if (nfIgual && (codigoIgual || descricaoIgual)) return true;
+      if (codigoIgual && valorIgual && (descricaoIgual || qtdIgual)) return true;
+      if (descricaoIgual && valorIgual && qtdIgual) return true;
+      return false;
+    });
+  };
+
   U.hasProtectedRealParts = function(os) {
-    return (os?.pecas || []).some(U.isProtectedRealPart);
+    return (os?.pecas || []).some(peca => U.isBudgetPieceLinkedToRealPart(os, peca));
   };
 
   U.getPublicBudgetPieces = function(os, cliente) {
     const oficial = U.isOfficialClient(os, cliente);
     return (os?.pecas || [])
       .map((peca, index) => ({ peca, index }))
-      .filter(item => !oficial || !U.isProtectedRealPart(item.peca));
+      .filter(item => !oficial || !U.isBudgetPieceLinkedToRealPart(os, item.peca));
   };
 
   U.buildBudgetItems = function(os, cliente) {

@@ -16,7 +16,7 @@
   if (window.__THIA_JARVIS_CRM_V20__) return;
   window.__THIA_JARVIS_CRM_V20__ = true;
 
-  const VERSION = '20.1.0';
+  const VERSION = '20.1.1';
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value == null ? '' : value)
     .replace(/&/g, '&amp;')
@@ -48,8 +48,9 @@
     return window._pecasReaisDesbloqueadas === true || document.body?.dataset?.secret177 === 'on';
   }
 
-  function pecaRealProtegida(peca) {
+  function pecaRealProtegida(order, peca) {
     const U = window.JOS || window.JarvisOSUtils || {};
+    if (typeof U.isBudgetPieceLinkedToRealPart === 'function') return U.isBudgetPieceLinkedToRealPart(order || {}, peca);
     if (typeof U.isProtectedRealPart === 'function') return U.isProtectedRealPart(peca);
     if (!peca || typeof peca !== 'object') return false;
     const origem = String(peca.origem || '').toLowerCase().trim();
@@ -183,7 +184,7 @@
       if (!values.length && Number(order?.maoObra || 0) > 0) push('Mão de obra registrada');
     } else {
       (Array.isArray(order?.pecas) ? order.pecas : [])
-        .filter(item => !(clienteOficialDaOS(order) && pecaRealProtegida(item)))
+        .filter(item => !(clienteOficialDaOS(order) && pecaRealProtegida(order, item)))
         .forEach((item) => push([item?.codigo, item?.desc || item?.descricao || item?.nome].filter(Boolean).join(' — ')));
       if (segredo177Ativo()) {
         (Array.isArray(order?.pecasReais) ? order.pecasReais : []).forEach((item) => push([item?.codigo, item?.desc || item?.descricao || item?.nome].filter(Boolean).join(' — ')));

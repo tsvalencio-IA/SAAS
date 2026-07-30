@@ -45,8 +45,9 @@
     return window._pecasReaisDesbloqueadas === true || document.body?.dataset?.secret177 === 'on';
   }
 
-  function pecaRealProtegida(peca) {
+  function pecaRealProtegida(os, peca) {
     const U = window.JOS || window.JarvisOSUtils || {};
+    if (typeof U.isBudgetPieceLinkedToRealPart === 'function') return U.isBudgetPieceLinkedToRealPart(os || {}, peca);
     if (typeof U.isProtectedRealPart === 'function') return U.isProtectedRealPart(peca);
     if (!peca || typeof peca !== 'object') return false;
     const origem = String(peca.origem || '').toLowerCase().trim();
@@ -321,7 +322,7 @@
       linhas.push(`OS ${String(o.numero || o.id || '').slice(-8)} | placa ${o.placa || v.placa || 'S/P'} | veiculo ${o.veiculo || v.modelo || o.modelo || o.tipoVeiculo || 'N/I'} | cliente ${c.nome || o.cliente || 'N/I'} | status ${o.status || 'N/I'} | etapa ${o.etapa || 'N/I'} | data ${o.data || o.createdAt || 'N/I'}`);
       if (o.desc || o.relato) linhas.push(`Relato: ${o.desc || o.relato}`);
       if (o.diagnostico) linhas.push(`Diagnostico: ${o.diagnostico}`);
-      const pecas = (Array.isArray(o.pecas) ? o.pecas : []).filter(p => !(clienteOficialOS(o) && pecaRealProtegida(p)));
+      const pecas = (Array.isArray(o.pecas) ? o.pecas : []).filter(p => !(clienteOficialOS(o) && pecaRealProtegida(o, p)));
       const servicos = Array.isArray(o.servicos) ? o.servicos : [];
       pecas.slice(0, 20).forEach(p => linhas.push(`Peca: ${iaItemLabel(p)} | aprovacao ${iaAprovacaoItem(p)} | execucao ${iaExecucaoItem(p, o)}`));
       servicos.slice(0, 20).forEach(s => linhas.push(`Servico: ${iaItemLabel(s)} | aprovacao ${iaAprovacaoItem(s)} | execucao ${iaExecucaoItem(s, o)}`));

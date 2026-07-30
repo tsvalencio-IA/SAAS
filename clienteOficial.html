@@ -357,7 +357,7 @@ body{background:var(--bg0);color:var(--text);font-family:var(--ff);min-height:10
 <script src="js/config.js"></script>
 <script src="js/links-publicos.js"></script>
 <script src="js/tenant-modules.js"></script>
-<script src="js/os-utils.js?v=22.4.0"></script>
+<script src="js/os-utils.js?v=22.4.1"></script>
 <script src="js/tabela-tempa.js"></script>
 <script>
 'use strict';
@@ -382,6 +382,8 @@ function _pecaRealProtegidaOficial(peca){
   return peca.origemNFVinculada===true||origem==='nf_entrada_os'||origem==='nf_entrada'||status==='comprada_vinculada_nf'||!!String(peca.origemNFItemKey||'').trim();
 }
 function _pecasPublicasOficial(os){
+  const U=window.JOS||window.JarvisOSUtils||{};
+  if(typeof U.getPublicBudgetPieces==='function') return U.getPublicBudgetPieces(os,CLI);
   return (os?.pecas||[]).map((peca,index)=>({peca,index})).filter(item=>!_pecaRealProtegidaOficial(item.peca));
 }
 function _eventoPecaRealOficial(t){
@@ -469,7 +471,7 @@ function _guinchoFinanceiroOS(os){
 }
 function _totalAprovadoOS(os){
   const U=window.JOS||window.JarvisOSUtils||{};
-  const protegido=(os?.pecas||[]).some(_pecaRealProtegidaOficial);
+  const protegido=typeof U.hasProtectedRealParts==='function'?U.hasProtectedRealParts(os):(os?.pecas||[]).some(_pecaRealProtegidaOficial);
   if(protegido){
     if(U.hasApproval?.(os)){
       const aprovado=typeof U.getValorAprovado==='function'?nBR(U.getValorAprovado(os,CLI)):0;
@@ -484,7 +486,7 @@ function _totalAprovadoOS(os){
 function _resumoFinanceiroOS(os){
   const fin=_finOS(os);
   const U=window.JOS||window.JarvisOSUtils||{};
-  const protegido=(os?.pecas||[]).some(_pecaRealProtegidaOficial);
+  const protegido=typeof U.hasProtectedRealParts==='function'?U.hasProtectedRealParts(os):(os?.pecas||[]).some(_pecaRealProtegidaOficial);
   const orcamentoSeguro=protegido&&typeof U.getValorOrcamento==='function'?nBR(U.getValorOrcamento(os,CLI)):nBR(os.total||0);
   const txtPgto=String([os.pgtoResumoCliente||'',os.pgtoForma||''].join(' ')).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   const pagamentoAVista=/\b(pix|dinheiro|debito)\b/.test(txtPgto);

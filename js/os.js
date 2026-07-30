@@ -2906,15 +2906,29 @@ function osPecaRealProtegidaOS(peca) {
     (!!chaveNF && (!!referenciaNF || origem.includes('nf_entrada')));
 }
 
-function osLinhaPecaRealProtegidaOS(row) {
+function osPecaRealProtegidaNoContextoOS(os, peca) {
+  if (!peca || typeof peca !== 'object') return false;
+  if (typeof OSU().isBudgetPieceLinkedToRealPart === 'function') {
+    return OSU().isBudgetPieceLinkedToRealPart(os || {}, peca);
+  }
+  return osPecaRealProtegidaOS(peca);
+}
+
+function osLinhaPecaRealProtegidaOS(row, os) {
   if (!row) return false;
-  return osPecaRealProtegidaOS({
+  const peca = {
     origem: row.dataset?.origemPecaOS || '',
     origemNFVinculada: row.dataset?.origemNFVinculada === '1',
     origemNFItemKey: row.dataset?.origemNFItemKey || '',
     nfId: row.dataset?.pecaNfId || '',
-    nf: row.dataset?.pecaNf || ''
-  });
+    nf: row.dataset?.pecaNf || '',
+    codigo: row.querySelector?.('.peca-codigo')?.value?.trim() || row.dataset?.pecaCodigo || '',
+    desc: row.querySelector?.('.peca-desc-livre')?.value?.trim() || row.dataset?.pecaDesc || '',
+    qtd: numBR(row.querySelector?.('.peca-qtd')?.value || 1) || 1,
+    custo: numBR(row.querySelector?.('.peca-custo')?.value || 0),
+    venda: numBR(row.querySelector?.('.peca-venda')?.value || 0)
+  };
+  return osPecaRealProtegidaNoContextoOS(os || {}, peca);
 }
 
 function osContextoClienteAtualOS(base) {
@@ -2934,21 +2948,18 @@ function osContextoClienteAtualOS(base) {
 function osPecasOrcamentoVisiveisOS(os, pecas) {
   const lista = Array.isArray(pecas) ? pecas : [];
   if (!osClienteOficialSeguroOS(os)) return lista.slice();
-  return lista.filter(peca => !osPecaRealProtegidaOS(peca));
+  const contexto = Object.assign({}, os || {}, { pecas: lista });
+  return lista.filter(peca => !osPecaRealProtegidaNoContextoOS(contexto, peca));
 }
 
 function osMesclarPecasProtegidasClienteOficialOS(osAnterior, contextoAtual, pecasEditadas) {
   const visiveis = Array.isArray(pecasEditadas) ? pecasEditadas.slice() : [];
-  if (!osClienteOficialSeguroOS(contextoAtual || osAnterior || {})) return visiveis;
-  const protegidas = (Array.isArray(osAnterior?.pecas) ? osAnterior.pecas : []).filter(osPecaRealProtegidaOS);
-  const chaves = new Set(visiveis.map(p => osTextoNormalizadoCliente(osChavePecaAtendimentoOS(p))).filter(Boolean));
-  protegidas.forEach(peca => {
-    const chave = osTextoNormalizadoCliente(osChavePecaAtendimentoOS(peca));
-    if (chave && chaves.has(chave)) return;
-    visiveis.push(peca);
-    if (chave) chaves.add(chave);
-  });
-  return visiveis;
+  const contexto = Object.assign({}, osAnterior || {}, contextoAtual || {}, { pecas: visiveis });
+  if (!osClienteOficialSeguroOS(contexto)) return visiveis;
+  // Os registros internos permanecem integralmente em pecasReais. Aqui, no campo
+  // público pecas, removemos inclusive duplicatas antigas que perderam os metadados
+  // de NF ao serem salvas como peça avulsa depois da troca de cliente/placa.
+  return osPecasOrcamentoVisiveisOS(contexto, visiveis);
 }
 
 function osEventoPecaRealProtegidoOS(evento) {
@@ -2961,6 +2972,7 @@ function osEventoPecaRealProtegidoOS(evento) {
 }
 
 window.thiaPecaRealProtegidaOS = osPecaRealProtegidaOS;
+window.thiaPecaRealProtegidaNoContextoOS = osPecaRealProtegidaNoContextoOS;
 window.thiaClienteOficialSeguroOS = osClienteOficialSeguroOS;
 window.thiaSegredo177AtivoOS = osSegredo177AtivoOS;
 window.thiaEventoPecaRealProtegidoOS = osEventoPecaRealProtegidoOS;
@@ -3861,7 +3873,7 @@ window.salvarOS = async function() {
   const pecas = [];
   let totalPecas = 0;
   document.querySelectorAll('#containerPecasOS [data-peca-avulsa="1"], #containerPecasOS > div:not(.cilia-peca-wrap)').forEach(row => {
-    if (_protegerPecasReaisNoOrcamento && osLinhaPecaRealProtegidaOS(row)) return;
+    if (_protegerPecasReaisNoOrcamento && osLinhaPecaRealProtegidaOS(row, _contextoProtecaoPecas)) return;
     const wrapCilia = row.closest?.('.cilia-peca-wrap') || row;
     // Peça AVULSA (cliente governo)
     if (row.dataset?.pecaAvulsa === '1') {
@@ -5355,7 +5367,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
   let totalPecas = 0;
   const _contextoPDFPecasOS = osContextoClienteAtualOS(osAtual);
   document.querySelectorAll('#containerPecasOS [data-peca-avulsa="1"], #containerPecasOS > div:not(.cilia-peca-wrap)').forEach(row => {
-    if (osClienteOficialSeguroOS(_contextoPDFPecasOS) && osLinhaPecaRealProtegidaOS(row)) return;
+    if (osClienteOficialSeguroOS(_contextoPDFPecasOS) && osLinhaPecaRealProtegidaOS(row, _contextoPDFPecasOS)) return;
     const sel = row.querySelector('.peca-sel');
     const opt = sel?.options?.[sel.selectedIndex];
     const estoqueId = sel?.value || '';
