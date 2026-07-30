@@ -2332,14 +2332,15 @@ window.prepOS = function(mode, id = null) {
     renderPagamentosCombinadosOS(o.pgtoCombinado || []);
     aplicarRegraParcelasPagamentoOS();
     
-    window.osPecas = o.pecas || [];
+    const _pecasReconciliadasOS = osReconciliarPecasReaisParaClienteComumOS(o, Array.isArray(o.pecas) ? o.pecas : [], Array.isArray(o.pecasReais) ? o.pecasReais : []);
+    const pecasOS = osPecasOrcamentoVisiveisOS(o, _pecasReconciliadasOS);
+    o.pecas = _pecasReconciliadasOS; // preserva integralmente os registros internos já gravados
+    window.osPecas = pecasOS;
     window.osFotos = o.media || o.fotos || [];
-    
+
     if(typeof window.renderItensOS === 'function') window.renderItensOS();
-    
+
     const servicosOS = Array.isArray(o.servicos) ? o.servicos : [];
-    const pecasOS = osReconciliarPecasReaisParaClienteComumOS(o, Array.isArray(o.pecas) ? o.pecas : [], Array.isArray(o.pecasReais) ? o.pecasReais : []);
-    o.pecas = pecasOS;
     const servicosCiliaPorPeca = {};
     const servicosNormais = [];
     servicosOS.forEach(s => {
@@ -2866,22 +2867,103 @@ function osClienteOficialSeguroOS(os) {
   if (!nome || nome === 'CONSUMIDOR') return false;
   const tipoCliente = String(cli?.tipoCliente || o.tipoCliente || o.clienteTipo || '').toLowerCase();
   if (tipoCliente === 'governo' || tipoCliente === 'oficial') return true;
-  const raw = JSON.stringify({
-    clienteOficial: cli?.clienteOficial,
-    clienteOrgaoPublico: cli?.orgaoPublico,
-    clientePublico: cli?.publico,
-    clienteGov: cli?.gov,
-    tipoCliente: cli?.tipoCliente,
-    osClienteOficial: o.clienteOficial,
-    osOrgaoPublico: o.orgaoPublico,
-    osGov: o.gov,
-    fiscalContrato: o.fiscalContrato,
-    contrato: o.contrato,
-    orgao: o.orgao,
-    unidade: o.unidade
-  }).toUpperCase();
-  return /OFICIAL|GOVERNO|PMSP|POLICIA|POLÍCIA|MILITAR|BPM|PREFEITURA|ESTADO|MUNICIP|SECRETARIA/.test(raw);
+  const indicadores = [
+    nome,
+    cli?.clienteOficial === true ? 'OFICIAL' : '',
+    cli?.orgaoPublico === true ? 'ORGAO PUBLICO' : '',
+    cli?.publico === true ? 'PUBLICO' : '',
+    cli?.gov === true ? 'GOVERNO' : '',
+    cli?.tipoCliente,
+    cli?.govUnidade,
+    o.clienteOficial === true ? 'OFICIAL' : '',
+    o.orgaoPublico === true ? 'ORGAO PUBLICO' : '',
+    o.gov === true ? 'GOVERNO' : '',
+    o.tipoCliente,
+    o.clienteTipo,
+    o.fiscalContrato,
+    o.contrato,
+    o.orgao,
+    o.unidade
+  ].filter(Boolean).join('|').toUpperCase();
+  return /OFICIAL|GOVERNO|PMSP|POLICIA|POLÍCIA|MILITAR|BPM|PREFEITURA|ESTADO|MUNICIP|SECRETARIA|ORGAO PUBLICO/.test(indicadores);
 }
+
+function osSegredo177AtivoOS() {
+  return window._pecasReaisDesbloqueadas === true || document.body?.dataset?.secret177 === 'on';
+}
+
+function osPecaRealProtegidaOS(peca) {
+  if (!peca || typeof peca !== 'object') return false;
+  if (typeof OSU().isProtectedRealPart === 'function') return OSU().isProtectedRealPart(peca);
+  const origem = String(peca.origem || '').toLowerCase().trim();
+  const status = String(peca.statusAplicacao || '').toLowerCase().trim();
+  const chaveNF = String(peca.origemNFItemKey || '').trim();
+  const referenciaNF = String(peca.nfId || peca.nf || peca.nfNumero || peca.numeroNF || '').trim();
+  return peca.origemNFVinculada === true ||
+    origem === 'nf_entrada_os' ||
+    origem === 'nf_entrada' ||
+    status === 'comprada_vinculada_nf' ||
+    (!!chaveNF && (!!referenciaNF || origem.includes('nf_entrada')));
+}
+
+function osLinhaPecaRealProtegidaOS(row) {
+  if (!row) return false;
+  return osPecaRealProtegidaOS({
+    origem: row.dataset?.origemPecaOS || '',
+    origemNFVinculada: row.dataset?.origemNFVinculada === '1',
+    origemNFItemKey: row.dataset?.origemNFItemKey || '',
+    nfId: row.dataset?.pecaNfId || '',
+    nf: row.dataset?.pecaNf || ''
+  });
+}
+
+function osContextoClienteAtualOS(base) {
+  const clienteId = document.getElementById('osCliente')?.value || base?.clienteId || '';
+  const cliente = (window.J?.clientes || []).find(c => String(c.id) === String(clienteId)) || {};
+  return Object.assign({}, base || {}, {
+    clienteId,
+    clienteNome: cliente.nome || cliente.razaoSocial || cliente.govUnidade || base?.clienteNome || base?.cliente || '',
+    cliente: cliente.nome || base?.cliente || '',
+    tipoCliente: cliente.tipoCliente || base?.tipoCliente || base?.clienteTipo || '',
+    clienteOficial: cliente.clienteOficial ?? base?.clienteOficial,
+    orgaoPublico: cliente.orgaoPublico ?? base?.orgaoPublico,
+    gov: cliente.gov ?? base?.gov
+  });
+}
+
+function osPecasOrcamentoVisiveisOS(os, pecas) {
+  const lista = Array.isArray(pecas) ? pecas : [];
+  if (!osClienteOficialSeguroOS(os)) return lista.slice();
+  return lista.filter(peca => !osPecaRealProtegidaOS(peca));
+}
+
+function osMesclarPecasProtegidasClienteOficialOS(osAnterior, contextoAtual, pecasEditadas) {
+  const visiveis = Array.isArray(pecasEditadas) ? pecasEditadas.slice() : [];
+  if (!osClienteOficialSeguroOS(contextoAtual || osAnterior || {})) return visiveis;
+  const protegidas = (Array.isArray(osAnterior?.pecas) ? osAnterior.pecas : []).filter(osPecaRealProtegidaOS);
+  const chaves = new Set(visiveis.map(p => osTextoNormalizadoCliente(osChavePecaAtendimentoOS(p))).filter(Boolean));
+  protegidas.forEach(peca => {
+    const chave = osTextoNormalizadoCliente(osChavePecaAtendimentoOS(peca));
+    if (chave && chaves.has(chave)) return;
+    visiveis.push(peca);
+    if (chave) chaves.add(chave);
+  });
+  return visiveis;
+}
+
+function osEventoPecaRealProtegidoOS(evento) {
+  if (!evento || typeof evento !== 'object') return false;
+  const tipo = String(evento.tipo || evento.modulo || '').toLowerCase();
+  if (['nf_peca_real','edicao_nf_peca_real','devolucao_nf_peca_real','vinculo_nf_peca_real_os'].includes(tipo)) return true;
+  const texto = String(evento.acao || evento.descricao || evento.mensagem || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /peca real|pecas reais|vinculad[ao] por nf|nf.*peca.*real|peca.*nf.*vinculad/.test(texto);
+}
+
+window.thiaPecaRealProtegidaOS = osPecaRealProtegidaOS;
+window.thiaClienteOficialSeguroOS = osClienteOficialSeguroOS;
+window.thiaSegredo177AtivoOS = osSegredo177AtivoOS;
+window.thiaEventoPecaRealProtegidoOS = osEventoPecaRealProtegidoOS;
 
 function osChavePecaAtendimentoOS(p) {
   if (!p) return '';
@@ -3772,9 +3854,14 @@ window.salvarOS = async function() {
     return;
   }
 
+  const _oldOSProtecaoPecas = osId ? (window.J?.os || []).find(x => x.id === osId) : null;
+  const _contextoProtecaoPecas = osContextoClienteAtualOS(_oldOSProtecaoPecas || {});
+  const _protegerPecasReaisNoOrcamento = osClienteOficialSeguroOS(_contextoProtecaoPecas);
+
   const pecas = [];
   let totalPecas = 0;
   document.querySelectorAll('#containerPecasOS [data-peca-avulsa="1"], #containerPecasOS > div:not(.cilia-peca-wrap)').forEach(row => {
+    if (_protegerPecasReaisNoOrcamento && osLinhaPecaRealProtegidaOS(row)) return;
     const wrapCilia = row.closest?.('.cilia-peca-wrap') || row;
     // Peça AVULSA (cliente governo)
     if (row.dataset?.pecaAvulsa === '1') {
@@ -3891,7 +3978,7 @@ window.salvarOS = async function() {
   payload.deslocamentoGuincho = guinchoPayload;
   payload.totalGuincho = guinchoPayload.ativo ? _numGuinchoOS(guinchoPayload.total || 0) : 0;
 
-  const _oldOSPreservar = osId ? (window.J?.os || []).find(x => x.id === osId) : null;
+  const _oldOSPreservar = _oldOSProtecaoPecas;
 
   // Prisma da O.S.: persiste enquanto o veículo estiver no pátio.
   // Ao entregar, preserva o último número no histórico e libera o prisma para reutilização.
@@ -4012,7 +4099,9 @@ window.salvarOS = async function() {
   const _pecasReaisOcultasNaOS = osAtualizarOcultasPecasNFRemovidasOS(_oldOSPreservar || {}, pecas);
   payload.pecasReaisOcultasNaOS = _pecasReaisOcultasNaOS;
   payload.pecasNFRemovidasDaOS = _pecasReaisOcultasNaOS;
-  payload.pecas = osReconciliarPecasReaisParaClienteComumOS(Object.assign({}, _oldOSPreservar || {}, payload), pecas, payload.pecasReais || _pecasReais || []);
+  const _contextoFinalPecasOS = Object.assign({}, _oldOSPreservar || {}, payload);
+  const _pecasOrcamentoReconciliadasOS = osReconciliarPecasReaisParaClienteComumOS(_contextoFinalPecasOS, pecas, payload.pecasReais || _pecasReais || []);
+  payload.pecas = osMesclarPecasProtegidasClienteOficialOS(_oldOSPreservar || {}, _contextoFinalPecasOS, _pecasOrcamentoReconciliadasOS);
   payload.maoObra = totalMaoObra;
 
   // Mapeia media para o payload antes do Deep Diff para podermos comparar
@@ -4970,7 +5059,8 @@ window.removerMediaOS = function(idx) {
 window.renderTimelineOS = function() {
   if(!$('osTimeline')) return;
   const tl = JSON.parse($('osTimelineData')?.value || '[]');
-  $('osTimeline').innerHTML = [...tl].reverse().map(e => `<div class="tl-item"><div class="tl-date">${dtHrBr(e.dt)}</div><div class="tl-user">${e.user}</div><div class="tl-action">${e.acao}</div></div>`).join('');
+  const visiveis = osSegredo177AtivoOS() ? tl : tl.filter(e => !osEventoPecaRealProtegidoOS(e));
+  $('osTimeline').innerHTML = [...visiveis].reverse().map(e => `<div class="tl-item"><div class="tl-date">${dtHrBr(e.dt)}</div><div class="tl-user">${e.user}</div><div class="tl-action">${e.acao}</div></div>`).join('');
 };
 
 
@@ -5263,7 +5353,9 @@ window.gerarPDFOS = async function(opcoes = {}) {
 
   const pecas = [];
   let totalPecas = 0;
+  const _contextoPDFPecasOS = osContextoClienteAtualOS(osAtual);
   document.querySelectorAll('#containerPecasOS [data-peca-avulsa="1"], #containerPecasOS > div:not(.cilia-peca-wrap)').forEach(row => {
+    if (osClienteOficialSeguroOS(_contextoPDFPecasOS) && osLinhaPecaRealProtegidaOS(row)) return;
     const sel = row.querySelector('.peca-sel');
     const opt = sel?.options?.[sel.selectedIndex];
     const estoqueId = sel?.value || '';
@@ -6689,6 +6781,7 @@ window.aplicarMarcadoresAprovacaoOS = function(os) {
 // BUSCA HISTÓRICO POR PLACA + SERVIÇO/PEÇA
 // ══════════════════════════════════════════════════════════════════════
 window.buscarHistoricoOS = function(opts = {}) {
+  const liberarPecasReais = osSegredo177AtivoOS();
   const placaId = opts.placaId || 'histBuscaPlaca';
   const termoId = opts.termoId || 'histBuscaTermo';
   const resultadoId = opts.resultadoId || 'histBuscaResultado';
@@ -6712,8 +6805,8 @@ window.buscarHistoricoOS = function(opts = {}) {
     if (!termo) return true;
     const textoOS = [
       ...(o.servicos||[]).map(s=>[s.desc,s.codigoInterno,s.codigoTabela,s.sistemaTabela,s.tempo].join(' ')),
-      ...(o.pecas||[]).map(p=>[p.desc,p.codigo,p.qtd,p.venda].join(' ')),
-      ...(o.pecasReais||[]).map(pecaRealTexto),
+      ...osPecasOrcamentoVisiveisOS(o, o.pecas||[]).map(p=>[p.desc,p.codigo,p.qtd,p.venda].join(' ')),
+      ...(liberarPecasReais ? (o.pecasReais||[]).map(pecaRealTexto) : []),
       o.diagnostico || '',
       o.relato || '',
       o.desc || ''
@@ -6731,8 +6824,8 @@ window.buscarHistoricoOS = function(opts = {}) {
     const veic = (window.J?.veiculos||[]).find(v=>v.id===o.veiculoId)||{};
     const matchText = value => !termo || (OSU().normalizeText ? OSU().normalizeText(value) : String(value||'').toLowerCase()).includes(termo);
     const servMatches = (o.servicos||[]).filter(s=>matchText([s.desc,s.codigoInterno,s.codigoTabela,s.sistemaTabela,s.tempo].join(' ')));
-    const pecMatches  = (o.pecas||[]).filter(p=>matchText([p.desc,p.codigo,p.qtd,p.venda].join(' ')));
-    const reaisMtch   = (o.pecasReais||[]).filter(p=>matchText(pecaRealTexto(p)));
+    const pecMatches  = osPecasOrcamentoVisiveisOS(o, o.pecas||[]).filter(p=>matchText([p.desc,p.codigo,p.qtd,p.venda].join(' ')));
+    const reaisMtch   = liberarPecasReais ? (o.pecasReais||[]).filter(p=>matchText(pecaRealTexto(p))) : [];
     const pecaRealResumo = p => {
       const codigo = p.codigo || p.codigoComercial || p.oem || p.codigoFornecedor || '';
       const desc = p.desc || p.descricao || '';

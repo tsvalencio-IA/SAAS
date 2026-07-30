@@ -41,6 +41,32 @@
 
   window.thiaCanSeeFinance = canSeeFinance;
 
+  function segredo177Ativo() {
+    return window._pecasReaisDesbloqueadas === true || document.body?.dataset?.secret177 === 'on';
+  }
+
+  function pecaRealProtegida(peca) {
+    const U = window.JOS || window.JarvisOSUtils || {};
+    if (typeof U.isProtectedRealPart === 'function') return U.isProtectedRealPart(peca);
+    if (!peca || typeof peca !== 'object') return false;
+    const origem = String(peca.origem || '').toLowerCase().trim();
+    return peca.origemNFVinculada === true || origem === 'nf_entrada_os' || origem === 'nf_entrada' || String(peca.statusAplicacao || '').toLowerCase() === 'comprada_vinculada_nf' || !!String(peca.origemNFItemKey || '').trim();
+  }
+
+  function clienteOficialOS(os) {
+    const cliente = (window.J?.clientes || []).find(c => String(c.id) === String(os?.clienteId || '')) || {};
+    const U = window.JOS || window.JarvisOSUtils || {};
+    if (typeof U.isOfficialClient === 'function') return U.isOfficialClient(os, cliente);
+    return String(cliente.tipoCliente || os?.tipoCliente || '').toLowerCase() === 'governo';
+  }
+
+  function eventoPecaReal(evento) {
+    const tipo = String(evento?.tipo || evento?.modulo || '').toLowerCase();
+    if (['nf_peca_real','edicao_nf_peca_real','devolucao_nf_peca_real','vinculo_nf_peca_real_os'].includes(tipo)) return true;
+    const texto = String(evento?.acao || evento?.descricao || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    return /peca real|pecas reais|vinculad[ao] por nf|nf.*peca.*real/.test(texto);
+  }
+
   window.thiaAudit = async function (acao, entidade, entidadeId, antes, depois, motivo, extra) {
     const database = db();
     if (!database || !tenantId()) return;
@@ -295,17 +321,23 @@
       linhas.push(`OS ${String(o.numero || o.id || '').slice(-8)} | placa ${o.placa || v.placa || 'S/P'} | veiculo ${o.veiculo || v.modelo || o.modelo || o.tipoVeiculo || 'N/I'} | cliente ${c.nome || o.cliente || 'N/I'} | status ${o.status || 'N/I'} | etapa ${o.etapa || 'N/I'} | data ${o.data || o.createdAt || 'N/I'}`);
       if (o.desc || o.relato) linhas.push(`Relato: ${o.desc || o.relato}`);
       if (o.diagnostico) linhas.push(`Diagnostico: ${o.diagnostico}`);
-      const pecas = Array.isArray(o.pecas) ? o.pecas : [];
+      const pecas = (Array.isArray(o.pecas) ? o.pecas : []).filter(p => !(clienteOficialOS(o) && pecaRealProtegida(p)));
       const servicos = Array.isArray(o.servicos) ? o.servicos : [];
       pecas.slice(0, 20).forEach(p => linhas.push(`Peca: ${iaItemLabel(p)} | aprovacao ${iaAprovacaoItem(p)} | execucao ${iaExecucaoItem(p, o)}`));
       servicos.slice(0, 20).forEach(s => linhas.push(`Servico: ${iaItemLabel(s)} | aprovacao ${iaAprovacaoItem(s)} | execucao ${iaExecucaoItem(s, o)}`));
-      if (canFinance && Array.isArray(o.pecasReais) && o.pecasReais.length) {
+      if (canFinance && segredo177Ativo() && Array.isArray(o.pecasReais) && o.pecasReais.length) {
         o.pecasReais.slice(0, 20).forEach(p => linhas.push(`Auditoria interna peca real: ${iaItemLabel(p)} | codigo ${p.codigo || p.codigoFornecedor || p.codigoComercial || 'N/I'} | NF ${p.nf || p.nfNumero || 'N/I'} | fornecedor ${p.fornecedor || 'N/I'} | compra ${p.dataCompra || p.dataNF || 'N/I'} | status ${p.statusAplicacao || 'comprada/vinculada, nao executada'}`));
       }
       if (Array.isArray(o.timeline) && o.timeline.length) {
-        linhas.push('Timeline recente: ' + o.timeline.slice(-5).map(t => `${t.data || t.dt || t.createdAt || ''} ${t.acao || t.status || ''}`).join(' | '));
+        const timelineVisivel = segredo177Ativo() ? o.timeline : o.timeline.filter(t => !eventoPecaReal(t));
+        linhas.push('Timeline recente: ' + timelineVisivel.slice(-5).map(t => `${t.data || t.dt || t.createdAt || ''} ${t.acao || t.status || ''}`).join(' | '));
       }
-      if (canFinance) linhas.push(`Financeiro OS: total ${o.total || o.valorTotal || 0}; aprovado ${o.totalAprovado || o.valorAprovado || 0}; nao aprovado ${o.totalNaoAprovado || 0}.`);
+      if (canFinance) {
+        const U = window.JOS || window.JarvisOSUtils || {};
+        const totalSeguro = clienteOficialOS(o) && typeof U.getValorOrcamento === 'function' ? U.getValorOrcamento(o, c) : (o.total || o.valorTotal || 0);
+        const aprovadoSeguro = clienteOficialOS(o) && typeof U.getValorAprovado === 'function' ? U.getValorAprovado(o, c) : (o.totalAprovado || o.valorAprovado || 0);
+        linhas.push(`Financeiro OS: total ${totalSeguro}; aprovado ${aprovadoSeguro}; nao aprovado ${o.totalNaoAprovado || 0}.`);
+      }
     });
     if (canFinance && Array.isArray(window.J?.financeiro)) {
       linhas.push(`Financeiro geral: ${window.J.financeiro.length} lancamentos carregados no painel.`);

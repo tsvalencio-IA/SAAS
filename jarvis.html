@@ -4105,7 +4105,16 @@ setTimeout(()=>window.instalarTogglesBlocosOS?.(), 800);
 // AUDITORIA
 window.renderAuditoria = function() {
   if(!$('tbAuditoria')) return;
-  $('tbAuditoria').innerHTML = J.auditoria.slice(0,100).map(a=>`<tr><td style="font-family:var(--fm);font-size:0.72rem;color:var(--muted)">${dtHrBr(a.ts)}</td><td><span class="pill pill-cyan">${a.modulo||'-'}</span></td><td style="font-family:var(--fm);color:var(--cyan)">${a.usuario||'-'}</td><td>${a.acao||'-'}</td></tr>`).join('');
+  const segredo177 = window.thiaSegredo177AtivoOS?.() === true || window._pecasReaisDesbloqueadas === true || document.body?.dataset?.secret177 === 'on';
+  const auditoriaVisivel = segredo177
+    ? (J.auditoria || [])
+    : (J.auditoria || []).filter(a => {
+        if (window.thiaEventoPecaRealProtegidoOS?.(a)) return false;
+        const texto = String([a.modulo,a.acao,a.motivo,a.entidade].filter(Boolean).join(' '))
+          .normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+        return !/peca real|pecas reais|vinculo_nf_peca_real_os|nf.*peca.*real/.test(texto);
+      });
+  $('tbAuditoria').innerHTML = auditoriaVisivel.slice(0,100).map(a=>`<tr><td style="font-family:var(--fm);font-size:0.72rem;color:var(--muted)">${dtHrBr(a.ts)}</td><td><span class="pill pill-cyan">${a.modulo||'-'}</span></td><td style="font-family:var(--fm);color:var(--cyan)">${a.usuario||'-'}</td><td>${a.acao||'-'}</td></tr>`).join('');
 }
 
 // IA LOCAL
@@ -4152,20 +4161,20 @@ window.iaAnalisarEstoque = function() { _jiaChamar('Quais pecas estao em estoque
 <script src="js/fiscal.js"></script>
 <script src="js/financeiro.js"></script>
 <script src="js/nfe-real-pro.js"></script>
-<script src="js/os-utils.js?v=22.0.0"></script>
-<script src="js/os.js?v=22.3.0"></script>
+<script src="js/os-utils.js?v=22.4.0"></script>
+<script src="js/os.js?v=22.4.0"></script>
 <script src="js/checklist-jarvis-bridge.js?v=15.14.0"></script>
 <script src="js/cotacoes.js"></script>
 <script src="js/assinatura-os.js"></script>
 <script src="js/ia.js?v=26.0.0"></script>
 <script src="js/catalogos-ia.js?v=19.0.0"></script>
 <script src="js/tabela-tempa.js"></script>
-<script src="js/exportar-pmsp.js?v=22.1.0"></script>
+<script src="js/exportar-pmsp.js?v=22.4.0"></script>
 
 <script src="js/importar-orcamento-os.js"></script>
-<script src="js/final-1010-regras-os.js"></script>
+<script src="js/final-1010-regras-os.js?v=22.4.0"></script>
 <script src="js/theme.js"></script>
-<script src="js/hardening-comercial.js"></script>
+<script src="js/hardening-comercial.js?v=22.4.0"></script>
 <script src="js/uix-theme-fix.js"></script>
 <script src="js/hardening-operacional-20260515.js?v=20260730.2"></script>
 <script src="js/operacional-cadastros-nf-fix-20260518.js"></script>
@@ -4469,7 +4478,7 @@ window.iaAnalisarEstoque = function() { _jiaChamar('Quais pecas estao em estoque
 })();
 </script>
 
-<script src="js/jarvis-crm-veiculos-v20.js?v=20.0.0"></script>
+<script src="js/jarvis-crm-veiculos-v20.js?v=20.1.0"></script>
 <script src="js/comissoes-os-v21.js?v=24.0.0"></script>
 <script src="js/performance-v23.js?v=23.0.0"></script>
 <script src="js/jarvis-financeiro-v263.js?v=26.3.0"></script>

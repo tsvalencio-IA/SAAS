@@ -297,6 +297,64 @@
     return (veiculos || []).find(v => v.id === os?.veiculoId) || {};
   };
 
+  // V22.4.0 — Blindagem de peças reais vinculadas por NF.
+  // Esses registros continuam preservados na O.S. para auditoria interna, porém
+  // nunca podem compor orçamento/PDF/planilha/portal de cliente oficial.
+  U.isProtectedRealPart = function(peca) {
+    if (!peca || typeof peca !== 'object') return false;
+    const origem = U.normalizeText(peca.origem || '').replace(/\s+/g, '_');
+    const status = U.normalizeText(peca.statusAplicacao || '').replace(/\s+/g, '_');
+    const chaveNF = String(peca.origemNFItemKey || '').trim();
+    const referenciaNF = String(peca.nfId || peca.nf || peca.nfNumero || peca.numeroNF || '').trim();
+    return peca.origemNFVinculada === true ||
+      origem === 'nf_entrada_os' ||
+      origem === 'nf_entrada' ||
+      status === 'comprada_vinculada_nf' ||
+      (!!chaveNF && (!!referenciaNF || origem.includes('nf_entrada')));
+  };
+
+  U.isOfficialClient = function(os, cliente) {
+    const o = os || {};
+    const c = cliente || {};
+    const normalizar = value => String(value || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const nome = normalizar(c.nome || c.razaoSocial || c.govUnidade || o.clienteNome || o.cliente || '');
+    if (!nome || nome === 'CONSUMIDOR') return false;
+    const tipo = String(c.tipoCliente || o.tipoCliente || o.clienteTipo || '').toLowerCase();
+    if (tipo === 'governo' || tipo === 'oficial') return true;
+    const indicadores = [
+      nome,
+      c.clienteOficial === true ? 'OFICIAL' : '',
+      c.orgaoPublico === true ? 'ORGAO PUBLICO' : '',
+      c.publico === true ? 'PUBLICO' : '',
+      c.gov === true ? 'GOVERNO' : '',
+      c.tipoCliente,
+      c.govUnidade,
+      o.clienteOficial === true ? 'OFICIAL' : '',
+      o.orgaoPublico === true ? 'ORGAO PUBLICO' : '',
+      o.gov === true ? 'GOVERNO' : '',
+      o.tipoCliente,
+      o.clienteTipo,
+      o.fiscalContrato,
+      o.contrato,
+      o.orgao,
+      o.unidade
+    ].filter(Boolean).join('|').toUpperCase();
+    return /OFICIAL|GOVERNO|PMSP|POLICIA|POLÍCIA|MILITAR|BPM|PREFEITURA|ESTADO|MUNICIP|SECRETARIA|ORGAO PUBLICO/.test(indicadores);
+  };
+
+  U.hasProtectedRealParts = function(os) {
+    return (os?.pecas || []).some(U.isProtectedRealPart);
+  };
+
+  U.getPublicBudgetPieces = function(os, cliente) {
+    const oficial = U.isOfficialClient(os, cliente);
+    return (os?.pecas || [])
+      .map((peca, index) => ({ peca, index }))
+      .filter(item => !oficial || !U.isProtectedRealPart(item.peca));
+  };
+
   U.buildBudgetItems = function(os, cliente) {
     const descontos = U.getDescontosCliente(cliente, os);
     const servicos = (os?.servicos || []).map((s, index) => {
@@ -342,7 +400,7 @@
         usaCalculoHora: calc.usaCalculoHora
       };
     });
-    const pecas = (os?.pecas || []).map((p, index) => {
+    const pecas = U.getPublicBudgetPieces(os, cliente).map(({ peca: p, index }) => {
       const qtd = U.parseNumberBR(p.qtd || p.q || 1) || 1;
       const valorUnit = U.parseNumberBR(p.venda || p.valor || p.v);
       const bruto = +(qtd * valorUnit).toFixed(2);
@@ -405,14 +463,24 @@
   };
 
   U.getValorOrcamento = function(os, cliente) {
-    const total = U.parseNumberBR(os?.total || 0);
-    if (total) return +total.toFixed(2);
+    const protegidoOficial = U.isOfficialClient(os, cliente) && U.hasProtectedRealParts(os);
+    if (!protegidoOficial) {
+      const total = U.parseNumberBR(os?.total || 0);
+      if (total) return +total.toFixed(2);
+    }
     const itens = U.buildBudgetItems(os, cliente);
-    return +itens.reduce((sum, item) => sum + U.parseNumberBR(item.valorFinal), 0).toFixed(2);
+    let totalSeguro = itens.reduce((sum, item) => sum + U.parseNumberBR(item.valorFinal), 0);
+    if (protegidoOficial) {
+      const guincho = os?.deslocamentoGuincho || os?.guincho || {};
+      const ativo = guincho.ativo === true || guincho.cobrar === true || U.parseNumberBR(os?.totalGuincho || guincho.total || 0) > 0;
+      if (ativo) totalSeguro += U.parseNumberBR(os?.totalGuincho || guincho.total || 0);
+    }
+    return +totalSeguro.toFixed(2);
   };
 
   U.getValorAprovado = function(os, cliente) {
-    if (os?.totalAprovado != null) return +U.parseNumberBR(os.totalAprovado).toFixed(2);
+    const protegidoOficial = U.isOfficialClient(os, cliente) && U.hasProtectedRealParts(os);
+    if (!protegidoOficial && os?.totalAprovado != null) return +U.parseNumberBR(os.totalAprovado).toFixed(2);
     if (!U.hasApproval(os)) return 0;
     const keys = U.getApprovedKeys(os);
     return +U.buildBudgetItems(os, cliente)

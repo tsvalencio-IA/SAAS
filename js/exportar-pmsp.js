@@ -1590,7 +1590,10 @@
     tenant.tnome = pick(tenant.nomeFantasia, sessao.tnome, tenant.tnome, tenant.nome);
     tenant.nome = pick(tenant.nome, sessao.nome, tenant.tnome, tenant.nomeFantasia);
     const servicos = (os.servicos || []).filter(s => s.desc || s.valor || s.tempo);
-    const pecas = (os.pecas || []).filter(p => p.desc || p.descricao || p.codigo || p.cod || p.venda || p.valor);
+    const pecas = (typeof U().getPublicBudgetPieces === 'function'
+      ? U().getPublicBudgetPieces(os, cli)
+      : (os.pecas || []).map((peca, index) => ({ peca, index })))
+      .filter(({ peca }) => peca && (peca.desc || peca.descricao || peca.codigo || peca.cod || peca.venda || peca.valor));
     const descMO = taxaDesconto(os.descMO != null ? os.descMO : cli.govDescMO);
     const descPeca = taxaDesconto(os.descPeca != null ? os.descPeca : cli.govDescPeca);
     const valorHoraCliente = n(os.valorHoraOS ?? os.govValorHoraOS ?? cli.govValorHora ?? 0);
@@ -1644,7 +1647,7 @@
       };
     });
 
-    const linhasPecasOriginal = pecas.map((p, index) => {
+    const linhasPecasOriginal = pecas.map(({ peca: p, index }) => {
       const qtd = n(p.qtd || p.q || 1) || 1;
       const valorUnit = n(p.venda || p.valor || p.v);
       const brutoItem = +(qtd * valorUnit).toFixed(2);
@@ -1702,7 +1705,10 @@
         aprovacaoInfo.aprovados = todos.filter(it => keys.has(it.key));
         aprovacaoInfo.naoAprovados = todos.filter(it => !keys.has(it.key));
         aprovacaoInfo.totalOriginal = +todos.reduce((sum, it) => sum + n(it.valorFinal || 0), 0).toFixed(2);
-        aprovacaoInfo.totalAprovado = +(os.totalAprovado != null ? n(os.totalAprovado) : aprovacaoInfo.aprovados.reduce((sum, it) => sum + n(it.valorFinal || 0), 0)).toFixed(2);
+        const possuiPecaRealProtegida = typeof U().hasProtectedRealParts === 'function' && U().hasProtectedRealParts(os);
+        aprovacaoInfo.totalAprovado = +(possuiPecaRealProtegida
+          ? aprovacaoInfo.aprovados.reduce((sum, it) => sum + n(it.valorFinal || 0), 0)
+          : (os.totalAprovado != null ? n(os.totalAprovado) : aprovacaoInfo.aprovados.reduce((sum, it) => sum + n(it.valorFinal || 0), 0))).toFixed(2);
         aprovacaoInfo.totalNaoAprovado = +aprovacaoInfo.naoAprovados.reduce((sum, it) => sum + n(it.valorFinal || 0), 0).toFixed(2);
         linhasServ = linhasServOriginal.filter(item => keys.has(item.key));
         linhasPecas = linhasPecasOriginal.filter(item => keys.has(item.key));

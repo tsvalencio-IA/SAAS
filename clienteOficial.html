@@ -357,7 +357,7 @@ body{background:var(--bg0);color:var(--text);font-family:var(--ff);min-height:10
 <script src="js/config.js"></script>
 <script src="js/links-publicos.js"></script>
 <script src="js/tenant-modules.js"></script>
-<script src="js/os-utils.js"></script>
+<script src="js/os-utils.js?v=22.4.0"></script>
 <script src="js/tabela-tempa.js"></script>
 <script>
 'use strict';
@@ -373,6 +373,24 @@ const _tenantReady = _tenantSlug ? _prepararTenantPortal(_tenantSlug) : Promise.
 function moeda(v){ return fmt.format(parseFloat(v||0)); }
 function fmtDt(d){ if(!d) return '—'; const s=String(d); if(/^\d{4}-\d{2}-\d{2}$/.test(s.slice(0,10))){const [a,m,dd]=s.slice(0,10).split('-'); return `${dd}/${m}/${a}`;} try{ return new Date(d).toLocaleDateString('pt-BR'); }catch{ return '—'; } }
 function esc(s){ return String(s==null?'':s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c])); }
+function _pecaRealProtegidaOficial(peca){
+  const U=window.JOS||window.JarvisOSUtils||{};
+  if(typeof U.isProtectedRealPart==='function') return U.isProtectedRealPart(peca);
+  if(!peca||typeof peca!=='object') return false;
+  const origem=String(peca.origem||'').toLowerCase().trim();
+  const status=String(peca.statusAplicacao||'').toLowerCase().trim();
+  return peca.origemNFVinculada===true||origem==='nf_entrada_os'||origem==='nf_entrada'||status==='comprada_vinculada_nf'||!!String(peca.origemNFItemKey||'').trim();
+}
+function _pecasPublicasOficial(os){
+  return (os?.pecas||[]).map((peca,index)=>({peca,index})).filter(item=>!_pecaRealProtegidaOficial(item.peca));
+}
+function _eventoPecaRealOficial(t){
+  if(!t||typeof t!=='object') return false;
+  const tipo=String(t.tipo||t.modulo||'').toLowerCase();
+  if(['nf_peca_real','edicao_nf_peca_real','devolucao_nf_peca_real','vinculo_nf_peca_real_os'].includes(tipo)) return true;
+  const texto=String(t.acao||t.descricao||t.mensagem||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  return /peca real|pecas reais|vinculad[ao] por nf|nf.*peca.*real|peca.*nf.*vinculad/.test(texto);
+}
 function _pick(...values){
   for(const value of values){
     if(value===undefined||value===null) continue;
@@ -450,12 +468,24 @@ function _guinchoFinanceiroOS(os){
   return ativo ? nBR(os?.totalGuincho || g.total || 0) : 0;
 }
 function _totalAprovadoOS(os){
+  const U=window.JOS||window.JarvisOSUtils||{};
+  const protegido=(os?.pecas||[]).some(_pecaRealProtegidaOficial);
+  if(protegido){
+    if(U.hasApproval?.(os)){
+      const aprovado=typeof U.getValorAprovado==='function'?nBR(U.getValorAprovado(os,CLI)):0;
+      return +(aprovado+_guinchoFinanceiroOS(os)).toFixed(2);
+    }
+    if(typeof U.getValorOrcamento==='function') return nBR(U.getValorOrcamento(os,CLI));
+  }
   if(os.totalAprovadoComGuincho!=null) return nBR(os.totalAprovadoComGuincho);
   if(os.totalAprovado!=null) return +(nBR(os.totalAprovado) + _guinchoFinanceiroOS(os)).toFixed(2);
   return nBR(os.total||0);
 }
 function _resumoFinanceiroOS(os){
   const fin=_finOS(os);
+  const U=window.JOS||window.JarvisOSUtils||{};
+  const protegido=(os?.pecas||[]).some(_pecaRealProtegidaOficial);
+  const orcamentoSeguro=protegido&&typeof U.getValorOrcamento==='function'?nBR(U.getValorOrcamento(os,CLI)):nBR(os.total||0);
   const txtPgto=String([os.pgtoResumoCliente||'',os.pgtoForma||''].join(' ')).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   const pagamentoAVista=/\b(pix|dinheiro|debito)\b/.test(txtPgto);
   const faturadoBruto=fin.reduce((s,f)=>s+nBR(f.valor),0)||nBR(os.totalFaturado||0);
@@ -464,7 +494,7 @@ function _resumoFinanceiroOS(os){
   const forma=formas.find(Boolean)||'';
   let vencs=fin.map(f=>f.venc||f.dataPgto||'').filter(Boolean).sort();
   if(pagamentoAVista && vencs.length) vencs=[vencs[0]];
-  return {orcamento:nBR(os.total||0), aprovado:_totalAprovadoOS(os), faturado, forma, vencs};
+  return {orcamento:orcamentoSeguro, aprovado:_totalAprovadoOS(os), faturado, forma, vencs};
 }
 function _normSecao(txt){
   return String(txt||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
@@ -845,7 +875,7 @@ function _buildOSCard(os){
     return `<div class="detalhe-row"><span>${codigoHtml}${esc(s.desc||'—')}${badgeAprovacao('servico-'+idx)}<br><small style="color:var(--muted)">${metaCodigo}${esc(secao)}${tipoVeic?` · Tipo veículo: ${esc(tipoVeic)}`:''}${t?` · ${String(t).replace('.',',')}h`:''}${valorHora?` · ${moeda(valorHora)}/h`:''}</small></span><span class="detalhe-val" style="text-align:right">${riscado}${moeda(vf)}</span></div>`;
   }).join('');
 
-  const lsPec=(os.pecas||[]).map((p,idx)=>{
+  const lsPec=_pecasPublicasOficial(os).map(({peca:p,index:idx})=>{
     const q=parseBR(p.qtd||1),vl=parseBR(p.venda||0);
     const vBruto=+(q*vl).toFixed(2);
     const vf=+(vBruto*(1-pctDescPeca)).toFixed(2);
@@ -863,11 +893,12 @@ function _buildOSCard(os){
 
   // Linha do tempo: apenas mudanças de status (filtra logs de auditoria técnica)
   const tlFiltrado=(os.timeline||[]).filter(t=>{
+    if(_eventoPecaRealOficial(t)||t.interno===true) return false;
     if(t.tipo==='status_os'||t.visivelCliente===true) return true;
     const a=(t.acao||'').toLowerCase();
     return a.includes('status alterado')||a.includes('abriu a o.s')||a.includes('aprovou')||a.includes('recusou')||a.includes('entregue')||a.includes('aprovado');
   });
-  const tlParaExibir=tlFiltrado.length>0?tlFiltrado:(os.timeline||[]).filter(t=>(t.acao||'').toLowerCase().includes('status'));
+  const tlParaExibir=tlFiltrado.length>0?tlFiltrado:(os.timeline||[]).filter(t=>!_eventoPecaRealOficial(t)&&t.interno!==true&&(t.acao||'').toLowerCase().includes('status'));
   const textoTimelineOficial=t=>{
     if(t.tipo==='status_os'){
       return `Status atualizado para ${String(t.statusNovo||'').replace('_',' ')} por ${t.user||t.usuario||'Sistema'}.`;

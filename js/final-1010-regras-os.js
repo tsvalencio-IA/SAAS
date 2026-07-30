@@ -81,7 +81,16 @@
         if(clicks>=5){ clicks=0; const senha=prompt('Área restrita. Senha:');
           if(senha==='*177') {
             window._pecasReaisDesbloqueadas=true;
+            if (document.body) document.body.dataset.secret177='on';
             const b=$('blocoReais'); if(b) b.style.display='block';
+            try { window.renderTimelineOS?.(); } catch (_) {}
+            try { window.renderAuditoria?.(); } catch (_) {}
+            try {
+              const placa = $('histBuscaPlaca')?.value || '';
+              const termo = $('histBuscaTermo')?.value || '';
+              if (placa || termo) window.buscarHistoricoOS?.();
+            } catch (_) {}
+            try { window.atualizarResumoPecasReais177?.(); } catch (_) {}
             if (typeof window.thiaAudit === 'function') window.thiaAudit('abriu_area_pecas_reais', 'ordens_servico', $('osId')?.value || '', null, { desbloqueado:true }, 'Senha *177');
             alert('Peças reais liberadas somente nesta sessão.');
           }

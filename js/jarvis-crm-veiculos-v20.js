@@ -16,7 +16,7 @@
   if (window.__THIA_JARVIS_CRM_V20__) return;
   window.__THIA_JARVIS_CRM_V20__ = true;
 
-  const VERSION = '20.0.0';
+  const VERSION = '20.1.0';
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value == null ? '' : value)
     .replace(/&/g, '&amp;')
@@ -43,6 +43,30 @@
     else console.log('[Jarvis CRM v20]', message);
   };
   const JData = () => window.J || { clientes: [], veiculos: [], os: [] };
+
+  function segredo177Ativo() {
+    return window._pecasReaisDesbloqueadas === true || document.body?.dataset?.secret177 === 'on';
+  }
+
+  function pecaRealProtegida(peca) {
+    const U = window.JOS || window.JarvisOSUtils || {};
+    if (typeof U.isProtectedRealPart === 'function') return U.isProtectedRealPart(peca);
+    if (!peca || typeof peca !== 'object') return false;
+    const origem = String(peca.origem || '').toLowerCase().trim();
+    return peca.origemNFVinculada === true || origem === 'nf_entrada_os' || origem === 'nf_entrada' || String(peca.statusAplicacao || '').toLowerCase() === 'comprada_vinculada_nf' || !!String(peca.origemNFItemKey || '').trim();
+  }
+
+  function clienteDaOS(order) {
+    const data = JData();
+    return (data.clientes || []).find(c => String(c.id) === String(order?.clienteId || order?.cliente || '')) || null;
+  }
+
+  function clienteOficialDaOS(order) {
+    const cliente = clienteDaOS(order) || {};
+    const U = window.JOS || window.JarvisOSUtils || {};
+    if (typeof U.isOfficialClient === 'function') return U.isOfficialClient(order, cliente);
+    return ['governo','oficial'].includes(String(cliente.tipoCliente || order?.tipoCliente || '').toLowerCase());
+  }
 
   function injectStyles() {
     if ($('thiaJarvisCrmV20Styles')) return;
@@ -158,8 +182,12 @@
       (Array.isArray(order?.servicosExecutados) ? order.servicosExecutados : []).forEach((item) => push(item?.desc || item?.descricao || item?.nome || item));
       if (!values.length && Number(order?.maoObra || 0) > 0) push('Mão de obra registrada');
     } else {
-      (Array.isArray(order?.pecas) ? order.pecas : []).forEach((item) => push([item?.codigo, item?.desc || item?.descricao || item?.nome].filter(Boolean).join(' — ')));
-      (Array.isArray(order?.pecasReais) ? order.pecasReais : []).forEach((item) => push([item?.codigo, item?.desc || item?.descricao || item?.nome].filter(Boolean).join(' — ')));
+      (Array.isArray(order?.pecas) ? order.pecas : [])
+        .filter(item => !(clienteOficialDaOS(order) && pecaRealProtegida(item)))
+        .forEach((item) => push([item?.codigo, item?.desc || item?.descricao || item?.nome].filter(Boolean).join(' — ')));
+      if (segredo177Ativo()) {
+        (Array.isArray(order?.pecasReais) ? order.pecasReais : []).forEach((item) => push([item?.codigo, item?.desc || item?.descricao || item?.nome].filter(Boolean).join(' — ')));
+      }
       (Array.isArray(order?.itens) ? order.itens : []).filter((item) => /peca|peça|produto/i.test(String(item?.tipo || item?.t || '')))
         .forEach((item) => push([item?.codigo, item?.desc || item?.descricao || item?.nome].filter(Boolean).join(' — ')));
     }
