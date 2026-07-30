@@ -635,15 +635,15 @@ function codigoPecaEstoqueOS(p) {
 }
 
 function fornecedorPecaEstoqueOS(p) {
-  return String(p?.fornecedor || p?.fornecedorNome || p?.nomeFornecedor || p?.forn || '').trim();
+  return String(p?.fornecedor || p?.fornecedorNome || p?.ultimaFornecedor || p?.nomeFornecedor || p?.forn || '').trim();
 }
 
 function nfPecaEstoqueOS(p) {
-  return String(p?.nfNumero || p?.notaFiscal || p?.nf || p?.numeroNF || p?.pedido || '').trim();
+  return String(p?.nfNumero || p?.ultimaNF || p?.notaFiscal || p?.nf || p?.numeroNF || p?.pedido || '').trim();
 }
 
 function dataCompraPecaEstoqueOS(p) {
-  const raw = p?.dataCompra || p?.dataNF || p?.dataEntrada || p?.createdAt || '';
+  const raw = p?.dataCompra || p?.dataNF || p?.ultimaDataNF || p?.dataUltimaEntrada || p?.dataEntrada || p?.createdAt || '';
   return String(raw || '').slice(0, 10);
 }
 
@@ -5724,6 +5724,193 @@ function dataRelatorioPecasReaisOS(value) {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : escOS(txt);
 }
 
+
+function normalizarRastreioEstoqueOS(value) {
+  return String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function codigoRastreioEstoqueOS(item) {
+  return String(item?.codigo || item?.codigoFornecedor || item?.codigoComercial || item?.oem || item?.ean || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function dataMsRastreioEstoqueOS(value) {
+  if (!value) return 0;
+  try {
+    if (value && typeof value.toDate === 'function') return value.toDate().getTime();
+    if (value && Number.isFinite(Number(value.seconds))) return Number(value.seconds) * 1000;
+    const dt = new Date(value);
+    return Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
+  } catch (_) { return 0; }
+}
+
+function registroFiscalValidoRastreioEstoqueOS(item) {
+  const status = normalizarRastreioEstoqueOS(item?.status || item?.statusVinculo || item?.situacao || '');
+  return !/(cancelad|excluid|estornad|devolvid)/.test(status);
+}
+
+function movimentoEntradaValidoRastreioEstoqueOS(mov) {
+  if (!registroFiscalValidoRastreioEstoqueOS(mov)) return false;
+  const tipo = normalizarRastreioEstoqueOS(mov?.tipo || mov?.movimento || '');
+  const qtd = numBR(mov?.qtd ?? mov?.quantidade ?? mov?.saldoMovimento ?? 0);
+  if (qtd <= 0) return false;
+  if (/(baixa|saida|devolucao|estorno|cancelamento)/.test(tipo)) return false;
+  return /(entrada|compra|nf)/.test(tipo) || !!(mov?.nfId || mov?.nfNumero || mov?.notaFiscal);
+}
+
+function notaFiscalRastreioEstoqueOS(nfId, nfNumero) {
+  const id = String(nfId || '').trim();
+  const numero = String(nfNumero || '').trim();
+  return (window.J?.notasFiscaisEntrada || []).find(n => {
+    if (!registroFiscalValidoRastreioEstoqueOS(n)) return false;
+    if (id && String(n?.id || '') === id) return true;
+    const nNumero = String(n?.numero || n?.nfNumero || n?.numeroNF || n?.nf || '').trim();
+    return !!(numero && nNumero && nNumero === numero);
+  }) || null;
+}
+
+function itemCompativelRastreioEstoqueOS(a, b) {
+  const codigoA = codigoRastreioEstoqueOS(a);
+  const codigoB = codigoRastreioEstoqueOS(b);
+  if (codigoA && codigoB && (codigoA === codigoB || codigoA.includes(codigoB) || codigoB.includes(codigoA))) return true;
+  const descA = normalizarRastreioEstoqueOS(a?.desc || a?.descricao || '');
+  const descB = normalizarRastreioEstoqueOS(b?.desc || b?.descricao || '');
+  if (!descA || !descB) return false;
+  return descA === descB || (descA.length >= 10 && descB.length >= 10 && (descA.includes(descB.slice(0, 18)) || descB.includes(descA.slice(0, 18))));
+}
+
+function montarResultadoRastreioEstoqueOS(base, fonte, exato, estoqueItem) {
+  const nfId = String(base?.nfOrigemId || base?.nfId || base?.ultimaNFId || '').trim();
+  const nfNumero = String(base?.nfOrigemNumero || base?.nfNumero || base?.ultimaNF || base?.notaFiscal || base?.nf || base?.numeroNF || '').trim();
+  const nota = notaFiscalRastreioEstoqueOS(nfId, nfNumero);
+  const fornecedor = String(
+    base?.fornecedorOrigemNome || base?.fornecedorNome || base?.fornecedor || base?.ultimaFornecedor ||
+    nota?.fornecedorSnapshot?.nome || nota?.fornecedorNome || estoqueItem?.ultimaFornecedor || fornecedorPecaEstoqueOS(estoqueItem) || ''
+  ).trim();
+  const dataEntrada = base?.dataEntrada || base?.dataNF || base?.dataCompra || base?.createdAt || nota?.dataNF || nota?.dataEmissao || nota?.createdAt || '';
+  const numeroFinal = nfNumero || String(nota?.numero || nota?.nfNumero || '').trim();
+  const idFinal = nfId || String(nota?.id || '').trim();
+  const rotulos = {
+    movimento_os: 'ESTOQUE • baixa vinculada à O.S. no Kardex',
+    vinculo_os: 'ESTOQUE • vínculo fiscal direto com a O.S.',
+    peca_os: 'ESTOQUE • referência fiscal gravada na peça',
+    entrada_kardex: 'ESTOQUE • última entrada de NF localizada no Kardex antes da O.S.',
+    vinculo_estoque: 'ESTOQUE • entrada fiscal localizada nos vínculos do Kardex',
+    cadastro_estoque: 'ESTOQUE • referência fiscal do cadastro atual do item',
+    sem_rastreio: 'ESTOQUE • NF de entrada não localizada no Kardex'
+  };
+  return {
+    veioDoEstoque: true,
+    rastreado: !!(numeroFinal || idFinal),
+    rastreioExato: !!exato,
+    fonte,
+    nfId: idFinal,
+    nfNumero: numeroFinal,
+    fornecedor,
+    dataEntrada,
+    origemTexto: rotulos[fonte] || rotulos.sem_rastreio
+  };
+}
+
+function rastrearOrigemEstoquePecaOS(peca, osAtual) {
+  const pecaAtual = peca || {};
+  const os = osAtual || {};
+  const estoqueId = String(pecaAtual.estoqueId || pecaAtual.estoqueItemId || '').trim();
+  if (!estoqueId) {
+    return {
+      veioDoEstoque: false,
+      rastreado: false,
+      rastreioExato: false,
+      fonte: 'fora_estoque',
+      nfId: String(pecaAtual.nfId || '').trim(),
+      nfNumero: String(pecaAtual.nf || pecaAtual.nfNumero || pecaAtual.notaFiscal || '').trim(),
+      fornecedor: String(pecaAtual.fornecedor || pecaAtual.fornecedorNome || '').trim(),
+      dataEntrada: pecaAtual.dataCompra || pecaAtual.dataNF || '',
+      origemTexto: 'Peça sem baixa vinculada ao estoque'
+    };
+  }
+
+  const estoqueItem = estoqueItemOS(estoqueId) || {};
+  const osId = String(os?.id || pecaAtual.osId || '').trim();
+  const movimentos = (window.J?.estoqueMovimentos || []).filter(m =>
+    registroFiscalValidoRastreioEstoqueOS(m) && String(m?.estoqueId || m?.estoqueItemId || '') === estoqueId
+  );
+  const vinculos = (window.J?.nfItensVinculos || []).filter(v =>
+    registroFiscalValidoRastreioEstoqueOS(v) && String(v?.estoqueId || v?.estoqueItemId || '') === estoqueId
+  );
+
+  const movimentoOS = movimentos
+    .filter(m => osId && String(m?.osId || '') === osId && numBR(m?.qtd ?? m?.quantidade ?? 0) < 0 && (m?.nfOrigemNumero || m?.nfNumero || m?.nfOrigemId || m?.nfId))
+    .sort((a, b) => dataMsRastreioEstoqueOS(b?.createdAt || b?.dataMov) - dataMsRastreioEstoqueOS(a?.createdAt || a?.dataMov))[0];
+  if (movimentoOS) return montarResultadoRastreioEstoqueOS(movimentoOS, 'movimento_os', true, estoqueItem);
+
+  const vinculoOS = vinculos
+    .filter(v => osId && String(v?.osId || '') === osId && itemCompativelRastreioEstoqueOS(v, pecaAtual))
+    .sort((a, b) => dataMsRastreioEstoqueOS(b?.createdAt || b?.dataNF) - dataMsRastreioEstoqueOS(a?.createdAt || a?.dataNF))[0];
+  if (vinculoOS) return montarResultadoRastreioEstoqueOS(vinculoOS, 'vinculo_os', true, estoqueItem);
+
+  const nfPeca = String(pecaAtual.nf || pecaAtual.nfNumero || pecaAtual.notaFiscal || '').trim();
+  const nfIdPeca = String(pecaAtual.nfId || '').trim();
+  if (nfPeca || nfIdPeca) return montarResultadoRastreioEstoqueOS(pecaAtual, 'peca_os', true, estoqueItem);
+
+  const limite = dataMsRastreioEstoqueOS(pecaAtual.dataAplicacao || os.updatedAt || os.finalizadoEm || os.createdAt || new Date());
+  const entradas = movimentos
+    .filter(m => movimentoEntradaValidoRastreioEstoqueOS(m) && itemCompativelRastreioEstoqueOS(m, pecaAtual.desc || pecaAtual.codigo ? pecaAtual : estoqueItem))
+    .sort((a, b) => dataMsRastreioEstoqueOS(b?.createdAt || b?.dataNF) - dataMsRastreioEstoqueOS(a?.createdAt || a?.dataNF));
+  const entradaAntesOS = entradas.find(m => !limite || !dataMsRastreioEstoqueOS(m?.createdAt || m?.dataNF) || dataMsRastreioEstoqueOS(m?.createdAt || m?.dataNF) <= limite);
+  if (entradaAntesOS || entradas[0]) return montarResultadoRastreioEstoqueOS(entradaAntesOS || entradas[0], 'entrada_kardex', false, estoqueItem);
+
+  const vinculoEstoque = vinculos
+    .filter(v => {
+      const finalidade = normalizarRastreioEstoqueOS(v?.finalidade || v?.destino || 'estoque');
+      return !/(os|placa|veiculo)/.test(finalidade) && itemCompativelRastreioEstoqueOS(v, pecaAtual.desc || pecaAtual.codigo ? pecaAtual : estoqueItem);
+    })
+    .sort((a, b) => dataMsRastreioEstoqueOS(b?.createdAt || b?.dataNF) - dataMsRastreioEstoqueOS(a?.createdAt || a?.dataNF))[0];
+  if (vinculoEstoque) return montarResultadoRastreioEstoqueOS(vinculoEstoque, 'vinculo_estoque', false, estoqueItem);
+
+  if (nfPecaEstoqueOS(estoqueItem) || estoqueItem?.ultimaNFId) return montarResultadoRastreioEstoqueOS(estoqueItem, 'cadastro_estoque', false, estoqueItem);
+  return montarResultadoRastreioEstoqueOS({}, 'sem_rastreio', false, estoqueItem);
+}
+window.rastrearOrigemEstoquePeca177 = rastrearOrigemEstoquePecaOS;
+
+async function garantirDadosKardexRelatorioPecasReaisOS() {
+  try {
+    if (typeof window.thiaLoadFiscalV2612 === 'function') await window.thiaLoadFiscalV2612(false);
+    else if (typeof window.thiaEnsureKeyV2612 === 'function') await window.thiaEnsureKeyV2612('fiscal', { force: false });
+  } catch (erro) {
+    console.warn('[RELATÓRIO PEÇAS REAIS] Não foi possível atualizar o cache fiscal; será usado somente o conteúdo já carregado.', erro);
+  }
+}
+
+function enriquecerPecaRelatorioEstoqueOS(peca, osAtual) {
+  const p = Object.assign({}, peca || {});
+  const estoqueId = p.estoqueId || p.estoqueItemId || '';
+  const estoqueItem = estoqueItemOS(estoqueId);
+  const rastreio = rastrearOrigemEstoquePecaOS(p, osAtual);
+  const codigoEstoque = codigoPecaEstoqueOS(estoqueItem);
+  const descEstoque = String(estoqueItem?.desc || estoqueItem?.descricao || '').trim();
+  const origemItem = estoqueItem
+    ? ['ESTOQUE', codigoEstoque, descEstoque, `Saldo atual: ${numBR(estoqueItem?.qtd || 0)}`].filter(Boolean).join(' | ')
+    : (estoqueId ? `ESTOQUE | Item ${estoqueId}` : 'Sem baixa de estoque');
+  const nfManual = String(p.nf || p.nfNumero || p.notaFiscal || '').trim();
+  const fornecedorManual = String(p.fornecedor || p.fornecedorNome || '').trim();
+  const dataManual = p.dataCompra || p.dataNF || p.dataEntrada || '';
+  let nfRelatorio = nfManual;
+  if (!nfRelatorio && rastreio.veioDoEstoque) {
+    nfRelatorio = rastreio.nfNumero
+      ? `${rastreio.nfNumero}${rastreio.rastreioExato ? ' • vínculo confirmado' : ' • referência Kardex'}`
+      : 'ESTOQUE • NF não localizada';
+  }
+  return Object.assign(p, {
+    rastreioEstoqueRelatorio: rastreio,
+    fornecedorRelatorio: fornecedorManual || rastreio.fornecedor || (rastreio.veioDoEstoque ? 'Estoque • fornecedor não localizado' : 'Não informado'),
+    nfRelatorio: nfRelatorio || 'Não informada',
+    dataCompraRelatorio: dataManual || rastreio.dataEntrada || '',
+    estoqueOrigemRelatorio: rastreio.veioDoEstoque ? `${origemItem} | ${rastreio.origemTexto}` : (p.estoqueOrigem || 'Sem baixa de estoque')
+  });
+}
+
 function pecasReaisAtuaisParaRelatorioOS(osAtual) {
   const rows = Array.from(document.querySelectorAll('#containerPecasReais > div'));
   if (rows.length) {
@@ -5758,12 +5945,25 @@ function pecasReaisAtuaisParaRelatorioOS(osAtual) {
   }).filter(p => p.codigo || p.desc);
 }
 
-window.imprimirRelatorioPecasReaisOS = function() {
+window.imprimirRelatorioPecasReaisOS = async function() {
   const ativo177 = window._pecasReaisDesbloqueadas === true || document.body?.dataset?.secret177 === 'on';
   if (!ativo177) {
     window.toast?.('Área restrita. Libere primeiro com o código *177.', 'warn');
     return;
   }
+
+  const win = window.open('', '_blank');
+  if (!win) {
+    window.toast?.('O navegador bloqueou a janela do relatório. Libere pop-ups e tente novamente.', 'warn');
+    return;
+  }
+  try {
+    win.document.open();
+    win.document.write('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Preparando relatório</title></head><body style="font-family:Arial,sans-serif;padding:20px">Preparando relatório e rastreando o Kardex...</body></html>');
+    win.document.close();
+  } catch (_) {}
+
+  await garantirDadosKardexRelatorioPecasReaisOS();
 
   const osId = document.getElementById('osId')?.value || '';
   const osAtual = (window.J?.os || []).find(o => String(o.id) === String(osId)) || {};
@@ -5771,11 +5971,13 @@ window.imprimirRelatorioPecasReaisOS = function() {
   const veiculoId = document.getElementById('osVeiculo')?.value || osAtual.veiculoId || osAtual.veiculo || '';
   const cliente = (window.J?.clientes || []).find(c => String(c.id) === String(clienteId)) || {};
   const veiculo = (window.J?.veiculos || []).find(v => String(v.id) === String(veiculoId)) || osAtual.veiculoSnapshot || {};
-  const pecas = pecasReaisAtuaisParaRelatorioOS(osAtual);
-  if (!pecas.length) {
+  const pecasBase = pecasReaisAtuaisParaRelatorioOS(osAtual);
+  if (!pecasBase.length) {
+    try { win.close?.(); } catch (_) {}
     window.toast?.('Esta O.S. não possui peças reais registradas para imprimir.', 'warn');
     return;
   }
+  const pecas = pecasBase.map(p => enriquecerPecaRelatorioEstoqueOS(p, osAtual));
 
   const oficina = window.J?.oficina || {};
   const nomeOficina = window.J?.tnome || oficina.nomeFantasia || oficina.razaoSocial || oficina.nome || 'OFICIN-IA';
@@ -5796,22 +5998,77 @@ window.imprimirRelatorioPecasReaisOS = function() {
     const qtd = Math.max(0, numBR(p.qtd || 0));
     const unit = Math.max(0, numBR(p.valorCompra || 0));
     return `<tr>
-      <td>${index + 1}</td>
-      <td>${escOS(p.codigo || '-')}</td>
-      <td>${escOS(p.desc || p.descricao || '-')}</td>
-      <td class="num">${qtd}</td>
-      <td>${escOS(p.fornecedor || p.fornecedorNome || 'Não informado')}</td>
-      <td>${escOS(p.nf || p.nfNumero || 'Não informada')}</td>
-      <td>${dataRelatorioPecasReaisOS(p.dataCompra || p.dataNF || '')}</td>
-      <td>${escOS(p.estoqueOrigem || 'Sem baixa de estoque')}</td>
-      <td class="num">${moedaLocal(unit)}</td>
-      <td class="num"><b>${moedaLocal(qtd * unit)}</b></td>
+      <td data-label="#">${index + 1}</td>
+      <td data-label="Código real">${escOS(p.codigo || '-')}</td>
+      <td data-label="Descrição real instalada">${escOS(p.desc || p.descricao || '-')}</td>
+      <td data-label="Quantidade" class="num">${qtd}</td>
+      <td data-label="Onde comprou / fornecedor">${escOS(p.fornecedorRelatorio)}</td>
+      <td data-label="Nota fiscal / rastreio">${escOS(p.nfRelatorio)}</td>
+      <td data-label="Data da compra / entrada">${dataRelatorioPecasReaisOS(p.dataCompraRelatorio)}</td>
+      <td data-label="Origem / estoque">${escOS(p.estoqueOrigemRelatorio)}</td>
+      <td data-label="Custo unitário" class="num">${moedaLocal(unit)}</td>
+      <td data-label="Custo total" class="num"><b>${moedaLocal(qtd * unit)}</b></td>
     </tr>`;
   }).join('');
 
-  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Relatório Peças Reais ${escOS(placa || osId)}</title><style>
-    @page{size:A4 landscape;margin:8mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;font-size:10px}.no-print{display:flex;justify-content:flex-end;margin-bottom:8px}.no-print button{padding:8px 14px;font-weight:700;cursor:pointer}header{border-bottom:3px solid #111;padding-bottom:8px;margin-bottom:10px;display:flex;justify-content:space-between;gap:18px}h1{font-size:18px;margin:0 0 3px}.restrito{font-size:9px;font-weight:700;color:#a00}.meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:10px}.box{border:1px solid #777;padding:6px;min-height:39px}.box b{display:block;font-size:9px;text-transform:uppercase;margin-bottom:3px}.wide{grid-column:span 2}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #777;padding:5px;vertical-align:top;overflow-wrap:anywhere}th{background:#e8e8e8;text-transform:uppercase;font-size:8px}td.num{text-align:right;white-space:nowrap}tfoot td{font-size:12px;background:#f2f2f2}.rodape{margin-top:8px;font-size:8px;color:#555;display:flex;justify-content:space-between;gap:10px}@media(max-width:760px){.meta{grid-template-columns:1fr 1fr}.wide{grid-column:span 2}}@media print{.no-print{display:none}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-  </style></head><body><div class="no-print"><button onclick="window.print()">IMPRIMIR / SALVAR PDF</button></div><header><div><h1>RELATÓRIO INTERNO DE PEÇAS REAIS INSTALADAS</h1><div class="restrito">ACESSO RESTRITO DO PROPRIETÁRIO — CÓDIGO *177</div></div><div style="text-align:right"><b>${escOS(nomeOficina)}</b><br>${escOS(enderecoOficina || 'Local da oficina não informado')}</div></header><section class="meta">
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><title>Relatório Peças Reais ${escOS(placa || osId)}</title><style>
+    @page{size:A4 landscape;margin:8mm}
+    *{box-sizing:border-box}
+    html,body{width:100%;max-width:100%;margin:0;padding:0;overflow-x:hidden}
+    body{font-family:Arial,sans-serif;color:#111;background:#fff;font-size:10px}
+    .page{width:100%;max-width:100%;padding:10px;overflow:hidden}
+    .no-print{display:flex;justify-content:flex-end;margin-bottom:8px}
+    .no-print button{max-width:100%;padding:9px 14px;font-weight:700;cursor:pointer;white-space:normal}
+    header{width:100%;border-bottom:3px solid #111;padding-bottom:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:18px;min-width:0}
+    header>div{min-width:0;overflow-wrap:anywhere}
+    .oficina{text-align:right;max-width:48%;overflow-wrap:anywhere}
+    h1{font-size:18px;line-height:1.12;margin:0 0 3px;overflow-wrap:anywhere}
+    .restrito{font-size:9px;font-weight:700;color:#a00;overflow-wrap:anywhere}
+    .meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:10px;width:100%;min-width:0}
+    .box{border:1px solid #777;padding:6px;min-height:39px;min-width:0;overflow-wrap:anywhere}
+    .box b{display:block;font-size:9px;text-transform:uppercase;margin-bottom:3px}
+    .wide{grid-column:span 2}
+    .table-wrap{width:100%;max-width:100%;overflow:hidden}
+    table{width:100%;max-width:100%;border-collapse:collapse;table-layout:fixed}
+    th,td{border:1px solid #777;padding:5px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word;min-width:0}
+    th{background:#e8e8e8;text-transform:uppercase;font-size:8px}
+    td.num{text-align:right;white-space:nowrap}
+    tfoot td{font-size:12px;background:#f2f2f2}
+    .total-geral{text-align:right}.total-geral b:first-child{margin-right:18px}
+    .rodape{margin-top:8px;font-size:8px;color:#555;display:flex;justify-content:space-between;gap:10px;overflow-wrap:anywhere}
+    @media screen and (max-width:860px){
+      body{font-size:12px}
+      .page{padding:8px}
+      .no-print{justify-content:stretch}
+      .no-print button{width:100%;font-size:14px;min-height:44px}
+      header{display:block;gap:0}
+      .oficina{max-width:100%;text-align:left!important;margin-top:8px;font-size:10px}
+      h1{font-size:16px}
+      .meta{grid-template-columns:1fr}
+      .wide{grid-column:auto}
+      .box{min-height:0;font-size:11px}
+      .table-wrap{overflow:visible}
+      table,tbody,tfoot,tr,td{display:block;width:100%;max-width:100%}
+      thead{display:none}
+      tbody{display:grid;gap:10px}
+      tbody tr{border:1px solid #777;border-radius:4px;overflow:hidden;background:#fff}
+      tbody td{border:0;border-bottom:1px solid #ddd;display:grid;grid-template-columns:minmax(108px,38%) minmax(0,1fr);gap:8px;padding:7px;text-align:left!important;white-space:normal!important;font-size:11px}
+      tbody td:last-child{border-bottom:0}
+      tbody td::before{content:attr(data-label);font-weight:700;text-transform:uppercase;font-size:9px;line-height:1.25;color:#444;overflow-wrap:anywhere}
+      tfoot{margin-top:10px}
+      tfoot tr{border:1px solid #777}
+      tfoot td{border:0}
+      .total-geral{display:flex;justify-content:space-between;gap:10px;font-size:12px;text-align:left}.total-geral b:first-child{margin-right:0}
+      .rodape{display:block;line-height:1.5}
+      .rodape span{display:block}
+    }
+    @media print{
+      html,body{overflow:visible}
+      .page{padding:0;overflow:visible}
+      .no-print{display:none}
+      body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    }
+  </style></head><body><main class="page"><div class="no-print"><button onclick="window.print()">IMPRIMIR / SALVAR PDF</button></div><header><div><h1>RELATÓRIO INTERNO DE PEÇAS REAIS INSTALADAS</h1><div class="restrito">ACESSO RESTRITO DO PROPRIETÁRIO — CÓDIGO *177</div></div><div class="oficina"><b>${escOS(nomeOficina)}</b><br>${escOS(enderecoOficina || 'Local da oficina não informado')}</div></header><section class="meta">
     <div class="box"><b>O.S.</b>#${escOS(String(osAtual.numero || osAtual.numeroOS || osId || 'NÃO SALVA').slice(-12).toUpperCase())}</div>
     <div class="box"><b>Status</b>${escOS(document.getElementById('osStatus')?.value || osAtual.status || '-')}</div>
     <div class="box"><b>Abertura da O.S.</b>${dataHoraRelatorioPecasReaisOS(osAtual.createdAt || osAtual.abertaEm || osAtual.dataAbertura || osAtual.data)}</div>
@@ -5821,13 +6078,8 @@ window.imprimirRelatorioPecasReaisOS = function() {
     <div class="box"><b>KM da troca</b>${escOS(document.getElementById('osKm')?.value || osAtual.km || '-')}</div>
     <div class="box"><b>Responsável(is)</b>${escOS(responsaveis.join(', ') || 'Não informado')}</div>
     <div class="box wide"><b>Local da troca</b>${escOS([nomeOficina, enderecoOficina].filter(Boolean).join(' — '))}</div>
-  </section><table><colgroup><col style="width:3%"><col style="width:9%"><col style="width:20%"><col style="width:4%"><col style="width:12%"><col style="width:8%"><col style="width:8%"><col style="width:17%"><col style="width:9%"><col style="width:10%"></colgroup><thead><tr><th>#</th><th>Código real</th><th>Descrição real instalada</th><th>Qtd.</th><th>Onde comprou / fornecedor</th><th>Nota fiscal</th><th>Data compra</th><th>Origem / estoque</th><th>Custo unit.</th><th>Custo total</th></tr></thead><tbody>${linhas}</tbody><tfoot><tr><td colspan="9" style="text-align:right"><b>CUSTO REAL TOTAL DAS PEÇAS</b></td><td class="num"><b>${moedaLocal(total)}</b></td></tr></tfoot></table><div class="rodape"><span>Documento interno gerado pelo OFICIN-IA. Não substitui nota fiscal ou ordem de compra.</span><span>Powered by thIAguinho Soluções Digitais</span></div></body></html>`;
+  </section><div class="table-wrap"><table><colgroup><col style="width:3%"><col style="width:9%"><col style="width:20%"><col style="width:4%"><col style="width:12%"><col style="width:9%"><col style="width:8%"><col style="width:16%"><col style="width:9%"><col style="width:10%"></colgroup><thead><tr><th>#</th><th>Código real</th><th>Descrição real instalada</th><th>Qtd.</th><th>Onde comprou / fornecedor</th><th>Nota fiscal / rastreio</th><th>Data compra / entrada</th><th>Origem / estoque</th><th>Custo unit.</th><th>Custo total</th></tr></thead><tbody>${linhas}</tbody><tfoot><tr><td colspan="10" class="total-geral"><b>CUSTO REAL TOTAL DAS PEÇAS</b><b>${moedaLocal(total)}</b></td></tr></tfoot></table></div><div class="rodape"><span>Documento interno gerado pelo OFICIN-IA. Quando a peça vem do estoque, o rastreio fiscal é obtido do Kardex carregado.</span><span>Powered by thIAguinho Soluções Digitais</span></div></main></body></html>`;
 
-  const win = window.open('', '_blank');
-  if (!win) {
-    window.toast?.('O navegador bloqueou a janela do relatório. Libere pop-ups e tente novamente.', 'warn');
-    return;
-  }
   win.document.open();
   win.document.write(html);
   win.document.close();
