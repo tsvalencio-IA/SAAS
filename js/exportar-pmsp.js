@@ -1778,9 +1778,21 @@
     setCell(ws, 'B1', formatarCabecalhoPM(cabecalho));
     ws.getCell('B1').alignment = { ...(ws.getCell('B1').alignment || {}), vertical: 'middle', horizontal: 'left', wrapText: true, shrinkToFit: true };
     const datasAgrupada = datasPlanilhaAgrupada(os);
-    setCell(ws, 'A3', `REFERENCIA: ORDEM E EXECUCAO DE SERVICOS No ${oesNumero(cli, os)}\nOS ABERTA EM: ${datasAgrupada.abertura} | PLANILHA EXPORTADA EM: ${datasAgrupada.exportacao}`);
-    ws.getRow(3).height = Math.max(ws.getRow(3).height || 18, 31);
-    ws.getCell('A3').alignment = { ...(ws.getCell('A3').alignment || {}), vertical: 'middle', horizontal: 'left', wrapText: true, shrinkToFit: true };
+    const celulaReferencia = ws.getCell('A3');
+    celulaReferencia.value = {
+      richText: [
+        {
+          font: { name: 'Arial', size: 14, bold: true },
+          text: `REFERENCIA: ORDEM E EXECUCAO DE SERVICOS No ${oesNumero(cli, os)}`
+        },
+        {
+          font: { name: 'Calibri', size: 9, bold: false },
+          text: `\nOS ABERTA: ${datasAgrupada.abertura}   |   EXPORTADA: ${datasAgrupada.exportacao}`
+        }
+      ]
+    };
+    ws.getRow(3).height = Math.max(ws.getRow(3).height || 18, 27);
+    celulaReferencia.alignment = { ...(celulaReferencia.alignment || {}), vertical: 'middle', horizontal: 'left', wrapText: true, shrinkToFit: true };
     setCell(ws, 'A5', `MARCA: ${dv.marca}`);
     setCell(ws, 'C5', `MODELO: ${dv.modelo}`);
     setCell(ws, 'E5', `ANO: ${dv.ano}`);
@@ -2114,11 +2126,12 @@
     const dc = dadosCliente(cli, os);
     const dv = dadosVeiculo(veiculo, os);
     const dt = dadosTenant(tenant);
+    const datasAgrupada = datasPlanilhaAgrupada(os);
     const rows = [
       [dc.cabecalho || 'SECRETARIA DA SEGURANCA PUBLICA POLICIA MILITAR DO ESTADO DE SAO PAULO'],
       ['PLANILHA DE COMPOSICAO DE CUSTOS'],
       [`REFERENCIA: ORDEM E EXECUCAO DE SERVICOS No ${oesNumero(cli, os)}`],
-      [`OS ABERTA EM: ${datasPlanilhaAgrupada(os).abertura} | PLANILHA EXPORTADA EM: ${datasPlanilhaAgrupada(os).exportacao}`],
+      [`OS ABERTA: ${datasAgrupada.abertura} | EXPORTADA: ${datasAgrupada.exportacao}`],
       ['DADOS DA VIATURA'],
       [`MARCA: ${dv.marca}`, `MODELO: ${dv.modelo}`, `ANO: ${dv.ano}`, `PLACA: ${dv.placa}`],
       [`CHASSIS: ${dv.chassis}`, `PATRIMONIO: ${dv.patrimonio}`],
