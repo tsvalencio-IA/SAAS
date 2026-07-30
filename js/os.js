@@ -87,12 +87,22 @@ function garantirEstilosOSV22() {
     .serv-rateio-row{display:grid;grid-template-columns:minmax(150px,1fr) minmax(120px,150px) 34px;gap:7px;align-items:center;min-width:0}
     .serv-rateio-row .j-select,.serv-rateio-row .j-input{width:100%;min-width:0;max-width:100%;box-sizing:border-box}
     .serv-rateio-help{font-family:var(--fm);font-size:.56rem;color:var(--muted);line-height:1.35}
+    .serv-terceirizado-wrap{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(145px,190px) minmax(250px,1fr);gap:7px;align-items:center;width:100%;min-width:0;border:1px solid rgba(255,184,0,.20);background:rgba(255,184,0,.035);border-radius:5px;padding:8px;box-sizing:border-box;font-family:var(--fm)}
+    .serv-terceirizado-wrap>label{font-size:.58rem;color:var(--muted);font-weight:700;letter-spacing:.35px;white-space:nowrap}
+    .serv-terceirizado-wrap .j-select,.serv-terceirizado-wrap .j-input{width:100%;min-width:0;max-width:100%;box-sizing:border-box}
+    .serv-terceirizado-campo{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px;align-items:center;min-width:0}
+    .serv-terceirizado-campo>label{font-size:.58rem;color:var(--warn);font-weight:700;letter-spacing:.35px;white-space:nowrap}
+    .serv-terceirizado-campo[hidden]{display:none!important}
+    .serv-terceirizado-status{grid-column:1/-1;font-size:.56rem;color:var(--muted);line-height:1.35}
     @media(max-width:720px){
       .desconto-individual-os-wrap{grid-template-columns:1fr;gap:4px}
       .desconto-individual-os-wrap label{margin-top:3px}
       .serv-rateio-row{grid-template-columns:1fr;gap:5px;border:1px solid rgba(255,255,255,.08);padding:7px;border-radius:4px}
       .serv-rateio-row .serv-rateio-remove{width:100%!important;height:34px!important}
       .serv-rateio-head button{width:100%}
+      .serv-terceirizado-wrap{grid-template-columns:1fr;gap:5px}
+      .serv-terceirizado-wrap>label,.serv-terceirizado-campo>label{white-space:normal;margin-top:2px}
+      .serv-terceirizado-campo{grid-template-columns:1fr;gap:4px}
       #containerServicosOS>div,#containerPecasOS>div{max-width:100%;min-width:0;overflow:hidden;box-sizing:border-box}
     }
   `;
@@ -143,6 +153,196 @@ function focarLinhaNovaOS(row, seletor) {
   }, 120);
 }
 const escOS = value => (OSU().escapeHtml ? OSU().escapeHtml(value) : String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
+
+function normalizarNomeTerceirizadoOS(value) {
+  return String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function nomeFornecedorTerceirizadoOS(fornecedor) {
+  return String(
+    fornecedor?.nome || fornecedor?.razaoSocial || fornecedor?.razao ||
+    fornecedor?.fantasia || fornecedor?.nomeFantasia || fornecedor?.id || ''
+  ).trim();
+}
+
+const cacheFornecedoresTerceirizadoOS = {
+  fonte: null,
+  tamanho: -1,
+  lista: []
+};
+
+function fornecedoresTerceirizadoOS() {
+  const fonte = window.J?.fornecedores || [];
+  if (cacheFornecedoresTerceirizadoOS.fonte === fonte && cacheFornecedoresTerceirizadoOS.tamanho === fonte.length) {
+    return cacheFornecedoresTerceirizadoOS.lista;
+  }
+  const vistos = new Set();
+  const lista = fonte
+    .map(f => ({
+      id: String(f?.id || '').trim(),
+      nome: nomeFornecedorTerceirizadoOS(f),
+      fantasia: String(f?.fantasia || f?.nomeFantasia || '').trim(),
+      cnpj: String(f?.cnpj || '').trim()
+    }))
+    .filter(f => {
+      const chave = `${f.id}|${normalizarNomeTerceirizadoOS(f.nome)}`;
+      if (!f.nome || vistos.has(chave)) return false;
+      vistos.add(chave);
+      return true;
+    })
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  cacheFornecedoresTerceirizadoOS.fonte = fonte;
+  cacheFornecedoresTerceirizadoOS.tamanho = fonte.length;
+  cacheFornecedoresTerceirizadoOS.lista = lista;
+  return lista;
+}
+
+function localizarFornecedorTerceirizadoOS(nome, idPreferido) {
+  const lista = fornecedoresTerceirizadoOS();
+  const id = String(idPreferido || '').trim();
+  const chaveNome = normalizarNomeTerceirizadoOS(nome);
+  if (chaveNome) {
+    const correspondencias = lista.filter(f => normalizarNomeTerceirizadoOS(f.nome) === chaveNome);
+    if (id) {
+      const porNomeEId = correspondencias.find(f => f.id === id);
+      if (porNomeEId) return porNomeEId;
+    }
+    return correspondencias[0] || null;
+  }
+  return id ? (lista.find(f => f.id === id) || null) : null;
+}
+
+window.atualizarListaTerceirizadosOS = function() {
+  if (!document.body) return null;
+  let list = document.getElementById('os-lista-terceirizados');
+  if (!list) {
+    list = document.createElement('datalist');
+    list.id = 'os-lista-terceirizados';
+    document.body.appendChild(list);
+  }
+  const fornecedores = fornecedoresTerceirizadoOS();
+  const assinatura = fornecedores.map(f => `${f.id}:${f.nome}:${f.fantasia}:${f.cnpj}`).join('|');
+  if (list.dataset.assinatura === assinatura) return list;
+  list.dataset.assinatura = assinatura;
+  list.innerHTML = fornecedores.map(f => {
+    const complemento = [f.fantasia && f.fantasia !== f.nome ? f.fantasia : '', f.cnpj].filter(Boolean).join(' · ');
+    return `<option value="${escOS(f.nome)}" data-fornecedor-id="${escOS(f.id)}"${complemento ? ` label="${escOS(complemento)}"` : ''}></option>`;
+  }).join('');
+  return list;
+};
+
+function linhaServicoTerceirizadoOS(elemento) {
+  return elemento?.closest?.('#containerServicosOS > div, #containerPecasOS .cilia-serv-relac, .cilia-serv-relac') || null;
+}
+
+function normalizarTipoExecucaoServicoOS(value, item) {
+  const raw = String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  if (raw === 'terceirizada' || raw === 'terceirizado' || raw === 'externa' || raw === 'externo') return 'terceirizada';
+  if (item?.terceirizado === true || item?.servicoTerceirizado === true || item?.terceirizadoNome || item?.prestadorNome || item?.fornecedorServicoNome) return 'terceirizada';
+  return 'interna';
+}
+
+window.atualizarTerceirizadoServicoOS = function(input) {
+  const row = linhaServicoTerceirizadoOS(input);
+  if (!row) return;
+  const nome = String(input?.value || '').trim();
+  const nomeAnterior = String(row.dataset.terceirizadoNomeOriginal || row.dataset.terceirizadoNome || '').trim();
+  let fornecedor = localizarFornecedorTerceirizadoOS(nome, '');
+  if (!fornecedor && row.dataset.terceirizadoId && normalizarNomeTerceirizadoOS(nome) === normalizarNomeTerceirizadoOS(nomeAnterior)) {
+    fornecedor = localizarFornecedorTerceirizadoOS('', row.dataset.terceirizadoId);
+  }
+  row.dataset.terceirizadoNome = nome;
+  row.dataset.terceirizadoId = fornecedor?.id || '';
+  row.dataset.terceirizadoOrigem = nome ? (fornecedor ? 'fornecedor_cadastrado' : 'digitado') : '';
+  row.dataset.terceirizadoNomeOriginal = nome;
+  const status = row.querySelector('.serv-terceirizado-status');
+  if (status) {
+    status.textContent = !nome
+      ? 'Selecione um fornecedor cadastrado ou digite livremente o nome do prestador.'
+      : (fornecedor
+          ? `Fornecedor cadastrado selecionado: ${fornecedor.nome}.`
+          : 'Prestador digitado livremente. Nenhum novo fornecedor será cadastrado automaticamente.');
+    status.style.color = fornecedor ? 'var(--success)' : 'var(--muted)';
+  }
+};
+
+window.alternarTipoExecucaoServicoOS = function(select) {
+  const row = linhaServicoTerceirizadoOS(select);
+  if (!row) return;
+  const tipoExecucao = normalizarTipoExecucaoServicoOS(select?.value || 'interna');
+  row.dataset.tipoExecucao = tipoExecucao;
+  const campo = row.querySelector('.serv-terceirizado-campo');
+  const input = row.querySelector('.serv-terceirizado-nome');
+  const status = row.querySelector('.serv-terceirizado-status');
+  const terceirizada = tipoExecucao === 'terceirizada';
+  if (campo) campo.hidden = !terceirizada;
+  if (status) status.hidden = !terceirizada;
+  if (input) {
+    input.disabled = !terceirizada;
+    if (terceirizada) {
+      window.atualizarListaTerceirizadosOS?.();
+      window.atualizarTerceirizadoServicoOS?.(input);
+    }
+  }
+};
+
+function lerTerceirizadoLinhaServicoOS(row) {
+  const select = row?.querySelector?.('.serv-tipo-execucao');
+  const tipoExecucao = normalizarTipoExecucaoServicoOS(select?.value || row?.dataset?.tipoExecucao || 'interna');
+  if (tipoExecucao !== 'terceirizada') {
+    return { tipoExecucao: 'interna', terceirizadoId: '', terceirizadoNome: '', terceirizadoOrigem: '' };
+  }
+  const nome = String(row?.querySelector?.('.serv-terceirizado-nome')?.value || row?.dataset?.terceirizadoNome || '').trim();
+  let fornecedor = localizarFornecedorTerceirizadoOS(nome, '');
+  const nomeOriginal = String(row?.dataset?.terceirizadoNomeOriginal || row?.dataset?.terceirizadoNome || '').trim();
+  if (!fornecedor && row?.dataset?.terceirizadoId && normalizarNomeTerceirizadoOS(nome) === normalizarNomeTerceirizadoOS(nomeOriginal)) {
+    fornecedor = localizarFornecedorTerceirizadoOS('', row.dataset.terceirizadoId);
+  }
+  return {
+    tipoExecucao: 'terceirizada',
+    terceirizadoId: nome ? (fornecedor?.id || '') : '',
+    terceirizadoNome: nome,
+    terceirizadoOrigem: nome ? (fornecedor ? 'fornecedor_cadastrado' : 'digitado') : ''
+  };
+}
+
+function instalarTerceirizadoLinhaServicoOS(row, item) {
+  if (!row?.querySelector?.('.serv-desc') || row.querySelector('.serv-terceirizado-wrap')) return;
+  garantirEstilosOSV22();
+  window.atualizarListaTerceirizadosOS?.();
+  const origem = item || {};
+  const tipoExecucao = normalizarTipoExecucaoServicoOS(origem.tipoExecucao || origem.execucaoTipo, origem);
+  const terceirizadoId = String(origem.terceirizadoId || origem.prestadorId || origem.fornecedorServicoId || '').trim();
+  const fornecedor = localizarFornecedorTerceirizadoOS('', terceirizadoId);
+  const terceirizadoNome = String(
+    origem.terceirizadoNome || origem.prestadorNome || origem.fornecedorServicoNome || fornecedor?.nome || ''
+  ).trim();
+  row.dataset.tipoExecucao = tipoExecucao;
+  row.dataset.terceirizadoId = terceirizadoId || fornecedor?.id || '';
+  row.dataset.terceirizadoNome = terceirizadoNome;
+  row.dataset.terceirizadoNomeOriginal = terceirizadoNome;
+  row.dataset.terceirizadoOrigem = String(origem.terceirizadoOrigem || (terceirizadoNome ? (fornecedor ? 'fornecedor_cadastrado' : 'digitado') : '')).trim();
+  const wrap = document.createElement('div');
+  wrap.className = 'serv-terceirizado-wrap';
+  wrap.innerHTML = `
+    <label>EXECUÇÃO DO SERVIÇO</label>
+    <select class="j-select serv-tipo-execucao" onchange="window.alternarTipoExecucaoServicoOS(this)" title="Define somente se este serviço é executado internamente ou por terceiro. Não altera cálculos, comissões ou financeiro.">
+      <option value="interna" ${tipoExecucao === 'interna' ? 'selected' : ''}>INTERNA</option>
+      <option value="terceirizada" ${tipoExecucao === 'terceirizada' ? 'selected' : ''}>TERCEIRIZADA</option>
+    </select>
+    <div class="serv-terceirizado-campo" ${tipoExecucao === 'terceirizada' ? '' : 'hidden'}>
+      <label>TERCEIRIZADO / FORNECEDOR / PRESTADOR</label>
+      <input type="text" class="j-input serv-terceirizado-nome" list="os-lista-terceirizados" value="${escOS(terceirizadoNome)}" placeholder="Selecione um cadastrado ou digite livremente" autocomplete="off" ${tipoExecucao === 'terceirizada' ? '' : 'disabled'} onfocus="window.atualizarListaTerceirizadosOS()" oninput="window.atualizarTerceirizadoServicoOS(this)" onchange="window.atualizarTerceirizadoServicoOS(this)">
+    </div>
+    <div class="serv-terceirizado-status" ${tipoExecucao === 'terceirizada' ? '' : 'hidden'}></div>
+  `;
+  row.appendChild(wrap);
+  const input = wrap.querySelector('.serv-terceirizado-nome');
+  if (tipoExecucao === 'terceirizada') window.atualizarTerceirizadoServicoOS?.(input);
+}
+window.instalarTerceirizadoLinhaServicoOS = instalarTerceirizadoLinhaServicoOS;
 
 function isFirestoreSentinelOS(value) {
   if (!value || typeof value !== 'object') return false;
@@ -2401,6 +2601,7 @@ function dadosServicoLinhaOS(row) {
     sistema: sistemaTabela,
     secaoHoraLabel: row?.dataset?.secaoHoraLabel
   }, window._osVeiculoAtual?.() || {});
+  const terceirizado = lerTerceirizadoLinhaServicoOS(row);
   return {
     desc: row?.querySelector?.('.serv-desc')?.value || '',
     valor: numBR(row?.querySelector?.('.serv-valor')?.value || 0),
@@ -2425,7 +2626,11 @@ function dadosServicoLinhaOS(row) {
     origemServico: row?.dataset?.servRelacionado === '1'
       ? ((row?.dataset?.codigoTabela || '') ? (row?.dataset?.tempaManual === '1' ? 'cilia_tabela_tempa_editado' : 'cilia_tabela_tempa') : 'cilia_manual')
       : ((row?.dataset?.codigoTabela || row?.dataset?.codigoInterno || row?.dataset?.secaoHora) ? 'tabela_tempa' : 'manual'),
-    ciliaPieceIndex: row?.closest?.('.cilia-peca-wrap')?.dataset?.ciliaPieceIndex || row?.dataset?.ciliaPieceIndex || ''
+    ciliaPieceIndex: row?.closest?.('.cilia-peca-wrap')?.dataset?.ciliaPieceIndex || row?.dataset?.ciliaPieceIndex || '',
+    tipoExecucao: terceirizado.tipoExecucao,
+    terceirizadoId: terceirizado.terceirizadoId,
+    terceirizadoNome: terceirizado.terceirizadoNome,
+    terceirizadoOrigem: terceirizado.terceirizadoOrigem
   };
 }
 
@@ -2501,6 +2706,7 @@ window.adicionarServicoOS = function() {
   if($('containerServicosOS')) $('containerServicosOS').appendChild(sel);
   instalarDescontoIndividualLinhaOS(sel, 'servico', 0);
   window.garantirResponsavelLinhaServicoOS?.(sel, '');
+  instalarTerceirizadoLinhaServicoOS(sel, { tipoExecucao: 'interna' });
   window.calcOSTotal?.();
   focarLinhaNovaOS(sel, '.serv-desc');
 };
@@ -2566,6 +2772,7 @@ window.renderServicoOSRow = function(s) {
   if($('containerServicosOS')) $('containerServicosOS').appendChild(div);
   instalarDescontoIndividualLinhaOS(div, 'servico', descontoIndividualSalvoValorOS(s, vBruto));
   window.garantirResponsavelLinhaServicoOS?.(div, div.dataset.mecId || '');
+  instalarTerceirizadoLinhaServicoOS(div, s || {});
   atualizarMetaServicoLinhaOS(div);
 };
 
@@ -3503,6 +3710,10 @@ window.salvarOS = async function() {
         responsavelNome: mecNomeServico,
         mecIds: rateiosComissao.map(r => r.mecId),
         rateiosComissao: rateiosComissao.map(r => ({ mecId: r.mecId, mecNome: r.mecNome || '', valorBase: +numBR(r.valorBase || 0).toFixed(2) })),
+        tipoExecucao: calc.tipoExecucao === 'terceirizada' ? 'terceirizada' : 'interna',
+        terceirizadoId: calc.tipoExecucao === 'terceirizada' ? String(calc.terceirizadoId || '') : '',
+        terceirizadoNome: calc.tipoExecucao === 'terceirizada' ? String(calc.terceirizadoNome || '') : '',
+        terceirizadoOrigem: calc.tipoExecucao === 'terceirizada' ? String(calc.terceirizadoOrigem || '') : '',
         tempaManual: row.dataset?.tempaManual === '1',
         relacionadoCilia: row.dataset?.servRelacionado === '1',
         origemServico: row.dataset?.servRelacionado === '1'
@@ -7357,6 +7568,7 @@ window._ciliaAddServicoRelacionado = function(btn, opts = {}) {
   list.appendChild(row);
   instalarDescontoIndividualLinhaOS(row, 'servico', descontoIndividualSalvoValorOS(servico, numBR(servico?.valorBruto || servico?.valor || valor || 0)));
   window.garantirResponsavelLinhaServicoOS?.(row, row.dataset.mecId || '');
+  instalarTerceirizadoLinhaServicoOS(row, servico || {});
   if (!opts.auto && !opts.servico) {
     setTimeout(() => {
       const inp = row.querySelector('.serv-desc');
