@@ -2191,6 +2191,10 @@ window.atualizarEquipeMecanicosOS = function() {
 
 window.prepOS = function(mode, id = null) {
   ['osId', 'osPlaca', 'osPlacaView', 'osPrefixo', 'osVeiculo', 'osCliente', 'osCelular', 'osCpf', 'osDiagnostico', 'osRelato', 'osDescricao', 'chkObs', 'osKm', 'osData', 'osPrisma'].forEach(f => { if ($(f)) $(f).value = ''; });
+  // Limpa apenas os marcadores de vínculo da O.S. anterior. Eles serão definidos novamente
+  // ao abrir uma O.S. existente e usados para impedir que listeners apaguem cliente/veículo.
+  if ($('osCliente')) delete $('osCliente').dataset.osClienteSalvo;
+  if ($('osVeiculo')) delete $('osVeiculo').dataset.osVeiculoSalvo;
   // Checklist tri-state: limpa valor hidden + botões ativos
   ['chkPainel', 'chkPressao', 'chkCarroceria', 'chkDocumentos'].forEach(f => {
     if ($(f)) $(f).value = '';
@@ -2259,12 +2263,18 @@ window.prepOS = function(mode, id = null) {
       $('osTipoVeiculo').value = o.tipoVeiculoOS || o.tipoVeiculoTabela || o.tipoVeiculo || _vinc?.tipoVeiculo || _vinc?.tipo || o.tipo || '';
     }
     
+    const _clienteVinculadoOS = String(o.clienteId || '');
+    const _veiculoVinculadoOS = String(o.veiculoId || o.veiculo || '');
     if ($('osCliente')) {
-        $('osCliente').value = o.clienteId || '';
-        if(typeof window.filtrarVeiculosOS === 'function') window.filtrarVeiculosOS(); 
+        $('osCliente').dataset.osClienteSalvo = _clienteVinculadoOS;
+        $('osCliente').value = _clienteVinculadoOS;
+        if(typeof window.filtrarVeiculosOS === 'function') window.filtrarVeiculosOS({ preservarVeiculoId: _veiculoVinculadoOS, osFallback: o, origem: 'abrirOSEdit' });
     }
+    if ($('osVeiculo')) $('osVeiculo').dataset.osVeiculoSalvo = _veiculoVinculadoOS;
     setTimeout(() => {
-      if ($('osVeiculo')) $('osVeiculo').value = o.veiculoId || o.veiculo || '';
+      if ($('osCliente') && _clienteVinculadoOS && !$('osCliente').value) $('osCliente').value = _clienteVinculadoOS;
+      if (typeof window.filtrarVeiculosOS === 'function') window.filtrarVeiculosOS({ preservarVeiculoId: _veiculoVinculadoOS, osFallback: o, origem: 'abrirOSEditFallback' });
+      if ($('osVeiculo') && _veiculoVinculadoOS) $('osVeiculo').value = _veiculoVinculadoOS;
       window.atualizarIdentificacaoVeiculoOS?.(o);
     }, 100);
 
@@ -5678,6 +5688,151 @@ window.atualizarResumoPecasReais177 = function() {
     <div style="border:1px solid rgba(255,59,59,.24);background:rgba(255,59,59,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Itens reais vinculados</small><br><b>${r.itens}</b></div>
     <div style="border:1px solid rgba(255,59,59,.24);background:rgba(255,59,59,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Quantidade real</small><br><b>${r.qtd}</b></div>
     <div style="border:1px solid rgba(255,59,59,.24);background:rgba(255,59,59,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Custo real total</small><br><b style="color:var(--danger);">${moedaLocal(r.total)}</b></div>`;
+};
+
+function dataHoraRelatorioPecasReaisOS(value) {
+  if (!value) return 'Não registrada';
+  let dt = null;
+  try {
+    if (value && typeof value.toDate === 'function') dt = value.toDate();
+    else if (value && Number.isFinite(Number(value.seconds))) dt = new Date(Number(value.seconds) * 1000);
+    else {
+      const txt = String(value).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(txt)) {
+        const [ano, mes, dia] = txt.split('-');
+        return `${dia}/${mes}/${ano} — hora não registrada`;
+      }
+      dt = new Date(value);
+    }
+  } catch (_) { dt = null; }
+  if (!dt || Number.isNaN(dt.getTime())) return escOS(String(value));
+  try {
+    return dt.toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+  } catch (_) {
+    return dt.toLocaleString('pt-BR');
+  }
+}
+
+function dataRelatorioPecasReaisOS(value) {
+  if (!value) return '-';
+  const txt = String(value).slice(0, 10);
+  const m = txt.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : escOS(txt);
+}
+
+function pecasReaisAtuaisParaRelatorioOS(osAtual) {
+  const rows = Array.from(document.querySelectorAll('#containerPecasReais > div'));
+  if (rows.length) {
+    return rows.map(row => {
+      let meta = {};
+      try { meta = JSON.parse(row.querySelector('.pr-meta')?.value || '{}') || {}; } catch (_) { meta = {}; }
+      const selEstoque = row.querySelector('.pr-estoque');
+      const optEstoque = selEstoque?.options?.[selEstoque.selectedIndex];
+      return Object.assign({}, meta, {
+        codigo: row.querySelector('.pr-codigo')?.value?.trim() || meta.codigo || '',
+        desc: row.querySelector('.pr-desc')?.value?.trim() || meta.desc || meta.descricao || '',
+        qtd: numBR(row.querySelector('.pr-qtd')?.value || meta.qtd || 1) || 1,
+        fornecedor: row.querySelector('.pr-fornec')?.value?.trim() || meta.fornecedor || meta.fornecedorNome || '',
+        nf: row.querySelector('.pr-nf')?.value?.trim() || meta.nf || meta.nfNumero || '',
+        dataCompra: row.querySelector('.pr-datacompra')?.value?.trim() || meta.dataCompra || meta.dataNF || '',
+        valorCompra: numBR(row.querySelector('.pr-valor')?.value || meta.valorCompra || meta.custo || 0),
+        estoqueId: selEstoque?.value || meta.estoqueId || meta.estoqueItemId || '',
+        estoqueOrigem: selEstoque?.value ? String(optEstoque?.textContent || selEstoque.value).trim() : 'Sem baixa de estoque'
+      });
+    }).filter(p => p.codigo || p.desc);
+  }
+  return (Array.isArray(osAtual?.pecasReais) ? osAtual.pecasReais : []).map(p => {
+    const est = estoqueItemOS(p.estoqueId || p.estoqueItemId || '');
+    return Object.assign({}, p, {
+      desc: p.desc || p.descricao || '',
+      fornecedor: p.fornecedor || p.fornecedorNome || '',
+      nf: p.nf || p.nfNumero || p.notaFiscal || '',
+      dataCompra: p.dataCompra || p.dataNF || p.dataEntrada || '',
+      valorCompra: numBR(p.valorCompra || p.custo || p.valorUnitario || 0),
+      estoqueOrigem: est ? [codigoPecaEstoqueOS(est), est.desc || est.descricao, `Saldo: ${numBR(est.qtd || 0)}`].filter(Boolean).join(' | ') : 'Sem baixa de estoque'
+    });
+  }).filter(p => p.codigo || p.desc);
+}
+
+window.imprimirRelatorioPecasReaisOS = function() {
+  const ativo177 = window._pecasReaisDesbloqueadas === true || document.body?.dataset?.secret177 === 'on';
+  if (!ativo177) {
+    window.toast?.('Área restrita. Libere primeiro com o código *177.', 'warn');
+    return;
+  }
+
+  const osId = document.getElementById('osId')?.value || '';
+  const osAtual = (window.J?.os || []).find(o => String(o.id) === String(osId)) || {};
+  const clienteId = document.getElementById('osCliente')?.value || osAtual.clienteId || '';
+  const veiculoId = document.getElementById('osVeiculo')?.value || osAtual.veiculoId || osAtual.veiculo || '';
+  const cliente = (window.J?.clientes || []).find(c => String(c.id) === String(clienteId)) || {};
+  const veiculo = (window.J?.veiculos || []).find(v => String(v.id) === String(veiculoId)) || osAtual.veiculoSnapshot || {};
+  const pecas = pecasReaisAtuaisParaRelatorioOS(osAtual);
+  if (!pecas.length) {
+    window.toast?.('Esta O.S. não possui peças reais registradas para imprimir.', 'warn');
+    return;
+  }
+
+  const oficina = window.J?.oficina || {};
+  const nomeOficina = window.J?.tnome || oficina.nomeFantasia || oficina.razaoSocial || oficina.nome || 'OFICIN-IA';
+  const enderecoOficina = [oficina.endereco || oficina.rua || oficina.logradouro, oficina.numero, oficina.bairro, oficina.cidade, oficina.uf].filter(Boolean).join(', ');
+  const placa = placaFormatadaOS(veiculo.placa || osAtual.placa || '');
+  const prefixo = String(veiculo.prefixo || osAtual.prefixo || osAtual.prefixoVeiculo || '').toUpperCase();
+  const modelo = modeloVeiculoOS(osAtual, veiculo) || veiculo.modelo || '-';
+  const clienteNome = cliente.nome || cliente.razaoSocial || cliente.nomeFantasia || osAtual.clienteNome || 'Não identificado';
+  const responsaveis = (Array.isArray(osAtual.mecanicos) ? osAtual.mecanicos.map(m => m?.nome).filter(Boolean) : []);
+  if (!responsaveis.length) {
+    const mecId = document.getElementById('osMec')?.value || osAtual.mecId || '';
+    const mec = (window.J?.equipe || []).find(f => String(f.id) === String(mecId));
+    if (mec?.nome || osAtual.mecNome) responsaveis.push(mec?.nome || osAtual.mecNome);
+  }
+  const total = pecas.reduce((s, p) => s + Math.max(0, numBR(p.qtd || 0)) * Math.max(0, numBR(p.valorCompra || 0)), 0);
+  const moedaLocal = typeof moedaOS === 'function' ? moedaOS : (v => 'R$ ' + numBR(v).toFixed(2).replace('.', ','));
+  const linhas = pecas.map((p, index) => {
+    const qtd = Math.max(0, numBR(p.qtd || 0));
+    const unit = Math.max(0, numBR(p.valorCompra || 0));
+    return `<tr>
+      <td>${index + 1}</td>
+      <td>${escOS(p.codigo || '-')}</td>
+      <td>${escOS(p.desc || p.descricao || '-')}</td>
+      <td class="num">${qtd}</td>
+      <td>${escOS(p.fornecedor || p.fornecedorNome || 'Não informado')}</td>
+      <td>${escOS(p.nf || p.nfNumero || 'Não informada')}</td>
+      <td>${dataRelatorioPecasReaisOS(p.dataCompra || p.dataNF || '')}</td>
+      <td>${escOS(p.estoqueOrigem || 'Sem baixa de estoque')}</td>
+      <td class="num">${moedaLocal(unit)}</td>
+      <td class="num"><b>${moedaLocal(qtd * unit)}</b></td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Relatório Peças Reais ${escOS(placa || osId)}</title><style>
+    @page{size:A4 landscape;margin:8mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;font-size:10px}.no-print{display:flex;justify-content:flex-end;margin-bottom:8px}.no-print button{padding:8px 14px;font-weight:700;cursor:pointer}header{border-bottom:3px solid #111;padding-bottom:8px;margin-bottom:10px;display:flex;justify-content:space-between;gap:18px}h1{font-size:18px;margin:0 0 3px}.restrito{font-size:9px;font-weight:700;color:#a00}.meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:10px}.box{border:1px solid #777;padding:6px;min-height:39px}.box b{display:block;font-size:9px;text-transform:uppercase;margin-bottom:3px}.wide{grid-column:span 2}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #777;padding:5px;vertical-align:top;overflow-wrap:anywhere}th{background:#e8e8e8;text-transform:uppercase;font-size:8px}td.num{text-align:right;white-space:nowrap}tfoot td{font-size:12px;background:#f2f2f2}.rodape{margin-top:8px;font-size:8px;color:#555;display:flex;justify-content:space-between;gap:10px}@media(max-width:760px){.meta{grid-template-columns:1fr 1fr}.wide{grid-column:span 2}}@media print{.no-print{display:none}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+  </style></head><body><div class="no-print"><button onclick="window.print()">IMPRIMIR / SALVAR PDF</button></div><header><div><h1>RELATÓRIO INTERNO DE PEÇAS REAIS INSTALADAS</h1><div class="restrito">ACESSO RESTRITO DO PROPRIETÁRIO — CÓDIGO *177</div></div><div style="text-align:right"><b>${escOS(nomeOficina)}</b><br>${escOS(enderecoOficina || 'Local da oficina não informado')}</div></header><section class="meta">
+    <div class="box"><b>O.S.</b>#${escOS(String(osAtual.numero || osAtual.numeroOS || osId || 'NÃO SALVA').slice(-12).toUpperCase())}</div>
+    <div class="box"><b>Status</b>${escOS(document.getElementById('osStatus')?.value || osAtual.status || '-')}</div>
+    <div class="box"><b>Abertura da O.S.</b>${dataHoraRelatorioPecasReaisOS(osAtual.createdAt || osAtual.abertaEm || osAtual.dataAbertura || osAtual.data)}</div>
+    <div class="box"><b>Relatório emitido em</b>${dataHoraRelatorioPecasReaisOS(new Date())}</div>
+    <div class="box wide"><b>Cliente / órgão</b>${escOS(clienteNome)}</div>
+    <div class="box wide"><b>Veículo onde as peças foram instaladas</b>${escOS([prefixo, placa, modelo].filter(Boolean).join(' / ') || '-')}</div>
+    <div class="box"><b>KM da troca</b>${escOS(document.getElementById('osKm')?.value || osAtual.km || '-')}</div>
+    <div class="box"><b>Responsável(is)</b>${escOS(responsaveis.join(', ') || 'Não informado')}</div>
+    <div class="box wide"><b>Local da troca</b>${escOS([nomeOficina, enderecoOficina].filter(Boolean).join(' — '))}</div>
+  </section><table><colgroup><col style="width:3%"><col style="width:9%"><col style="width:20%"><col style="width:4%"><col style="width:12%"><col style="width:8%"><col style="width:8%"><col style="width:17%"><col style="width:9%"><col style="width:10%"></colgroup><thead><tr><th>#</th><th>Código real</th><th>Descrição real instalada</th><th>Qtd.</th><th>Onde comprou / fornecedor</th><th>Nota fiscal</th><th>Data compra</th><th>Origem / estoque</th><th>Custo unit.</th><th>Custo total</th></tr></thead><tbody>${linhas}</tbody><tfoot><tr><td colspan="9" style="text-align:right"><b>CUSTO REAL TOTAL DAS PEÇAS</b></td><td class="num"><b>${moedaLocal(total)}</b></td></tr></tfoot></table><div class="rodape"><span>Documento interno gerado pelo OFICIN-IA. Não substitui nota fiscal ou ordem de compra.</span><span>Powered by thIAguinho Soluções Digitais</span></div></body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) {
+    window.toast?.('O navegador bloqueou a janela do relatório. Libere pop-ups e tente novamente.', 'warn');
+    return;
+  }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { try { win.print(); } catch (_) {} }, 350);
 };
 
 window.adicionarPecaRealRow = function(p) {

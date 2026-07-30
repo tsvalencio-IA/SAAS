@@ -1375,7 +1375,10 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
           <div style="font-family:var(--fm);font-size:0.7rem;color:var(--danger);letter-spacing:1.5px;font-weight:700;">🔒 PEÇAS REAIS INSTALADAS — ACESSO RESTRITO DONO</div>
           <div style="font-family:var(--fm);font-size:0.6rem;color:var(--muted);margin-top:2px;">Visível apenas ao proprietário da oficina. Cliente vê somente as peças do orçamento acima.</div>
         </div>
-        <button type="button" onclick="window.adicionarPecaReal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.4);color:var(--danger);padding:6px 14px;border-radius:3px;font-family:var(--fm);font-size:0.72rem;font-weight:700;cursor:pointer;">+ PEÇA REAL</button>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;">
+          <button type="button" onclick="window.imprimirRelatorioPecasReaisOS()" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,59,59,0.32);color:var(--danger);padding:6px 14px;border-radius:3px;font-family:var(--fm);font-size:0.72rem;font-weight:700;cursor:pointer;">🖨 RELATÓRIO PEÇAS REAIS</button>
+          <button type="button" onclick="window.adicionarPecaReal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.4);color:var(--danger);padding:6px 14px;border-radius:3px;font-family:var(--fm);font-size:0.72rem;font-weight:700;cursor:pointer;">+ PEÇA REAL</button>
+        </div>
       </div>
       <div style="display:grid;grid-template-columns:110px 1fr 50px 130px 110px 130px 105px 105px 32px;gap:6px;margin-bottom:6px;font-family:var(--fm);font-size:0.6rem;color:var(--muted);text-transform:uppercase;font-weight:bold;">
         <div>Cód. Real</div><div>Descrição Real</div><div>Qtd</div><div>Estoque</div><div>Fornecedor</div><div>Nota Fiscal</div><div>Data Compra</div><div>Vl. Compra</div><div></div>
@@ -2857,11 +2860,21 @@ window.escutarAuditoria = function() {
 }
 
 window.popularSelects = function() {
+  // Preserva os vínculos da O.S. aberta quando listeners do Firebase repovoam os selects.
+  // Sem isso, uma atualização de clientes/veículos/equipe apagava visualmente cliente e veículo
+  // mesmo com os IDs já salvos na O.S. O usuário continua podendo trocar normalmente.
+  const osAbertaId = $('osId')?.value || '';
+  const osAberta = osAbertaId ? (J.os || []).find(o => String(o.id) === String(osAbertaId)) : null;
+  const clienteOSAntes = $('osCliente')?.value || osAberta?.clienteId || $('osCliente')?.dataset?.osClienteSalvo || '';
+  const veiculoOSAntes = $('osVeiculo')?.value || osAberta?.veiculoId || osAberta?.veiculo || $('osVeiculo')?.dataset?.osVeiculoSalvo || '';
+  const mecanicoOSAntes = $('osMec')?.value || osAberta?.mecId || '';
+
   const cOpts = '<option value="">Selecione...</option>' + J.clientes.map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
   ['osCliente','agdCliente','veicDono'].forEach(id => { if($(id)) $(id).innerHTML = cOpts; });
 
   const mOpts = '<option value="">Não atribuído</option>' + J.equipe.map(f=>`<option value="${f.id}">${f.nome} (${f.cargo||''})</option>`).join('');
   ['osMec','agdMec'].forEach(id => { if($(id)) $(id).innerHTML = mOpts; });
+  if ($('osMec') && mecanicoOSAntes && Array.from($('osMec').options).some(o => String(o.value) === String(mecanicoOSAntes))) $('osMec').value = mecanicoOSAntes;
   window.renderMecanicosEquipeOS?.();
   if($('vendaVendedor')) $('vendaVendedor').innerHTML = '<option value="">Sem vendedor</option>' + J.equipe.map(f=>`<option value="${f.id}">${f.nome} (${f.cargo||''})</option>`).join('');
 
@@ -2869,12 +2882,24 @@ window.popularSelects = function() {
   
   if($('optFornec')) $('optFornec').innerHTML = J.fornecedores.map(f=>`<option value="F_${f.id}">${f.nome}</option>`).join('');
   if($('optEquipe')) $('optEquipe').innerHTML = J.equipe.map(f=>`<option value="E_${f.id}">${f.nome}</option>`).join('');
+
+  if ($('osCliente') && clienteOSAntes) {
+    if (Array.from($('osCliente').options).some(o => String(o.value) === String(clienteOSAntes))) $('osCliente').value = clienteOSAntes;
+    $('osCliente').dataset.osClienteSalvo = String(clienteOSAntes);
+  }
+  if ($('osVeiculo') && veiculoOSAntes) $('osVeiculo').dataset.osVeiculoSalvo = String(veiculoOSAntes);
+  if (osAbertaId && typeof window.filtrarVeiculosOS === 'function') {
+    window.filtrarVeiculosOS({ preservarVeiculoId: veiculoOSAntes, osFallback: osAberta, origem: 'popularSelects' });
+  }
 }
 
 window.filtrarVeiculosOS = function(opts) {
   opts = opts || {};
   const selectVeic = $('osVeiculo');
   const veiculoAntes = selectVeic ? selectVeic.value : '';
+  const osAbertaId = $('osId')?.value || '';
+  const osAberta = opts.osFallback || (osAbertaId ? (J.os || []).find(o => String(o.id) === String(osAbertaId)) : null) || {};
+  const veiculoPreservar = String(opts.preservarVeiculoId || opts.veiculoId || veiculoAntes || osAberta.veiculoId || osAberta.veiculo || selectVeic?.dataset?.osVeiculoSalvo || '');
   // Mostra/oculta blocos governo ao trocar cliente
   const cliId = (document.getElementById('osCliente')?.value||'');
   const cli = (window.J?.clientes||[]).find(x=>x.id===cliId);
@@ -2901,8 +2926,9 @@ window.filtrarVeiculosOS = function(opts) {
   // Ele NÃO pode filtrar/remover o veículo vinculado nem apagar placa/modelo ao editar a O.S.
   if($('osVeiculo')) {
     $('osVeiculo').innerHTML = '<option value="">Selecione...</option>' + veics.map(v=>`<option value="${v.id}">${[v.prefixo, v.placa].filter(Boolean).join(' / ')} - ${v.modelo || 'Veiculo'}</option>`).join('');
-    if (veiculoAntes && veics.some(v => v.id === veiculoAntes)) $('osVeiculo').value = veiculoAntes;
-    if (typeof window.atualizarIdentificacaoVeiculoOS === 'function') window.atualizarIdentificacaoVeiculoOS();
+    if (veiculoPreservar && veics.some(v => String(v.id) === veiculoPreservar)) $('osVeiculo').value = veiculoPreservar;
+    if (veiculoPreservar) $('osVeiculo').dataset.osVeiculoSalvo = veiculoPreservar;
+    if (typeof window.atualizarIdentificacaoVeiculoOS === 'function') window.atualizarIdentificacaoVeiculoOS(osAberta);
   }
 }
 window.filtrarVeicsAgenda = function() {
@@ -4127,21 +4153,21 @@ window.iaAnalisarEstoque = function() { _jiaChamar('Quais pecas estao em estoque
 <script src="js/financeiro.js"></script>
 <script src="js/nfe-real-pro.js"></script>
 <script src="js/os-utils.js?v=22.0.0"></script>
-<script src="js/os.js?v=22.1.0"></script>
+<script src="js/os.js?v=22.2.0"></script>
 <script src="js/checklist-jarvis-bridge.js?v=15.14.0"></script>
 <script src="js/cotacoes.js"></script>
 <script src="js/assinatura-os.js"></script>
 <script src="js/ia.js?v=26.0.0"></script>
 <script src="js/catalogos-ia.js?v=19.0.0"></script>
 <script src="js/tabela-tempa.js"></script>
-<script src="js/exportar-pmsp.js?v=22.0.0"></script>
+<script src="js/exportar-pmsp.js?v=22.1.0"></script>
 
 <script src="js/importar-orcamento-os.js"></script>
 <script src="js/final-1010-regras-os.js"></script>
 <script src="js/theme.js"></script>
 <script src="js/hardening-comercial.js"></script>
 <script src="js/uix-theme-fix.js"></script>
-<script src="js/hardening-operacional-20260515.js"></script>
+<script src="js/hardening-operacional-20260515.js?v=20260730.1"></script>
 <script src="js/operacional-cadastros-nf-fix-20260518.js"></script>
 <script src="js/mobile-estoque-fix.js"></script>
 

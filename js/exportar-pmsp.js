@@ -354,6 +354,41 @@
     return `${(cidade || 'SAO PAULO').toUpperCase()}, ${hoje.getDate()} DE ${meses[hoje.getMonth()]} DE ${hoje.getFullYear()}.`;
   }
 
+  function dataHoraPlanilhaBR(value) {
+    if (!value) return 'NAO REGISTRADA';
+    let dt = null;
+    try {
+      if (value && typeof value.toDate === 'function') dt = value.toDate();
+      else if (value && Number.isFinite(Number(value.seconds))) dt = new Date(Number(value.seconds) * 1000);
+      else {
+        const txt = String(value).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(txt)) {
+          const [ano, mes, dia] = txt.split('-');
+          return `${dia}/${mes}/${ano} - HORA NAO REGISTRADA`;
+        }
+        dt = new Date(value);
+      }
+    } catch (_) { dt = null; }
+    if (!dt || Number.isNaN(dt.getTime())) return limparTexto(value).toUpperCase() || 'NAO REGISTRADA';
+    try {
+      return dt.toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      }).toUpperCase();
+    } catch (_) {
+      return dt.toLocaleString('pt-BR').toUpperCase();
+    }
+  }
+
+  function datasPlanilhaAgrupada(os) {
+    os = os || {};
+    return {
+      abertura: dataHoraPlanilhaBR(os.createdAt || os.abertaEm || os.dataAbertura || os.criadoEm || os.data),
+      exportacao: dataHoraPlanilhaBR(new Date())
+    };
+  }
+
   function oesNumero(cli, os) {
     const modelo = pick(os.modeloOS, os.oesModelo, os.govOesModelo, os.oes, cli.govOesModelo, cli.oesModelo, 'ORC ###/2026');
     return modelo.replace(/###/g, String(os.id || '').slice(-3).toUpperCase());
@@ -1742,7 +1777,10 @@
     const cabecalho = dc.cabecalho || 'SECRETARIA DA SEGURANCA PUBLICA\nPOLICIA MILITAR DO ESTADO DE SAO PAULO';
     setCell(ws, 'B1', formatarCabecalhoPM(cabecalho));
     ws.getCell('B1').alignment = { ...(ws.getCell('B1').alignment || {}), vertical: 'middle', horizontal: 'left', wrapText: true, shrinkToFit: true };
-    setCell(ws, 'A3', `REFERENCIA: ORDEM E EXECUCAO DE SERVICOS No ${oesNumero(cli, os)}`);
+    const datasAgrupada = datasPlanilhaAgrupada(os);
+    setCell(ws, 'A3', `REFERENCIA: ORDEM E EXECUCAO DE SERVICOS No ${oesNumero(cli, os)}\nOS ABERTA EM: ${datasAgrupada.abertura} | PLANILHA EXPORTADA EM: ${datasAgrupada.exportacao}`);
+    ws.getRow(3).height = Math.max(ws.getRow(3).height || 18, 31);
+    ws.getCell('A3').alignment = { ...(ws.getCell('A3').alignment || {}), vertical: 'middle', horizontal: 'left', wrapText: true, shrinkToFit: true };
     setCell(ws, 'A5', `MARCA: ${dv.marca}`);
     setCell(ws, 'C5', `MODELO: ${dv.modelo}`);
     setCell(ws, 'E5', `ANO: ${dv.ano}`);
@@ -2080,6 +2118,7 @@
       [dc.cabecalho || 'SECRETARIA DA SEGURANCA PUBLICA POLICIA MILITAR DO ESTADO DE SAO PAULO'],
       ['PLANILHA DE COMPOSICAO DE CUSTOS'],
       [`REFERENCIA: ORDEM E EXECUCAO DE SERVICOS No ${oesNumero(cli, os)}`],
+      [`OS ABERTA EM: ${datasPlanilhaAgrupada(os).abertura} | PLANILHA EXPORTADA EM: ${datasPlanilhaAgrupada(os).exportacao}`],
       ['DADOS DA VIATURA'],
       [`MARCA: ${dv.marca}`, `MODELO: ${dv.modelo}`, `ANO: ${dv.ano}`, `PLACA: ${dv.placa}`],
       [`CHASSIS: ${dv.chassis}`, `PATRIMONIO: ${dv.patrimonio}`],

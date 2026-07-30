@@ -550,8 +550,21 @@
     const qtd = filtradas.reduce((s,r) => s + num(r.qtd), 0);
     const nfs = Array.from(new Set(filtradas.map(r => r.nfNumero).filter(Boolean)));
     const fornecedores = Array.from(new Set(filtradas.map(r => r.fornecedor).filter(Boolean))).slice(0, 6);
+    W._relatorioCustosReais177 = {
+      placa: placaFiltro,
+      termo: String(termoRaw || '').trim(),
+      rows: filtradas.map(r => Object.assign({}, r)),
+      total,
+      qtd,
+      nfs: nfs.slice(),
+      fornecedores: fornecedores.slice(),
+      geradoEm: new Date().toISOString()
+    };
     return `<div class="op-card" style="border-color:rgba(255,59,59,.35);background:rgba(255,59,59,.045);">
-      <div class="op-title">RESUMO DE CUSTOS REAIS *177 - ${esc(placaFiltro)}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <div class="op-title" style="margin-bottom:0;">RESUMO DE CUSTOS REAIS *177 - ${esc(placaFiltro)}</div>
+        <button type="button" class="btn-outline" onclick="window.imprimirRelatorioCustosReais177 && window.imprimirRelatorioCustosReais177()" style="border-color:rgba(255,59,59,.38);color:var(--danger);">IMPRIMIR RELATÓRIO DE PEÇAS REAIS</button>
+      </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:10px;">
         <div><small style="color:var(--muted);font-family:var(--fm);">Itens reais</small><br><b>${esc(filtradas.length)}</b></div>
         <div><small style="color:var(--muted);font-family:var(--fm);">Quantidade</small><br><b>${esc(qtd)}</b></div>
@@ -571,6 +584,84 @@
       </tr>`).join('')}</tbody></table></div>
     </div>`;
   }
+  function dataHoraRelatorio177(value) {
+    if (!value) return 'Não registrada';
+    let dt = null;
+    try {
+      if (value && typeof value.toDate === 'function') dt = value.toDate();
+      else if (value && Number.isFinite(Number(value.seconds))) dt = new Date(Number(value.seconds) * 1000);
+      else {
+        const txt = String(value).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(txt)) {
+          const [ano, mes, dia] = txt.split('-');
+          return `${dia}/${mes}/${ano} — hora não registrada`;
+        }
+        dt = new Date(value);
+      }
+    } catch (_) { dt = null; }
+    if (!dt || Number.isNaN(dt.getTime())) return String(value || 'Não registrada');
+    try {
+      return dt.toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+    } catch (_) { return dt.toLocaleString('pt-BR'); }
+  }
+
+  function dataCurtaRelatorio177(value) {
+    if (!value) return '-';
+    const raw = String(value).slice(0, 10);
+    const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : raw;
+  }
+
+  W.imprimirRelatorioCustosReais177 = function() {
+    if (!secret177()) { toast('Área restrita. Libere primeiro com o código *177.', 'warn'); return; }
+    const rel = W._relatorioCustosReais177 || {};
+    const rows = Array.isArray(rel.rows) ? rel.rows : [];
+    if (!rows.length) { toast('Faça primeiro a pesquisa por placa para gerar o relatório de peças reais.', 'warn'); return; }
+
+    const oficina = J().oficina || {};
+    const nomeOficina = J().tnome || oficina.nomeFantasia || oficina.razaoSocial || oficina.nome || 'OFICIN-IA';
+    const enderecoOficina = [oficina.endereco || oficina.rua || oficina.logradouro, oficina.numero, oficina.bairro, oficina.cidade, oficina.uf].filter(Boolean).join(', ');
+    const osById = id => (J().os || []).find(o => String(o.id || '') === String(id || '')) || {};
+    const linhas = rows.map((r, index) => {
+      const os = osById(r.osId);
+      const v = veiculoByOS(os);
+      const c = (J().clientes || []).find(x => String(x.id || '') === String(os.clienteId || v.clienteId || '')) || {};
+      const placa = placaNorm(r.placa || os.placa || v.placa || rel.placa || '');
+      const prefixo = os.prefixo || v.prefixo || '';
+      const modelo = [v.marca, v.modelo || os.veiculoSnapshot?.modelo || os.modelo].filter(Boolean).join(' ') || '-';
+      const osNumero = r.osId ? `#${String(r.osId).slice(-6).toUpperCase()}` : '-';
+      const qtdItem = num(r.qtd || 1) || 1;
+      return `<tr>
+        <td>${index + 1}</td>
+        <td>${esc(r.origem || '-')}</td>
+        <td><b>${esc(r.codigo || '-')}</b><br>${esc(r.desc || '-')}</td>
+        <td><b>${esc([prefixo, placa].filter(Boolean).join(' / ') || '-')}</b><br>${esc(modelo)}<br>O.S. ${esc(osNumero)} · ${esc(os.status || '-')} · KM ${esc(os.km || v.km || '-')}</td>
+        <td>${esc(c.nome || c.razaoSocial || os.clienteNome || '-')}<br><small>${esc([nomeOficina, enderecoOficina].filter(Boolean).join(' — '))}</small></td>
+        <td>NF ${esc(r.nfNumero || '-')}<br><b>${esc(r.fornecedor || 'Não informado')}</b></td>
+        <td class="num">${esc(qtdItem)}</td>
+        <td class="num">${moeda(r.custoUnit || 0)}<br><b>${moeda(r.total || 0)}</b></td>
+        <td>${esc(dataCurtaRelatorio177(r.data))}</td>
+        <td>${esc(dataHoraRelatorio177(os.createdAt || os.abertaEm || os.dataAbertura || os.data))}</td>
+      </tr>`;
+    }).join('');
+    const total = rows.reduce((s, r) => s + num(r.total), 0);
+    const qtd = rows.reduce((s, r) => s + num(r.qtd || 0), 0);
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Relatório Peças Reais ${esc(rel.placa || '')}</title><style>
+      @page{size:A4 landscape;margin:7mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;font-size:9px}.no-print{display:flex;justify-content:flex-end;margin-bottom:7px}.no-print button{padding:8px 14px;font-weight:700}header{display:flex;justify-content:space-between;gap:16px;border-bottom:3px solid #111;padding-bottom:7px;margin-bottom:8px}h1{font-size:17px;margin:0 0 3px}.restrito{font-size:8px;color:#a00;font-weight:700}.meta{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;margin-bottom:8px}.box{border:1px solid #777;padding:5px;min-height:35px}.box b{display:block;font-size:8px;text-transform:uppercase;margin-bottom:2px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #777;padding:4px;vertical-align:top;overflow-wrap:anywhere}th{background:#e8e8e8;font-size:7px;text-transform:uppercase}td.num{text-align:right;white-space:nowrap}tfoot td{background:#f0f0f0;font-size:11px}.foot{display:flex;justify-content:space-between;gap:10px;margin-top:7px;font-size:8px;color:#555}@media print{.no-print{display:none}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+    </style></head><body><div class="no-print"><button onclick="window.print()">IMPRIMIR / SALVAR PDF</button></div><header><div><h1>RELATÓRIO CONSOLIDADO DE PEÇAS REAIS</h1><div class="restrito">ACESSO RESTRITO DO PROPRIETÁRIO — CÓDIGO *177</div></div><div style="text-align:right"><b>${esc(nomeOficina)}</b><br>${esc(enderecoOficina || 'Local da oficina não informado')}</div></header><section class="meta"><div class="box"><b>Placa pesquisada</b>${esc(rel.placa || '-')}</div><div class="box"><b>Filtro pesquisado</b>${esc(rel.termo || 'Todos os itens reais')}</div><div class="box"><b>Itens reais</b>${esc(rows.length)}</div><div class="box"><b>Quantidade</b>${esc(qtd)}</div><div class="box"><b>Emitido em</b>${esc(dataHoraRelatorio177(new Date()))}</div></section><table><colgroup><col style="width:3%"><col style="width:8%"><col style="width:15%"><col style="width:18%"><col style="width:14%"><col style="width:11%"><col style="width:4%"><col style="width:9%"><col style="width:8%"><col style="width:10%"></colgroup><thead><tr><th>#</th><th>Origem</th><th>Código / peça real</th><th>Onde foi instalada / O.S.</th><th>Cliente e local da troca</th><th>Onde comprou / NF</th><th>Qtd.</th><th>Custo unit. / total</th><th>Data compra</th><th>Abertura da O.S.</th></tr></thead><tbody>${linhas}</tbody><tfoot><tr><td colspan="9" style="text-align:right"><b>CUSTO REAL TOTAL CONSOLIDADO</b></td><td class="num"><b>${moeda(total)}</b></td></tr></tfoot></table><div class="foot"><span>Relatório interno baseado nas peças reais, vínculos de NF e O.S. carregados nesta sessão.</span><span>Powered by thIAguinho Soluções Digitais</span></div></body></html>`;
+    const win = W.open('', '_blank');
+    if (!win) { toast('O navegador bloqueou a janela do relatório. Libere pop-ups e tente novamente.', 'warn'); return; }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { try { win.print(); } catch (_) {} }, 350);
+  };
+
   function codigoPecaNormalizado(v) {
     return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   }
