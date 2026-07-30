@@ -1787,7 +1787,7 @@
         },
         {
           font: { name: 'Calibri', size: 9, bold: false },
-          text: `\nOS ABERTA: ${datasAgrupada.abertura}   |   EXPORTADA: ${datasAgrupada.exportacao}`
+          text: `\nGERADO EM: ${datasAgrupada.exportacao}`
         }
       ]
     };
@@ -2131,7 +2131,7 @@
       [dc.cabecalho || 'SECRETARIA DA SEGURANCA PUBLICA POLICIA MILITAR DO ESTADO DE SAO PAULO'],
       ['PLANILHA DE COMPOSICAO DE CUSTOS'],
       [`REFERENCIA: ORDEM E EXECUCAO DE SERVICOS No ${oesNumero(cli, os)}`],
-      [`OS ABERTA: ${datasAgrupada.abertura} | EXPORTADA: ${datasAgrupada.exportacao}`],
+      [`GERADO EM: ${datasAgrupada.exportacao}`],
       ['DADOS DA VIATURA'],
       [`MARCA: ${dv.marca}`, `MODELO: ${dv.modelo}`, `ANO: ${dv.ano}`, `PLACA: ${dv.placa}`],
       [`CHASSIS: ${dv.chassis}`, `PATRIMONIO: ${dv.patrimonio}`],
