@@ -19,10 +19,9 @@ if ('serviceWorker' in navigator) {
   });
 }
 </script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="js/config.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-firestore-compat.js"></script>
+<script src="js/config.js?v=26.13.0"></script>
 <script src="js/links-publicos.js"></script>
 <script src="js/tenant-modules.js"></script>
 <script src="js/brasil-cadastros.js"></script>
@@ -788,7 +787,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn-outline" onclick="ir('dashboard');setTimeout(()=>document.getElementById('dashHistBuscaPlaca')?.focus(),120)">RELATÓRIOS / HISTÓRICO</button>
-          <button class="btn-primary" onclick="abrirModal('modalOS');window.prepOS('add')">
+          <button class="btn-primary" onclick="window.thiaAbrirOS('', 'add')">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
             NOVA O.S.
           </button>
@@ -4161,12 +4160,13 @@ window.iaAnalisarEstoque = function() { _jiaChamar('Quais pecas estao em estoque
 <script src="js/fiscal.js"></script>
 <script src="js/financeiro.js"></script>
 <script src="js/nfe-real-pro.js"></script>
+<script src="js/thia-runtime-core-v2613.js?v=26.13.0"></script>
 <script src="js/os-utils.js?v=22.4.1"></script>
-<script src="js/os.js?v=22.4.1"></script>
-<script src="js/checklist-jarvis-bridge.js?v=15.14.0"></script>
+<script src="js/os.js?v=26.13.0"></script>
+<script src="js/checklist-jarvis-bridge.js?v=26.13.0"></script>
 <script src="js/cotacoes.js"></script>
 <script src="js/assinatura-os.js"></script>
-<script src="js/ia.js?v=26.0.0"></script>
+<script src="js/ia.js?v=26.13.0"></script>
 <script src="js/catalogos-ia.js?v=19.0.0"></script>
 <script src="js/tabela-tempa.js"></script>
 <script src="js/exportar-pmsp.js?v=22.4.0"></script>
@@ -4174,9 +4174,9 @@ window.iaAnalisarEstoque = function() { _jiaChamar('Quais pecas estao em estoque
 <script src="js/importar-orcamento-os.js"></script>
 <script src="js/final-1010-regras-os.js?v=22.4.0"></script>
 <script src="js/theme.js"></script>
-<script src="js/hardening-comercial.js?v=22.4.1"></script>
+<script src="js/hardening-comercial.js?v=26.13.0"></script>
 <script src="js/uix-theme-fix.js"></script>
-<script src="js/hardening-operacional-20260515.js?v=20260730.2"></script>
+<script src="js/hardening-operacional-20260515.js?v=26.13.0"></script>
 <script src="js/operacional-cadastros-nf-fix-20260518.js"></script>
 <script src="js/mobile-estoque-fix.js"></script>
 
@@ -4431,12 +4431,21 @@ window.iaAnalisarEstoque = function() { _jiaChamar('Quais pecas estao em estoque
   };
   function wrapFunction(name){
     try{
+      var factory = function(fn){
+        return function(){
+          try { window.jarvisPreservarTempaV4(); } catch(e){}
+          return fn.apply(this, arguments);
+        };
+      };
+      if (window.thiaRuntimeCore?.wrapOnce) {
+        var before = window[name];
+        var after = window.thiaRuntimeCore.wrapOnce(name, 'safe-bridge-v4', factory);
+        if (after && after !== before) log('wrapper instalado em', name);
+        return;
+      }
       var fn = window[name];
       if (typeof fn !== 'function' || fn.__safeBridgeV4) return;
-      var wrapped = function(){
-        try { window.jarvisPreservarTempaV4(); } catch(e){}
-        return fn.apply(this, arguments);
-      };
+      var wrapped = factory(fn);
       wrapped.__safeBridgeV4 = true;
       wrapped.__original = fn;
       window[name] = wrapped;
@@ -4473,23 +4482,22 @@ window.iaAnalisarEstoque = function() { _jiaChamar('Quais pecas estao em estoque
     try { ensureSearchBox(); } catch(e){}
     try { installWrappers(); } catch(e){}
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootSafe); else bootSafe();
-  [300,800,1500,3000,6000].forEach(function(ms){ setTimeout(bootSafe, ms); });
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootSafe, { once:true }); else bootSafe();
 })();
 </script>
 
 <script src="js/jarvis-crm-veiculos-v20.js?v=20.1.1"></script>
 <script src="js/comissoes-os-v21.js?v=24.0.0"></script>
-<script src="js/performance-v23.js?v=23.0.0"></script>
+<script src="js/thia-firestore-runtime-v2612.js?v=26.13.0"></script>
+<script src="js/performance-v23.js?v=26.13.0"></script>
 <script src="js/jarvis-financeiro-v263.js?v=26.3.0"></script>
 <script src="js/fornecedores-hotfix-v264.js?v=26.4.0"></script>
-<script src="js/firestore-economico-v265.js?v=26.12.0"></script>
-<script src="js/jarvis-fiscal-ia-temparia-v266.js?v=26.6.0"></script>
-<script src="js/jarvis-responsive-cards-v267.js?v=26.7.0"></script>
-<script src="js/jarvis-fiscal-cards-v268.js?v=26.8.0"></script>
+<script src="js/firestore-economico-v265.js?v=26.13.0"></script>
+<script src="js/jarvis-fiscal-ia-temparia-v266.js?v=26.13.0"></script>
+<script src="js/jarvis-responsive-cards-v267.js?v=26.13.0"></script>
+<script src="js/jarvis-fiscal-cards-v268.js?v=26.13.0"></script>
 <script src="js/jarvis-mobile-kardex-v269.js?v=26.11.0"></script>
 
-<script src="js/thia-firestore-runtime-v2612.js?v=26.12.0"></script>
-<script src="js/jarvis-firestore-profissional-v2612.js?v=26.12.1"></script>
+<script src="js/jarvis-firestore-profissional-v2612.js?v=26.13.0"></script>
 </body>
 </html>

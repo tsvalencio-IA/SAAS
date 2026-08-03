@@ -514,8 +514,10 @@
         custoUnit: total / qtd,
         placa: placa || os.placa || v.placa || '',
         osId,
-        nfNumero: item?.nfNumero || item?.nf || item?.notaFiscal || '',
-        fornecedor: item?.fornecedorNome || item?.fornecedor || '',
+        estoqueId: item?.estoqueId || item?.estoqueItemId || '',
+        nfId: item?.nfId || item?.ultimaNFId || '',
+        nfNumero: item?.nfNumero || item?.nf || item?.notaFiscal || item?.ultimaNF || '',
+        fornecedor: item?.fornecedorNome || item?.fornecedor || item?.ultimaFornecedor || '',
         data: item?.dataCompra || item?.dataNF || item?.dataMov || item?.createdAt || ''
       }, extra || {}));
       if (opts?.markOS && key) chavesEspelhadasNaOS.add(key);
@@ -550,8 +552,21 @@
     const qtd = filtradas.reduce((s,r) => s + num(r.qtd), 0);
     const nfs = Array.from(new Set(filtradas.map(r => r.nfNumero).filter(Boolean)));
     const fornecedores = Array.from(new Set(filtradas.map(r => r.fornecedor).filter(Boolean))).slice(0, 6);
+    W._relatorioCustosReais177 = {
+      placa: placaFiltro,
+      termo: String(termoRaw || '').trim(),
+      rows: filtradas.map(r => Object.assign({}, r)),
+      total,
+      qtd,
+      nfs: nfs.slice(),
+      fornecedores: fornecedores.slice(),
+      geradoEm: new Date().toISOString()
+    };
     return `<div class="op-card" style="border-color:rgba(255,59,59,.35);background:rgba(255,59,59,.045);">
-      <div class="op-title">RESUMO DE CUSTOS REAIS *177 - ${esc(placaFiltro)}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <div class="op-title" style="margin-bottom:0;">RESUMO DE CUSTOS REAIS *177 - ${esc(placaFiltro)}</div>
+        <button type="button" class="btn-outline" onclick="window.imprimirRelatorioCustosReais177 && window.imprimirRelatorioCustosReais177()" style="border-color:rgba(255,59,59,.38);color:var(--danger);">IMPRIMIR RELATÓRIO DE PEÇAS REAIS</button>
+      </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:10px;">
         <div><small style="color:var(--muted);font-family:var(--fm);">Itens reais</small><br><b>${esc(filtradas.length)}</b></div>
         <div><small style="color:var(--muted);font-family:var(--fm);">Quantidade</small><br><b>${esc(qtd)}</b></div>
@@ -571,6 +586,162 @@
       </tr>`).join('')}</tbody></table></div>
     </div>`;
   }
+  function dataHoraRelatorio177(value) {
+    if (!value) return 'Não registrada';
+    let dt = null;
+    try {
+      if (value && typeof value.toDate === 'function') dt = value.toDate();
+      else if (value && Number.isFinite(Number(value.seconds))) dt = new Date(Number(value.seconds) * 1000);
+      else {
+        const txt = String(value).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(txt)) {
+          const [ano, mes, dia] = txt.split('-');
+          return `${dia}/${mes}/${ano} — hora não registrada`;
+        }
+        dt = new Date(value);
+      }
+    } catch (_) { dt = null; }
+    if (!dt || Number.isNaN(dt.getTime())) return String(value || 'Não registrada');
+    try {
+      return dt.toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+    } catch (_) { return dt.toLocaleString('pt-BR'); }
+  }
+
+  function dataCurtaRelatorio177(value) {
+    if (!value) return '-';
+    const raw = String(value).slice(0, 10);
+    const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : raw;
+  }
+
+  W.imprimirRelatorioCustosReais177 = async function() {
+    if (!secret177()) { toast('Área restrita. Libere primeiro com o código *177.', 'warn'); return; }
+    const win = W.open('', '_blank');
+    if (!win) { toast('O navegador bloqueou a janela do relatório. Libere pop-ups e tente novamente.', 'warn'); return; }
+    try {
+      win.document.open();
+      win.document.write('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Preparando relatório</title></head><body style="font-family:Arial,sans-serif;padding:20px">Preparando relatório e rastreando o Kardex...</body></html>');
+      win.document.close();
+    } catch (_) {}
+    try {
+      if (typeof W.thiaLoadFiscalV2612 === 'function') await W.thiaLoadFiscalV2612(false);
+      else if (typeof W.thiaEnsureKeyV2612 === 'function') await W.thiaEnsureKeyV2612('fiscal', { force:false });
+    } catch (erro) {
+      console.warn('[RELATÓRIO CONSOLIDADO *177] Cache fiscal não atualizado; usando dados já carregados.', erro);
+    }
+    const rel = W._relatorioCustosReais177 || {};
+    const rows = Array.isArray(rel.rows) ? rel.rows : [];
+    if (!rows.length) { try { win.close?.(); } catch (_) {} toast('Faça primeiro a pesquisa por placa para gerar o relatório de peças reais.', 'warn'); return; }
+
+    const oficina = J().oficina || {};
+    const nomeOficina = J().tnome || oficina.nomeFantasia || oficina.razaoSocial || oficina.nome || 'OFICIN-IA';
+    const enderecoOficina = [oficina.endereco || oficina.rua || oficina.logradouro, oficina.numero, oficina.bairro, oficina.cidade, oficina.uf].filter(Boolean).join(', ');
+    const osById = id => (J().os || []).find(o => String(o.id || '') === String(id || '')) || {};
+    const linhas = rows.map((r, index) => {
+      const os = osById(r.osId);
+      const v = veiculoByOS(os);
+      const c = (J().clientes || []).find(x => String(x.id || '') === String(os.clienteId || v.clienteId || '')) || {};
+      const placa = placaNorm(r.placa || os.placa || v.placa || rel.placa || '');
+      const prefixo = os.prefixo || v.prefixo || '';
+      const modelo = [v.marca, v.modelo || os.veiculoSnapshot?.modelo || os.modelo].filter(Boolean).join(' ') || '-';
+      const osNumero = r.osId ? `#${String(r.osId).slice(-6).toUpperCase()}` : '-';
+      const qtdItem = num(r.qtd || 1) || 1;
+      const rastreio = typeof W.rastrearOrigemEstoquePeca177 === 'function'
+        ? W.rastrearOrigemEstoquePeca177(r, os)
+        : null;
+      const veioDoEstoque = !!(r.estoqueId || rastreio?.veioDoEstoque);
+      const nfNumero = String(r.nfNumero || rastreio?.nfNumero || '').trim();
+      const fornecedor = String(r.fornecedor || rastreio?.fornecedor || '').trim();
+      const dataCompra = r.data || rastreio?.dataEntrada || '';
+      const origemRastreada = veioDoEstoque
+        ? `${r.origem || 'O.S. / peças reais'} · ${rastreio?.origemTexto || 'ESTOQUE • NF de entrada não localizada no Kardex'}`
+        : (r.origem || '-');
+      const nfExibicao = nfNumero
+        ? `NF ${nfNumero}${rastreio && !rastreio.rastreioExato ? ' · referência Kardex' : ''}`
+        : (veioDoEstoque ? 'ESTOQUE · NF não localizada' : 'NF não informada');
+      const fornecedorExibicao = fornecedor || (veioDoEstoque ? 'Fornecedor não localizado no Kardex' : 'Não informado');
+      return `<tr>
+        <td data-label="#">${index + 1}</td>
+        <td data-label="Origem / rastreio">${esc(origemRastreada)}</td>
+        <td data-label="Código / peça real"><b>${esc(r.codigo || '-')}</b><br>${esc(r.desc || '-')}</td>
+        <td data-label="Onde foi instalada / O.S."><b>${esc([prefixo, placa].filter(Boolean).join(' / ') || '-')}</b><br>${esc(modelo)}<br>O.S. ${esc(osNumero)} · ${esc(os.status || '-')} · KM ${esc(os.km || v.km || '-')}</td>
+        <td data-label="Cliente e local da troca">${esc(c.nome || c.razaoSocial || os.clienteNome || '-')}<br><small>${esc([nomeOficina, enderecoOficina].filter(Boolean).join(' — '))}</small></td>
+        <td data-label="Onde comprou / NF">${esc(nfExibicao)}<br><b>${esc(fornecedorExibicao)}</b></td>
+        <td data-label="Quantidade" class="num">${esc(qtdItem)}</td>
+        <td data-label="Custo unitário / total" class="num">${moeda(r.custoUnit || 0)}<br><b>${moeda(r.total || 0)}</b></td>
+        <td data-label="Data compra / entrada">${esc(dataCurtaRelatorio177(dataCompra))}</td>
+        <td data-label="Abertura da O.S.">${esc(dataHoraRelatorio177(os.createdAt || os.abertaEm || os.dataAbertura || os.data))}</td>
+      </tr>`;
+    }).join('');
+    const total = rows.reduce((s, r) => s + num(r.total), 0);
+    const qtd = rows.reduce((s, r) => s + num(r.qtd || 0), 0);
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><title>Relatório Peças Reais ${esc(rel.placa || '')}</title><style>
+      @page{size:A4 landscape;margin:7mm}
+      *{box-sizing:border-box}
+      html,body{width:100%;max-width:100%;margin:0;padding:0;overflow-x:hidden}
+      body{font-family:Arial,sans-serif;color:#111;background:#fff;font-size:9px}
+      .page{width:100%;max-width:100%;padding:9px;overflow:hidden}
+      .no-print{display:flex;justify-content:flex-end;margin-bottom:7px}
+      .no-print button{max-width:100%;padding:8px 14px;font-weight:700;white-space:normal}
+      header{width:100%;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:3px solid #111;padding-bottom:7px;margin-bottom:8px;min-width:0}
+      header>div{min-width:0;overflow-wrap:anywhere}
+      .oficina{text-align:right;max-width:48%;overflow-wrap:anywhere}
+      h1{font-size:17px;line-height:1.12;margin:0 0 3px;overflow-wrap:anywhere}
+      .restrito{font-size:8px;color:#a00;font-weight:700;overflow-wrap:anywhere}
+      .meta{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;margin-bottom:8px;width:100%;min-width:0}
+      .box{border:1px solid #777;padding:5px;min-height:35px;min-width:0;overflow-wrap:anywhere}
+      .box b{display:block;font-size:8px;text-transform:uppercase;margin-bottom:2px}
+      .table-wrap{width:100%;max-width:100%;overflow:hidden}
+      table{width:100%;max-width:100%;border-collapse:collapse;table-layout:fixed}
+      th,td{border:1px solid #777;padding:4px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word;min-width:0}
+      th{background:#e8e8e8;font-size:7px;text-transform:uppercase}
+      td.num{text-align:right;white-space:nowrap}
+      tfoot td{background:#f0f0f0;font-size:11px}
+      .total-geral{text-align:right}.total-geral b:first-child{margin-right:18px}
+      .foot{display:flex;justify-content:space-between;gap:10px;margin-top:7px;font-size:8px;color:#555;overflow-wrap:anywhere}
+      @media screen and (max-width:860px){
+        body{font-size:12px}
+        .page{padding:8px}
+        .no-print{justify-content:stretch}
+        .no-print button{width:100%;font-size:14px;min-height:44px}
+        header{display:block;gap:0}
+        .oficina{max-width:100%;text-align:left!important;margin-top:8px;font-size:10px}
+        h1{font-size:16px}
+        .meta{grid-template-columns:1fr}
+        .box{min-height:0;font-size:11px}
+        .table-wrap{overflow:visible}
+        table,tbody,tfoot,tr,td{display:block;width:100%;max-width:100%}
+        thead{display:none}
+        tbody{display:grid;gap:10px}
+        tbody tr{border:1px solid #777;border-radius:4px;overflow:hidden;background:#fff}
+        tbody td{border:0;border-bottom:1px solid #ddd;display:grid;grid-template-columns:minmax(108px,38%) minmax(0,1fr);gap:8px;padding:7px;text-align:left!important;white-space:normal!important;font-size:11px}
+        tbody td:last-child{border-bottom:0}
+        tbody td::before{content:attr(data-label);font-weight:700;text-transform:uppercase;font-size:9px;line-height:1.25;color:#444;overflow-wrap:anywhere}
+        tfoot{margin-top:10px}
+        tfoot tr{border:1px solid #777}
+        tfoot td{border:0}
+        .total-geral{display:flex;justify-content:space-between;gap:10px;font-size:12px;text-align:left}.total-geral b:first-child{margin-right:0}
+        .foot{display:block;line-height:1.5}
+        .foot span{display:block}
+      }
+      @media print{
+        html,body{overflow:visible}
+        .page{padding:0;overflow:visible}
+        .no-print{display:none}
+        body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      }
+    </style></head><body><main class="page"><div class="no-print"><button onclick="window.print()">IMPRIMIR / SALVAR PDF</button></div><header><div><h1>RELATÓRIO CONSOLIDADO DE PEÇAS REAIS</h1><div class="restrito">ACESSO RESTRITO DO PROPRIETÁRIO — CÓDIGO *177</div></div><div class="oficina"><b>${esc(nomeOficina)}</b><br>${esc(enderecoOficina || 'Local da oficina não informado')}</div></header><section class="meta"><div class="box"><b>Placa pesquisada</b>${esc(rel.placa || '-')}</div><div class="box"><b>Filtro pesquisado</b>${esc(rel.termo || 'Todos os itens reais')}</div><div class="box"><b>Itens reais</b>${esc(rows.length)}</div><div class="box"><b>Quantidade</b>${esc(qtd)}</div><div class="box"><b>Emitido em</b>${esc(dataHoraRelatorio177(new Date()))}</div></section><div class="table-wrap"><table><colgroup><col style="width:3%"><col style="width:9%"><col style="width:14%"><col style="width:18%"><col style="width:14%"><col style="width:11%"><col style="width:4%"><col style="width:9%"><col style="width:8%"><col style="width:10%"></colgroup><thead><tr><th>#</th><th>Origem / rastreio</th><th>Código / peça real</th><th>Onde foi instalada / O.S.</th><th>Cliente e local da troca</th><th>Onde comprou / NF</th><th>Qtd.</th><th>Custo unit. / total</th><th>Data compra / entrada</th><th>Abertura da O.S.</th></tr></thead><tbody>${linhas}</tbody><tfoot><tr><td colspan="10" class="total-geral"><b>CUSTO REAL TOTAL CONSOLIDADO</b><b>${moeda(total)}</b></td></tr></tfoot></table></div><div class="foot"><span>Relatório interno baseado nas peças reais, vínculos fiscais e movimentos do Kardex carregados nesta sessão.</span><span>Powered by thIAguinho Soluções Digitais</span></div></main></body></html>`;
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { try { win.print(); } catch (_) {} }, 350);
+  };
+
   function codigoPecaNormalizado(v) {
     return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   }
@@ -892,6 +1063,7 @@
   }
 
   function installFiscalListeners() {
+    if (W.__THIA_FIRESTORE_ECONOMICO_V265__) { W._hardeningFiscalListeners = true; return; }
     if (W._hardeningFiscalListeners || !db() || !J().tid) return;
     W._hardeningFiscalListeners = true;
     const listen = (col, target, renderer) => {
@@ -1171,6 +1343,8 @@
     toast(`Pacote ${p.numero || id} baixado pelos boletos reais. Titulos originais permanecem agrupados.`, 'ok');
   };
 
+  W.renderPacotesBoletosHardening = renderPacotesBoletos;
+
   function wrapToggleFinanceiroAgrupado() {
     if (typeof W.toggleStatusFin !== 'function' || W.toggleStatusFin.__thiaAgrupadoWrap) return;
     const old = W.toggleStatusFin;
@@ -1236,15 +1410,28 @@
     if (!/(boleto|crediario|crediário|credito|crédito|parcel)/i.test(forma)) parcelas.value = '1';
   }
   function wrapSalvarOS() {
-    const old = W.salvarOS;
-    if (typeof old !== 'function' || old._hardeningPgto) return;
-    const wrapped = async function () {
+    const factory = old => async function () {
       corrigirPagamentoOS();
       return old.apply(this, arguments);
     };
-    wrapped._hardeningPgto = true;
-    W.salvarOS = wrapped;
-    D.addEventListener('change', e => { if (e.target?.id === 'osPgtoForma') corrigirPagamentoOS(); });
+    if (W.thiaRuntimeCore?.wrapOnce) W.thiaRuntimeCore.wrapOnce('salvarOS', 'hardening-pagamento-v2613', factory);
+    else {
+      const old = W.salvarOS;
+      if (typeof old === 'function' && !old._hardeningPgto) {
+        const wrapped = factory(old);
+        wrapped._hardeningPgto = true;
+        wrapped.__original = old;
+        W.salvarOS = wrapped;
+      }
+    }
+    if (W.thiaRuntimeCore?.addEventOnce) {
+      W.thiaRuntimeCore.addEventOnce(D, 'change', 'hardening-pagamento-os', e => {
+        if (e.target?.id === 'osPgtoForma') corrigirPagamentoOS();
+      });
+    } else if (!D.__hardeningPagamentoOSChange) {
+      D.__hardeningPagamentoOSChange = true;
+      D.addEventListener('change', e => { if (e.target?.id === 'osPgtoForma') corrigirPagamentoOS(); });
+    }
   }
 
   function installOrcamentoAuto() {
@@ -1516,12 +1703,13 @@
 
   D.addEventListener('DOMContentLoaded', function () {
     tick();
-    setTimeout(tick, 400);
-    setTimeout(tick, 1200);
-    setInterval(() => {
-      if (J().tid && !W._hardeningFiscalListeners) installFiscalListeners();
-      installOrcamentoAuto();
-      ensureNFBatchTools();
-    }, 2500);
-  });
+    if (!W.__THIA_HARDENING_MAINTENANCE_V2613__) {
+      W.__THIA_HARDENING_MAINTENANCE_V2613__ = setInterval(() => {
+        if (D.hidden) return;
+        if (J().tid && !W._hardeningFiscalListeners) installFiscalListeners();
+        if (byId('s-estoque')?.classList.contains('active')) ensureNFBatchTools();
+        if (byId('modalOS')?.classList.contains('open') && !W.thiaRuntimeCore?.activeEditor?.('#modalOS')) installOrcamentoAuto();
+      }, 5000);
+    }
+  }, { once:true });
 })();

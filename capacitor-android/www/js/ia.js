@@ -254,7 +254,7 @@
     const resumo = Object.keys(porPessoa).length > 1
       ? '<br><strong>Resumo por colaborador:</strong><br>' + Object.entries(porPessoa).sort((a,b)=>b[1]-a[1]).map(([nome, total]) => `- ${esc(nome)}: ${moeda(total)}`).join('<br>')
       : '';
-    return `<strong>Comissões ${querPagas ? 'pagas' : 'a pagar'}${tituloPessoa} (${lista.length}):</strong><br>${lista.slice(0, 30).map(formatarLinhaFinanceiro).join('<br>')}<br><br><strong>Total:</strong> ${moeda(total)}${resumo}`;
+    return `<strong>Comissões ${querPagas ? 'pagas' : 'a pagar'}${tituloPessoa} (${lista.length}):</strong><br>${lista.slice(0, 10).map(formatarLinhaFinanceiro).join('<br>')}<br><br><strong>Total:</strong> ${moeda(total)}${resumo}`;
   }
 
   function responderFinanceiroDetalhado(texto, q, ctx, opts) {
@@ -319,7 +319,7 @@
       ];
       const prioridades = [...vencidos, ...hojeLista, ...pendentes]
         .filter((f, i, arr) => arr.findIndex(x => (x.id || x.desc || x.descricao) === (f.id || f.desc || f.descricao)) === i)
-        .slice(0, 20);
+        .slice(0, 5);
       if (prioridades.length) linhas.push('<br><strong>Prioridades:</strong><br>' + prioridades.map(formatarLinhaFinanceiro).join('<br>'));
       return linhas.join('<br>');
     }
@@ -330,6 +330,9 @@
   }
 
   function responderJarvisDadosPrecisos(texto, q, ctx, opts) {
+    // Uma placa válida sempre tem prioridade. Sem esta trava, palavras genéricas
+    // como "serviço" podiam ser confundidas com o cadastro "SERVIÇO TERCEIRIZADO".
+    if (extrairPlaca(texto)) return null;
     // Consultas operacionais de O.S./pátio devem cair no bloco próprio,
     // para listar TODAS as O.S. da condição pedida, e não virar resumo genérico.
     if (/\b(o\.?s\.?|os|ordem|ordens|veiculo|veiculos|patio|pátio)\b/.test(q) && /(patio|pátio|entreg|fechad|finaliz|concluid|receb|pagamento|sem receb|sem pagar|abert|abertas|andamento|orcamento|orçamento|triagem|pronto)/.test(q)) {
@@ -344,7 +347,13 @@
     const financeiro = responderFinanceiroDetalhado(texto, q, ctx, opts);
     if (financeiro) return financeiro;
     const func = funcionarioPorPergunta(ctx, q);
-    if (func && podeFinanceiro(opts)) {
+    const consultaPessoaExplicita = /\b(comiss|mecanico|mecanicos|funcionario|funcionarios|colaborador|colaboradores|responsavel|responsaveis)\b/.test(q);
+    const perguntaSoNome = func && (() => {
+      const limpo = norm(texto).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+      const aliases = [func.nome, func.usuario, func.apelido, func.login].map(norm).filter(v => v.length >= 3);
+      return aliases.some(a => limpo === a || (a.split(/\s+/).length > 1 && limpo === a.split(/\s+/)[0]));
+    })();
+    if (func && (consultaPessoaExplicita || perguntaSoNome) && podeFinanceiro(opts)) {
       const pend = ctx.financeiro.filter(f => financeiroEhComissao(f) && financeiroDoFuncionario(f, func) && isPendenteStatus(f.status));
       const pagas = ctx.financeiro.filter(f => financeiroEhComissao(f) && financeiroDoFuncionario(f, func) && isPagoStatus(f.status));
       const totalPend = pend.reduce((s, f) => s + num(f.valor || f.total || 0), 0);
@@ -431,16 +440,21 @@
 
   function extrairPeriodoPergunta(texto) {
     const datas = Array.from(String(texto || '').matchAll(/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/g));
-    if (datas.length < 2) return null;
+    if (!datas.length) return null;
     const anoAtual = new Date().getFullYear();
     const anoExplicito = datas.map(m => Number(m[3] || 0)).find(Boolean);
     let anoInicio = Number(datas[0][3] || anoExplicito || anoAtual);
-    let anoFim = Number(datas[1][3] || anoExplicito || anoAtual);
     if (anoInicio < 100) anoInicio += 2000;
-    if (anoFim < 100) anoFim += 2000;
     let inicio = dataValidaPeriodo(datas[0][1], datas[0][2], anoInicio);
+    if (!inicio) return null;
+
+    // Uma única data significa consulta daquele dia, não uma busca de comissão genérica.
+    if (datas.length === 1) return { inicio, fim: inicio };
+
+    let anoFim = Number(datas[1][3] || anoExplicito || anoAtual);
+    if (anoFim < 100) anoFim += 2000;
     let fim = dataValidaPeriodo(datas[1][1], datas[1][2], anoFim);
-    if (!inicio || !fim) return null;
+    if (!fim) return null;
     if (!datas[0][3] && !datas[1][3] && inicio > fim) {
       anoInicio = anoFim - 1;
       inicio = dataValidaPeriodo(datas[0][1], datas[0][2], anoInicio);
@@ -484,23 +498,61 @@
     return !!id && idsFuncionario(func).includes(id);
   }
 
+  function rateiosFuncionarioItem(item, os) {
+    const direto = Array.isArray(item?.rateiosComissao) ? item.rateiosComissao : [];
+    const origem = Number.isInteger(Number(item?.index)) && Array.isArray(os?.servicos)
+      ? (os.servicos[Number(item.index)] || {})
+      : {};
+    const salvos = Array.isArray(origem?.rateiosComissao) ? origem.rateiosComissao : [];
+    const lista = direto.length ? direto : salvos;
+    const unicos = new Map();
+    lista.forEach(r => {
+      const id = String(r?.mecId || r?.id || '').trim();
+      const nome = String(r?.mecNome || r?.nome || '').trim();
+      const chave = id || ('nome:' + norm(nome));
+      if (!chave || unicos.has(chave)) return;
+      unicos.set(chave, {
+        mecId: id,
+        mecNome: nome,
+        valorBase: Math.max(0, num(r?.valorBase ?? r?.valorDividido ?? r?.baseComissao ?? 0))
+      });
+    });
+    return Array.from(unicos.values());
+  }
+
+  function rateioDoFuncionarioNoItem(item, func, os) {
+    const rateios = rateiosFuncionarioItem(item, os);
+    if (!rateios.length) return null;
+    return rateios.find(r => idCombinaFuncionario(r.mecId, func) || nomeCombinaFuncionario(r.mecNome, func)) || null;
+  }
+
   function osAtribuidaFuncionario(os, func) {
+    const servicos = Array.isArray(os?.servicos) ? os.servicos : [];
     const ids = [
       os?.mecId, os?.mecanicoId, os?.responsavelId, os?.funcionarioId, os?.colaboradorId, os?.executorId,
       ...(Array.isArray(os?.mecIds) ? os.mecIds : []),
       ...(Array.isArray(os?.mecanicos) ? os.mecanicos.map(m => m?.id || m?.mecId) : []),
-      ...(Array.isArray(os?.servicos) ? os.servicos.map(s => s?.mecId || s?.mecanicoId || s?.responsavelId) : [])
+      ...servicos.flatMap(s => [
+        s?.mecId || s?.mecanicoId || s?.responsavelId,
+        ...(Array.isArray(s?.rateiosComissao) ? s.rateiosComissao.map(r => r?.mecId || r?.id) : [])
+      ])
     ];
     if (ids.some(v => idCombinaFuncionario(v, func))) return true;
     return [
       os?.mecNome, os?.mecanicoNome, os?.mecanico, os?.responsavelNome, os?.responsavel, os?.executorNome,
       ...(Array.isArray(os?.mecanicos) ? os.mecanicos.map(m => m?.nome || m?.mecNome) : []),
-      ...(Array.isArray(os?.servicos) ? os.servicos.map(s => s?.mecNome || s?.mecanicoNome || s?.responsavelNome) : [])
-    ]
-      .some(v => nomeCombinaFuncionario(v, func));
+      ...servicos.flatMap(s => [
+        s?.mecNome || s?.mecanicoNome || s?.responsavelNome,
+        ...(Array.isArray(s?.rateiosComissao) ? s.rateiosComissao.map(r => r?.mecNome || r?.nome) : [])
+      ])
+    ].some(v => nomeCombinaFuncionario(v, func));
   }
 
   function itemPertenceFuncionario(item, func, os) {
+    const rateios = rateiosFuncionarioItem(item, os);
+    if (rateios.length) {
+      return rateios.some(r => idCombinaFuncionario(r.mecId, func) || nomeCombinaFuncionario(r.mecNome, func));
+    }
     const itemIds = [item?.mecId, item?.mecanicoId, item?.responsavelId].filter(Boolean);
     const itemNomes = [item?.mecNome, item?.mecanicoNome, item?.responsavelNome].filter(Boolean);
     if (itemIds.length || itemNomes.length) {
@@ -512,6 +564,14 @@
       ...(Array.isArray(os?.mecanicos) ? os.mecanicos.map(m => m?.id || m?.mecId) : [])
     ].filter(Boolean);
     return idsOS.length <= 1 && osAtribuidaFuncionario(os, func);
+  }
+
+  function baseComissaoFuncionarioItem(item, func, os) {
+    const rateio = rateioDoFuncionarioNoItem(item, func, os);
+    const valorIntegral = Math.max(0, num(item?.valorFinal ?? item?.total ?? item?.valorBruto ?? item?.valorUnit ?? 0));
+    if (rateio) return Math.min(valorIntegral, Math.max(0, num(rateio.valorBase)));
+    if (rateiosFuncionarioItem(item, os).length) return 0;
+    return itemPertenceFuncionario(item, func, os) ? valorIntegral : 0;
   }
 
   function autoriaRegistroFuncionario(registro, func, osAtribuida) {
@@ -541,16 +601,58 @@
     return (Array.isArray(os?.servicos) ? os.servicos : []).map((s, index) => ({
       key: `servico-${index}`,
       tipo: 'servico',
+      index,
       desc: s?.desc || s?.descricao || s?.nome || '',
       valorFinal: num(s?.valorFinal ?? s?.total ?? s?.valor ?? s?.valorBruto ?? 0),
       mecId: s?.mecId || s?.mecanicoId || s?.responsavelId || '',
-      mecNome: s?.mecNome || s?.mecanicoNome || s?.responsavelNome || ''
+      mecNome: s?.mecNome || s?.mecanicoNome || s?.responsavelNome || '',
+      rateiosComissao: Array.isArray(s?.rateiosComissao) ? s.rateiosComissao : []
     }));
   }
 
+  function statusOperacionalAtendimento(os) {
+    const bruto = norm(os?.status || '').replace(/[^a-z0-9]+/g, '');
+    // Aliases confirmados na base Web atual (js/os.js e equipe.html).
+    // A normalizacao e somente de leitura; nenhum valor e gravado de volta no banco.
+    const mapa = {
+      aguardando: 'Triagem',
+      triagem: 'Triagem',
+      patio: 'Triagem',
+      orcamento: 'Orcamento',
+      orcamentoenviado: 'Orcamento_Enviado',
+      aprovacao: 'Orcamento_Enviado',
+      aprovado: 'Aprovado',
+      andamento: 'Andamento',
+      box: 'Andamento',
+      emservico: 'Andamento',
+      pronto: 'Pronto',
+      prontoretirada: 'Pronto',
+      faturado: 'Pronto',
+      entregue: 'Entregue',
+      concluido: 'Entregue',
+      cancelado: 'Cancelado'
+    };
+    const canonico = mapa[bruto] || '';
+    const rotulos = {
+      Triagem: 'TRIAGEM',
+      Orcamento: 'ORÇAMENTO',
+      Orcamento_Enviado: 'ORÇAMENTO ENVIADO / AGUARDANDO APROVAÇÃO',
+      Aprovado: 'SERVIÇO APROVADO',
+      Andamento: 'EM SERVIÇO',
+      Pronto: 'VEÍCULO PRONTO',
+      Entregue: 'VEÍCULO ENTREGUE',
+      Cancelado: 'CANCELADO'
+    };
+    return {
+      canonico,
+      rotulo: rotulos[canonico] || String(os?.status || 'STATUS NAO RECONHECIDO'),
+      permitido: ['Aprovado', 'Andamento', 'Pronto', 'Entregue'].includes(canonico)
+    };
+  }
+
   function osFinalizadaParaComissao(os) {
-    const status = norm(os?.status || '').replace(/[_-]+/g, ' ');
-    return /\b(pronto|entregue|concluido|finalizado|faturado|pronto retirada)\b/.test(status);
+    const status = statusOperacionalAtendimento(os).canonico;
+    return status === 'Pronto' || status === 'Entregue';
   }
 
   function somarValoresServicos(lista) {
@@ -577,10 +679,12 @@
       if (!periodoContem(periodo, dataExecucao)) return;
       const desc = item?.desc || registro?.desc || registro?.descricao || key;
       if (desc) {
+        const valorIntegral = num(item?.valorFinal ?? item?.total ?? item?.valorBruto ?? item?.valorUnit ?? registro?.valor ?? 0);
         confirmados.push({
           key: String(key),
           desc,
-          valor: num(item?.valorFinal ?? item?.total ?? item?.valorBruto ?? item?.valorUnit ?? registro?.valor ?? 0),
+          valor: valorIntegral,
+          baseComissao: baseComissaoFuncionarioItem(item, func, os),
           status: registro?.status || 'executado',
           data: dataISO(dataExecucao)
         });
@@ -603,7 +707,8 @@
         registrados.push({
           key: String(item.key || ''),
           desc,
-          valor: num(item?.valorFinal ?? item?.total ?? item?.valorBruto ?? item?.valorUnit ?? 0)
+          valor: num(item?.valorFinal ?? item?.total ?? item?.valorBruto ?? item?.valorUnit ?? 0),
+          baseComissao: baseComissaoFuncionarioItem(item, func, os)
         });
       });
     }
@@ -613,7 +718,9 @@
       registrados,
       legadoFinalizado,
       totalConfirmado: somarValoresServicos(unicosConfirmados),
-      totalRegistrado: somarValoresServicos(registrados)
+      totalRegistrado: somarValoresServicos(registrados),
+      baseComissaoConfirmada: +unicosConfirmados.reduce((soma, item) => soma + num(item?.baseComissao ?? item?.valor), 0).toFixed(2),
+      baseComissaoRegistrada: +registrados.reduce((soma, item) => soma + num(item?.baseComissao ?? item?.valor), 0).toFixed(2)
     };
   }
 
@@ -633,22 +740,29 @@
   }
 
   function modoRelatorioFuncionario(q) {
-    if (/\b(detalhado|detalhada|detalhes|completo|completa|analitico|analitica)\b/.test(q)) return 'detalhado';
-    if (/\b(resumo|resumido|resumida|sintetico|sintetica|curto|curta|simples)\b/.test(q)) return 'resumo';
-    if (/\b(so|somente|apenas)\s+resumo\b/.test(q)) return 'resumo';
-    return 'detalhado';
+    if (/\b(detalhado|detalhada|detalhes|completo|completa|analitico|analitica|listar tudo|todos os servicos)\b/.test(q)) return 'detalhado';
+    return 'resumo';
   }
 
   function responderAtendimentosFuncionarioPeriodo(texto, q, ctx, opts) {
     const periodo = extrairPeriodoPergunta(texto);
     if (!periodo) return null;
-    if (!/\b(mecanico|funcionario|colaborador|responsavel)\b/.test(q)) return null;
-    if (!/(atendeu|atendimento|realizou|executou|trabalhou|servico|servicos|veiculo|veiculos|o\.?s\.?|ordem|ordens|comiss|relatorio|valor|valores|total)/.test(q)) return null;
+    const citaCargo = /\b(mecanico|funcionario|colaborador|responsavel)\b/.test(q);
+    const perguntaAtendimentoComNome = /\batendimentos?\b/.test(q) && /\b(fez|atendeu|realizou|executou|trabalhou)\b/.test(q);
+    if (!citaCargo && !perguntaAtendimentoComNome) return null;
+    if (!/(atendeu|atendimento|realizou|executou|trabalhou|fez|servico|servicos|veiculo|veiculos|o\.?s\.?|ordem|ordens|comiss|relatorio|valor|valores|total)/.test(q)) return null;
     const func = funcionarioDaPerguntaOperacional(ctx, texto, q);
     if (!func) return 'Informe o nome do mec&acirc;nico para consultar os atendimentos por per&iacute;odo.';
     const lista = ctx.os
-      .filter(os => evidenciaAtendimentoFuncionario(os, func, periodo))
-      .map(os => ({ os, servicos: servicosFuncionarioNaOS(os, func, periodo, ctx) }))
+      .map(os => ({ os, statusOperacional: statusOperacionalAtendimento(os) }))
+      .filter(item => item.statusOperacional.permitido)
+      .filter(item => evidenciaAtendimentoFuncionario(item.os, func, periodo))
+      .map(item => ({
+        os: item.os,
+        statusOperacional: item.statusOperacional,
+        servicos: servicosFuncionarioNaOS(item.os, func, periodo, ctx)
+      }))
+      .filter(item => item.servicos.confirmados.length || item.servicos.registrados.length)
       .sort((a, b) => dataISO(dataPrincipalOS(a.os)).localeCompare(dataISO(dataPrincipalOS(b.os))));
     const nome = func.nome || func.usuario || func.id || 'mec&acirc;nico';
     if (!lista.length) {
@@ -660,52 +774,87 @@
     const percentualCadastrado = percentualRaw != null && String(percentualRaw).trim() !== '';
     const percentualComissao = percentualCadastrado ? num(percentualRaw) : null;
     const modoRelatorio = modoRelatorioFuncionario(q);
-    const linhas = lista.map(({ os, servicos }) => {
+    function formatarServicosAtendimento(servicos) {
+      const confirmados = servicos.confirmados.map(s => ({
+        ...s,
+        baseLiberada: num(s.baseComissao),
+        baseAguardando: 0,
+        situacao: 'EXECUCAO CONFIRMADA'
+      }));
+      const registrados = servicos.registrados.map(s => ({
+        ...s,
+        baseLiberada: servicos.legadoFinalizado ? num(s.baseComissao) : 0,
+        baseAguardando: servicos.legadoFinalizado ? 0 : num(s.baseComissao),
+        situacao: servicos.legadoFinalizado
+          ? 'LIBERADO PELA FINALIZACAO DA O.S. (REGRA LEGADA)'
+          : 'AGUARDANDO EXECUCAO CONFIRMADA OU FINALIZACAO'
+      }));
+      return [...confirmados, ...registrados];
+    }
+
+    function formatarOSAtendimento(item, compacto) {
+      const { os, servicos, statusOperacional } = item;
       const veiculo = veiculoDeOS(ctx, os);
       const placa = placaOS(ctx, os) || '-';
       const modelo = veiculo.modelo || os.veiculoSnapshot?.modelo || os.veiculoModelo || os.veiculo || os.tipoVeiculo || '-';
       const osNumero = String(os.numero || os.id || '').slice(-6).toUpperCase();
       const data = dataBR(dataPrincipalOS(os));
-      const confirmados = servicos.confirmados.length
-        ? [
-            '<br>&nbsp;&nbsp;<strong>Servi&ccedil;os confirmados como executados:</strong>',
-            servicos.confirmados.map(s => `<br>&nbsp;&nbsp;- ${esc(s.desc)}${podeVerValores ? `: <strong>${moeda(s.valor)}</strong>` : ''}`).join(''),
-            podeVerValores ? `<br>&nbsp;&nbsp;<strong>Subtotal confirmado da O.S.: ${moeda(servicos.totalConfirmado)}</strong>` : ''
-          ].join('')
-        : '';
-      const legados = servicos.registrados.length
-        ? [
-            `<br>&nbsp;&nbsp;<strong>${servicos.legadoFinalizado
-              ? 'Servi&ccedil;os de O.S. finalizada sem confirma&ccedil;&atilde;o individual (regra legada):'
-              : 'Servi&ccedil;os somente registrados/or&ccedil;ados, fora da base de comiss&atilde;o:'}</strong>`,
-            servicos.registrados.map(s => `<br>&nbsp;&nbsp;- ${esc(s.desc)}${podeVerValores ? `: <strong>${moeda(s.valor)}</strong>` : ''}`).join(''),
-            podeVerValores
-              ? `<br>&nbsp;&nbsp;<strong>Subtotal ${servicos.legadoFinalizado ? 'legado finalizado' : 'informativo'} da O.S.: ${moeda(servicos.totalRegistrado)}</strong>`
-              : ''
-          ].join('')
-        : (!confirmados ? '<br>&nbsp;&nbsp;Nenhum servi&ccedil;o executado foi identificado nesta O.S.' : '');
-      return `- ${esc(data)} | ${esc(placa)} | ${esc(modelo)} | O.S. #${esc(osNumero)} | ${esc(os.status || '-')}${confirmados}${legados}`;
-    });
+      const itens = formatarServicosAtendimento(servicos);
+      const linhasServico = itens.map(s => {
+        const valores = podeVerValores ? [
+          `<br>&nbsp;&nbsp;&nbsp;&nbsp;Valor cobrado do cliente: <strong>${moeda(s.valor)}</strong>`,
+          `<br>&nbsp;&nbsp;&nbsp;&nbsp;Parte interna atribu&iacute;da ao mec&acirc;nico consultado: <strong>${moeda(s.baseComissao)}</strong>`,
+          `<br>&nbsp;&nbsp;&nbsp;&nbsp;Base liberada para comiss&atilde;o: <strong>${moeda(s.baseLiberada)}</strong>`,
+          `<br>&nbsp;&nbsp;&nbsp;&nbsp;Valor aguardando execu&ccedil;&atilde;o/finaliza&ccedil;&atilde;o: <strong>${moeda(s.baseAguardando)}</strong>`
+        ].join('') : '';
+        return [
+          `<br>&nbsp;&nbsp;<strong>Servi&ccedil;o:</strong> ${esc(s.desc)}`,
+          valores,
+          compacto ? '' : `<br>&nbsp;&nbsp;&nbsp;&nbsp;Situa&ccedil;&atilde;o da base: <strong>${esc(s.situacao)}</strong>`
+        ].join('');
+      }).join('');
+      return [
+        `- ${esc(data)} | O.S. #${esc(osNumero)} | ${esc(placa)} | ${esc(modelo)}`,
+        `<br>&nbsp;&nbsp;<strong>Status atual:</strong> ${esc(statusOperacional.rotulo)}`,
+        linhasServico || '<br>&nbsp;&nbsp;Nenhum servi&ccedil;o atribu&iacute;do foi identificado.'
+      ].join('');
+    }
+
+    const linhas = lista.map(item => formatarOSAtendimento(item, false));
     const totalConfirmado = +lista.reduce((soma, item) => soma + num(item.servicos.totalConfirmado), 0).toFixed(2);
+    const baseConfirmadaComissao = +lista.reduce((soma, item) => soma + num(item.servicos.baseComissaoConfirmada), 0).toFixed(2);
     const totalLegadoFinalizado = +lista
       .filter(item => item.servicos.legadoFinalizado)
       .reduce((soma, item) => soma + num(item.servicos.totalRegistrado), 0)
+      .toFixed(2);
+    const baseLegadaComissao = +lista
+      .filter(item => item.servicos.legadoFinalizado)
+      .reduce((soma, item) => soma + num(item.servicos.baseComissaoRegistrada), 0)
       .toFixed(2);
     const totalSomenteOrcado = +lista
       .filter(item => !item.servicos.legadoFinalizado)
       .reduce((soma, item) => soma + num(item.servicos.totalRegistrado), 0)
       .toFixed(2);
-    const baseComissao = +(totalConfirmado + totalLegadoFinalizado).toFixed(2);
+    const baseAguardandoExecucao = +lista
+      .filter(item => !item.servicos.legadoFinalizado)
+      .reduce((soma, item) => soma + num(item.servicos.baseComissaoRegistrada), 0)
+      .toFixed(2);
+    const baseComissao = +(baseConfirmadaComissao + baseLegadaComissao).toFixed(2);
     const valorComissao = percentualComissao == null
       ? null
       : +(baseComissao * (percentualComissao / 100)).toFixed(2);
     const resumoComissao = podeVerValores ? [
       '<br><strong>Resumo para comiss&atilde;o:</strong>',
       `<br>- M&atilde;o de obra com execu&ccedil;&atilde;o confirmada: <strong>${moeda(totalConfirmado)}</strong>`,
+      baseConfirmadaComissao !== totalConfirmado ? `<br>- Parte interna atribu&iacute;da ao colaborador nesses servi&ccedil;os: <strong>${moeda(baseConfirmadaComissao)}</strong>` : '',
       `<br>- M&atilde;o de obra de O.S. finalizada legada: <strong>${moeda(totalLegadoFinalizado)}</strong>`,
+      baseLegadaComissao !== totalLegadoFinalizado ? `<br>- Parte interna legada atribu&iacute;da ao colaborador: <strong>${moeda(baseLegadaComissao)}</strong>` : '',
       `<br>- Base total considerada para comiss&atilde;o: <strong>${moeda(baseComissao)}</strong>`,
       totalSomenteOrcado > 0
-        ? `<br>- Servi&ccedil;os apenas or&ccedil;ados/sem finaliza&ccedil;&atilde;o, exclu&iacute;dos da comiss&atilde;o: <strong>${moeda(totalSomenteOrcado)}</strong>`
+        ? `<br>- Valor cobrado em servi&ccedil;os ainda aguardando execu&ccedil;&atilde;o/finaliza&ccedil;&atilde;o: <strong>${moeda(totalSomenteOrcado)}</strong>`
+        : '',
+      baseAguardandoExecucao > 0
+        ? `<br>- Parte interna ainda aguardando execu&ccedil;&atilde;o/finaliza&ccedil;&atilde;o: <strong>${moeda(baseAguardandoExecucao)}</strong>`
         : '',
       percentualComissao == null
         ? '<br>- Percentual de comiss&atilde;o: <strong>n&atilde;o localizado no cadastro do colaborador</strong>'
@@ -715,25 +864,20 @@
         : `<br>- Comiss&atilde;o calculada: <strong>${moeda(valorComissao)}</strong>`
     ].join('') : '';
     if (modoRelatorio === 'resumo') {
-      const linhasResumo = lista.map(({ os, servicos }) => {
-        const veiculo = veiculoDeOS(ctx, os);
-        const placa = placaOS(ctx, os) || '-';
-        const modelo = veiculo.modelo || os.veiculoSnapshot?.modelo || os.veiculoModelo || os.veiculo || os.tipoVeiculo || '-';
-        const osNumero = String(os.numero || os.id || '').slice(-6).toUpperCase();
-        const listaServicos = servicos.confirmados.length ? servicos.confirmados : servicos.registrados;
-        const totalOS = servicos.confirmados.length ? servicos.totalConfirmado : servicos.totalRegistrado;
-        const descricoes = listaServicos.map(s => s.desc).filter(Boolean).join('; ') || 'Sem servi&ccedil;o identificado';
-        return `${esc(nome)}: O.S. #${esc(osNumero)} | Placa ${esc(placa)} | Modelo ${esc(modelo)}${podeVerValores ? ` | Valor ${moeda(totalOS)}` : ''}<br>(&quot;${esc(descricoes)}&quot;)`;
-      });
+      const linhasResumo = lista.map(item => formatarOSAtendimento(item, true));
       const resumoValores = podeVerValores ? [
         `<br><strong>Total de O.S.:</strong> ${esc(lista.length)} | <strong>Ve&iacute;culos:</strong> ${esc(veiculosUnicos.size)}`,
         `<br><strong>M&atilde;o de obra confirmada:</strong> ${moeda(totalConfirmado)}`,
         `<br><strong>M&atilde;o de obra finalizada legada:</strong> ${moeda(totalLegadoFinalizado)}`,
-        `<br><strong>Base para comiss&atilde;o:</strong> ${moeda(baseComissao)}`,
-        valorComissao == null ? '' : `<br><strong>Comiss&atilde;o calculada:</strong> ${moeda(valorComissao)}`
+        `<br><strong>Base liberada para comiss&atilde;o:</strong> ${moeda(baseComissao)}`,
+        `<br><strong>Base ainda aguardando execu&ccedil;&atilde;o/finaliza&ccedil;&atilde;o:</strong> ${moeda(baseAguardandoExecucao)}`,
+        valorComissao == null ? '' : `<br><strong>Comiss&atilde;o calculada sobre a base liberada:</strong> ${moeda(valorComissao)}`
       ].join('') : `<br><strong>Total de O.S.:</strong> ${esc(lista.length)} | <strong>Ve&iacute;culos:</strong> ${esc(veiculosUnicos.size)}`;
+      const periodoTitulo = periodo.inicio === periodo.fim
+        ? `em ${esc(dataBR(periodo.inicio))}`
+        : `de ${esc(dataBR(periodo.inicio))} at&eacute; ${esc(dataBR(periodo.fim))}`;
       return [
-        `<strong>Resumo de ${esc(nome)} de ${esc(dataBR(periodo.inicio))} at&eacute; ${esc(dataBR(periodo.fim))}:</strong>`,
+        `<strong>Resumo de ${esc(nome)} ${periodoTitulo}:</strong>`,
         linhasResumo.join('<br><br>'),
         resumoValores
       ].join('<br>');
@@ -743,13 +887,17 @@
       `${lista.length} O.S. em ${veiculosUnicos.size} ve&iacute;culo(s).`,
       linhas.join('<br><br>'),
       resumoComissao,
-      '<br><small>Crit&eacute;rio: execu&ccedil;&atilde;o individual confirmada tem prioridade. O.S. legadas sem marca&ccedil;&atilde;o individual s&atilde;o identificadas separadamente para n&atilde;o afirmar servi&ccedil;o sem prova.</small>'
+      '<br><small>Crit&eacute;rio: somente O.S. em Servi&ccedil;o Aprovado, Em Servi&ccedil;o, Ve&iacute;culo Pronto ou Ve&iacute;culo Entregue entram como atendimento. A libera&ccedil;&atilde;o de comiss&atilde;o continua dependendo da execu&ccedil;&atilde;o confirmada ou da finaliza&ccedil;&atilde;o aceita pela regra legada.</small>'
     ].join('<br>');
   }
 
   function extrairPlaca(txt) {
     const m = String(txt || '').match(/\b[A-Z]{3}[-\s]?\d[A-Z0-9]\d{2}\b/i);
-    return m ? placaLimpa(m[0]) : '';
+    if (!m) return '';
+    const placa = placaLimpa(m[0]);
+    // Evita interpretar "ano 2011", códigos e referências como placa Mercosul.
+    if (/^(ANO|COD|REF|OEM|DSD|DNI|DPL|BRK|AJE)/.test(placa)) return '';
+    return placa;
   }
 
   function clienteDeOS(ctx, os) {
@@ -1008,6 +1156,132 @@
     return `<br><br><strong>Itens aprovados/executados:</strong><br>${aprovados}`;
   }
 
+  function itensOrcamentoOS(ctx, os) {
+    const U = W.JOS || W.JarvisOSUtils || {};
+    const cliente = clienteDeOS(ctx, os);
+    const itens = U.buildBudgetItems?.(os, cliente) || [];
+    const aprovados = U.getApprovedKeys?.(os) || new Set(os?.itensAprovados || []);
+    return itens.map(item => {
+      const status = itemExecucao(os, item);
+      const aprovado = aprovados.has(item.key);
+      const executado = /executad|concluid|finaliz|instalad|trocad|feito|ok/.test(norm(status));
+      const legadoFinalizado = aprovado && !status && isEntregueOS(os);
+      return Object.assign({}, item, { aprovado, status, executado, legadoFinalizado });
+    });
+  }
+
+  function statusVerdadeiroItem(os, item) {
+    if (item.executado) return `execução confirmada${item.status ? ` (${esc(item.status)})` : ''}`;
+    if (item.legadoFinalizado) return 'O.S. finalizada, sem confirmação individual deste item';
+    if (item.aprovado) return 'aprovado, mas execução não confirmada';
+    return 'apenas orçado/não aprovado';
+  }
+
+  function termosItemPergunta(texto, placa) {
+    const p = norm(placa || '');
+    return norm(texto)
+      .replace(new RegExp(`\\b${p}\\b`, 'g'), ' ')
+      .replace(/\b(?:veiculo|veículo|placa|historico|histórico|resumo|servico|serviço|servicos|serviços|peca|peça|pecas|peças|item|itens|foi|foram|trocado|trocada|trocados|trocadas|substituido|substituida|instalado|instalada|feito|feita|executado|executada|realizado|realizada|realizados|realizadas|consta|tem|houve|nesse|nessa|neste|nesta|qual|quais|do|da|de|dos|das|no|na|nos|nas|o|a|os|as|em)\b/g, ' ')
+      .replace(/[^a-z0-9./-]+/g, ' ')
+      .split(/\s+/)
+      .filter(t => t.length >= 3);
+  }
+
+  function itemCombinaTermos(item, termos) {
+    if (!termos.length) return false;
+    const hay = norm([item.codigo, item.codigoInterno, item.codigoTabela, item.desc, item.sistema].join(' '));
+    const compacto = hay.replace(/[^a-z0-9]/g, '');
+    return termos.every(t => hay.includes(t) || compacto.includes(t.replace(/[^a-z0-9]/g, '')));
+  }
+
+  function responderItemEspecificoDaPlaca(texto, q, ctx, opts, placa, listaOS) {
+    const querResumo = /resumo.*(?:servic|peca|item)|(?:servic|peca|item).*resumo/.test(q);
+    const querServicosRealizados = /(?:qual|quais|liste|mostrar|mostre).*(?:servic).*(?:realiz|execut|feito|fizeram|fizer)|(?:servic).*(?:realiz|execut|feito).*(?:veiculo|placa)/.test(q);
+    const querPecasAplicadas = /(?:qual|quais|liste|mostrar|mostre).*(?:peca|item).*(?:troc|substitu|instal|aplic|usad|coloc)|(?:peca|item).*(?:troc|substitu|instal|aplic|usad|coloc).*(?:veiculo|placa)/.test(q);
+    const querConfirmar = /foi|foram|troc|substitu|instal|execut|realiz|feito|feita|consta|tem/.test(q);
+    if (!querResumo && !querServicosRealizados && !querPecasAplicadas && !querConfirmar) return null;
+
+    const osOrdenadas = listaOS.slice().sort((a, b) => String(b.updatedAt || b.createdAt || b.data || '').localeCompare(String(a.updatedAt || a.createdAt || a.data || '')));
+    if (querResumo || querServicosRealizados || querPecasAplicadas) {
+      const modo = querServicosRealizados ? 'servico' : (querPecasAplicadas ? 'peca' : 'todos');
+      const blocos = osOrdenadas.slice(0, 8).map(o => {
+        const itens = itensOrcamentoOS(ctx, o);
+        const relevantesBase = itens.filter(i => i.aprovado || i.executado || i.legadoFinalizado);
+        const relevantes = modo === 'todos' ? relevantesBase : relevantesBase.filter(i => i.tipo === modo);
+        const servicos = relevantesBase.filter(i => i.tipo === 'servico');
+        const pecas = relevantesBase.filter(i => i.tipo === 'peca');
+        const amostra = relevantes.slice(0, modo === 'todos' ? 8 : 15).map(i => `- ${esc(i.labelTipo || i.tipo)}: ${esc(i.codigo ? `[${i.codigo}] ` : '')}${esc(i.desc || '-') } | ${statusVerdadeiroItem(o, i)}`);
+        const extra = Math.max(0, relevantes.length - amostra.length);
+        const cabQtd = modo === 'servico' ? `Serviços localizados: ${servicos.length}` : modo === 'peca' ? `Peças localizadas: ${pecas.length}` : `Serviços: ${servicos.length} | Peças: ${pecas.length}`;
+        return `${resumoOS(ctx, o, Object.assign({}, opts, { comDiagnostico:false, comValores:false }))}<br>${cabQtd}${amostra.length ? `<br>${amostra.join('<br>')}` : `<br>Nenhum ${modo === 'servico' ? 'serviço' : modo === 'peca' ? 'item de peça' : 'item'} aprovado/executado identificado.`}${extra ? `<br><small>+ ${extra} item(ns).</small>` : ''}`;
+      });
+      const titulo = modo === 'servico' ? `Serviços realizados/localizados na placa ${esc(placa)}` : modo === 'peca' ? `Peças aplicadas/localizadas na placa ${esc(placa)}` : `Resumo de serviços da placa ${esc(placa)}`;
+      return `<strong>${titulo}:</strong><br>${blocos.join('<br><br>')}`;
+    }
+
+    const termos = termosItemPergunta(texto, placa);
+    if (!termos.length) return null;
+    const encontrados = [];
+    osOrdenadas.forEach(o => {
+      itensOrcamentoOS(ctx, o).forEach(item => {
+        if (itemCombinaTermos(item, termos)) encontrados.push({ o, item });
+      });
+    });
+    const descricaoBusca = termos.join(' ');
+    if (!encontrados.length) {
+      return `Não encontrei ${esc(descricaoBusca)} nas O.S. carregadas da placa ${esc(placa)}. Portanto, não há dado comprovado de troca/instalação desse item.`;
+    }
+    const linhas = encontrados.slice(0, 8).map(({o,item}) => {
+      return `- O.S. #${esc(String(o.numero || o.id || '').slice(-6).toUpperCase())} | ${esc(dataBR(o.data || o.createdAt))} | ${esc(item.codigo ? `[${item.codigo}] ` : '')}${esc(item.desc || '-')} | ${statusVerdadeiroItem(o, item)}`;
+    });
+    const confirmados = encontrados.filter(x => x.item.executado).length;
+    const legados = encontrados.filter(x => x.item.legadoFinalizado).length;
+    const conclusao = confirmados
+      ? `Sim. Há ${confirmados} registro(s) com execução confirmada.`
+      : legados
+        ? `O item consta em O.S. finalizada, mas sem confirmação individual de execução. Não é correto afirmar troca comprovada.`
+        : `O item consta, porém não há execução confirmada.`;
+    return `<strong>${esc(conclusao)}</strong><br>${linhas.join('<br>')}`;
+  }
+
+  function extrairTermoPecaUso(texto) {
+    const bruto = String(texto || '').toUpperCase();
+    const mCodigo = bruto.match(/\b(?:PE[CÇ]A|CODIGO|CÓDIGO|ITEM|REF(?:ERENCIA)?)\s+([A-Z0-9][A-Z0-9./-]{2,18})\b/);
+    if (mCodigo) return mCodigo[1];
+    const tokens = bruto.match(/[A-Z0-9][A-Z0-9./-]{2,18}/g) || [];
+    const stop = new Set(['QUAL','VEICULO','VEÍCULO','PECA','PEÇA','ITEM','FOI','ONDE','USADA','USADO','INSTALADA','INSTALADO','APLICADA','APLICADO','TROCADA','TROCADO','CODIGO','CÓDIGO']);
+    return tokens.reverse().find(t => !stop.has(t) && /\d/.test(t)) || '';
+  }
+
+  function responderOndePecaFoiUsada(texto, q, ctx) {
+    const perguntaUso = /(?:em qual|qual veiculo|qual veículo|onde).*(?:peca|peça|codigo|código|item)|(?:peca|peça|codigo|código|item).*(?:em qual|qual veiculo|qual veículo|onde)/.test(q)
+      && /instal|usad|aplic|troc|coloc|baixad/.test(q);
+    if (!perguntaUso) return null;
+    const termo = extrairTermoPecaUso(texto);
+    if (!termo) return 'Informe o código ou a descrição exata da peça que deseja rastrear.';
+    const alvo = norm(termo);
+    const alvoCompacto = alvo.replace(/[^a-z0-9]/g, '');
+    const achados = [];
+    ctx.os.forEach(o => {
+      itensOrcamentoOS(ctx, o).forEach(item => {
+        const hay = norm([item.codigo, item.codigoInterno, item.codigoTabela, item.desc].join(' '));
+        const hc = hay.replace(/[^a-z0-9]/g, '');
+        if (hay.includes(alvo) || hc.includes(alvoCompacto)) achados.push({ o, item });
+      });
+    });
+    if (!achados.length) {
+      const vinculos = ctx.vinculos.filter(v => norm([v.codigo,v.codigoFornecedor,v.codigoComercial,v.desc,v.descricao].join(' ')).replace(/[^a-z0-9]/g, '').includes(alvoCompacto));
+      if (!vinculos.length) return `Não encontrei a peça ${esc(termo)} vinculada a veículo ou O.S. nos dados carregados.`;
+      return `<strong>Vínculos localizados para ${esc(termo)}:</strong><br>${vinculos.slice(0,10).map(v => `- placa ${esc(v.placa || '-')} | O.S. ${esc(v.osNumero || v.osId || '-')} | ${esc(v.codigo || v.codigoFornecedor || '')} ${esc(v.desc || v.descricao || '')}`).join('<br>')}`;
+    }
+    const linhas = achados.slice(0, 12).map(({o,item}) => {
+      const v = veiculoDeOS(ctx, o);
+      return `- ${esc(placaOS(ctx,o) || '-')} | ${esc(v.modelo || o.veiculo || '-')} | O.S. #${esc(String(o.numero || o.id || '').slice(-6).toUpperCase())} | ${esc(item.codigo ? `[${item.codigo}] ` : '')}${esc(item.desc || '-')} | ${statusVerdadeiroItem(o,item)}`;
+    });
+    const confirmados = achados.filter(x => x.item.executado).length;
+    return `<strong>Uso da peça ${esc(termo)}:</strong><br>${linhas.join('<br>')}<br><small>${confirmados ? `${confirmados} ocorrência(s) com execução confirmada.` : 'Nenhuma ocorrência possui execução individual confirmada; os registros acima distinguem item finalizado legado, aprovado ou apenas orçado.'}</small>`;
+  }
+
   function normalizeBrainJson(raw, fallback) {
     let obj = raw;
     if (typeof raw === 'string') {
@@ -1061,22 +1335,51 @@
     }
   }
 
+  function combinarCerebrosGlobais(base, adicional) {
+    const a = base ? normalizeBrainJson(base, { escopo: 'global' }) : normalizeBrainJson({}, { escopo: 'global' });
+    const b = adicional ? normalizeBrainJson(adicional, { escopo: 'global' }) : null;
+    if (!b) return a;
+    return normalizeBrainJson({
+      versao: Math.max(Number(a.versao || 1), Number(b.versao || 1)),
+      escopo: 'global',
+      comportamento: Object.assign({}, a.comportamento || {}, b.comportamento || {}),
+      contexto: [a.contexto, b.contexto].filter(Boolean).join('\n'),
+      catalogos: [a.catalogos, b.catalogos].filter(Boolean).join('\n'),
+      erros: [a.erros, b.erros].filter(Boolean).join('\n'),
+      regras: [...asArray(a.regras), ...asArray(b.regras)],
+      procedimentos: [...asArray(a.procedimentos), ...asArray(b.procedimentos)],
+      diagnosticos: [...asArray(a.diagnosticos), ...asArray(b.diagnosticos)],
+      conhecimento: [...asArray(a.conhecimento), ...asArray(b.conhecimento)],
+      fontes: [...asArray(a.fontes), ...asArray(b.fontes)],
+      pendenciasConhecimento: [...asArray(a.pendenciasConhecimento), ...asArray(b.pendenciasConhecimento)],
+      duvidasResolvidas: [...asArray(a.duvidasResolvidas), ...asArray(b.duvidasResolvidas)],
+      conflitosConhecimento: [...asArray(a.conflitosConhecimento), ...asArray(b.conflitosConhecimento)]
+    }, { escopo: 'global' });
+  }
+
   async function carregarCerebroGlobal() {
     if (W._thiaCerebroGlobalCarregado) return brainGlobal();
     W._thiaCerebroGlobalCarregado = true;
+    let embarcado = null;
+    let central = null;
+    try {
+      const resp = await fetch('data/ia-base-global.json?v=19.0.0', { cache: 'no-store' });
+      if (resp.ok) embarcado = await resp.json();
+    } catch (e) {
+      console.warn('[thIAguinho IA] base global embarcada nao carregada:', e.message || e);
+    }
     try {
       const cdb = typeof W.initCentralFirebase === 'function' ? W.initCentralFirebase() : null;
-      if (!cdb) return brainGlobal();
-      const doc = await cdb.collection('cerebros_ia').doc('global').get();
-      if (doc.exists) {
-        const data = normalizeBrainJson(doc.data(), { escopo: 'global' });
-        sessionStorage.setItem('thia_cerebro_global', JSON.stringify(data));
-        return data;
+      if (cdb) {
+        const doc = await cdb.collection('cerebros_ia').doc('global').get();
+        if (doc.exists) central = doc.data();
       }
     } catch (e) {
-      console.warn('[thIAguinho IA] cerebro global nao carregado:', e.message || e);
+      console.warn('[thIAguinho IA] complemento global do Superadmin nao carregado:', e.message || e);
     }
-    return brainGlobal();
+    const data = combinarCerebrosGlobais(embarcado, central);
+    try { sessionStorage.setItem('thia_cerebro_global', JSON.stringify(data)); } catch (_) {}
+    return data;
   }
 
   function juntarBrain() {
@@ -1140,9 +1443,18 @@
     return achados;
   }
 
+  function pareceConsultaCatalogo(texto) {
+    const q = norm(texto);
+    const codigoFabricante = /\b(ds|dni|dpl|brk|aje|jurid|nytron|ranalle|wahler|ete)[-./ ]?\d{3,}\b/.test(q);
+    const documental = /catalog|aplic|equival|referencia|codigo|rainha|aje|wahler|dni|nytron|ranalle|dpl|forcecar|brk|brasilkits|jurid|ds automotive/.test(q);
+    const pecaComAplicacao = /(sensor|valvula|bico|pastilha|sapata|tensor|polia|diafragma|bomba|terminal|bucha|rolamento|correia|filtro|chicote|interruptor|tomada|conector|plug|soquete|bobina|ignicao|medidor|boia|flange)/.test(q)
+      && /(\b(?:19|20)\d{2}\b|\b1[.,][034568]\b|celta|palio|corsa|gol|uno|fiat|gm|chevrolet|ford|volkswagen|renault|toyota|honda)/.test(q);
+    return codigoFabricante || documental || pecaComAplicacao;
+  }
+
   function buscarNosCatalogos(q) {
     try {
-      return typeof W.thiaCatalogosBuscar === 'function' ? (W.thiaCatalogosBuscar(q, 8) || []) : [];
+      return typeof W.thiaCatalogosBuscar === 'function' ? (W.thiaCatalogosBuscar(q, 6) || []) : [];
     } catch (e) {
       console.warn('[thIAguinho IA] busca em catálogos:', e?.message || e);
       return [];
@@ -1152,8 +1464,9 @@
   function respostaCatalogos(q) {
     const hits = buscarNosCatalogos(q);
     if (!hits.length) return '';
-    if (typeof W.thiaCatalogosFormatar === 'function') return W.thiaCatalogosFormatar(hits);
-    return `<strong>Catálogos técnicos:</strong><br>${hits.map(h => `- ${esc(h.fonte)} • página ${esc(h.pagina)}: ${esc(h.texto)}`).join('<br>')}`;
+    if (typeof W.thiaCatalogosFormatar === 'function') return W.thiaCatalogosFormatar(hits, q);
+    const h = hits[0];
+    return `<strong>${esc(h.fonte)}:</strong> ${esc(h.texto).slice(0, 320)}<br><small>Fonte: ${esc(h.pdf || '')}, página ${esc(h.pagina)}.</small>`;
   }
 
   function aplicarComportamento(html) {
@@ -1200,10 +1513,23 @@
     const respostaOSOperacional = responderVeiculosOSOperacional(texto, q, ctx, opts);
     if (respostaOSOperacional) return aplicarComportamento(respostaOSOperacional);
 
+    const usoPeca = responderOndePecaFoiUsada(texto, q, ctx);
+    if (usoPeca) return aplicarComportamento(usoPeca);
+
+    // Códigos e aplicações documentais têm prioridade sobre qualquer padrão parecido com placa.
+    const consultaDocumentalPrioritaria = pareceConsultaCatalogo(texto)
+      && !/estoque critico|estoque minimo|saldo.*estoque/.test(q);
+    if (consultaDocumentalPrioritaria) {
+      const documental = respostaCatalogos(texto);
+      if (documental) return aplicarComportamento(documental);
+    }
+
     const placa = extrairPlaca(texto);
     if (placa) {
       const lista = osMatchesPlaca(ctx, placa).sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
       if (!lista.length) return `Nao encontrei O.S. carregada para a placa ${esc(placa)}. Confirme se a placa esta correta ou se os dados ja sincronizaram.`;
+      const itemEspecifico = responderItemEspecificoDaPlaca(texto, q, ctx, opts, placa, lista);
+      if (itemEspecifico) return aplicarComportamento(itemEspecifico);
       if (/histor|defeit|problema|resolvid|garantia|ja.*fez|troco|trocad|diagnost/.test(q)) {
         const linhas = lista.slice(0, 8).map(o => resumoOS(ctx, o, opts) + linhasExecucao(o));
         return aplicarComportamento(`<strong>Historico da placa ${esc(placa)}:</strong><br>${linhas.join('<br><br>')}`);
@@ -1214,7 +1540,7 @@
     // Perguntas explicitamente documentais consultam primeiro os PDFs. Assim,
     // termos como "aplicação", um código de peça ou o nome do fabricante não
     // são confundidos com histórico de diagnóstico da oficina.
-    const querCatalogo = /catalog|aplic|equival|referencia|codigo|rainha|aje|wahler|dni|nytron|ranalle|dpl|forcecar|brk|brasilkits|jurid|ds automotive/.test(q)
+    const querCatalogo = pareceConsultaCatalogo(texto)
       && !/estoque critico|estoque minimo|saldo.*estoque/.test(q);
     if (querCatalogo) {
       const documental = respostaCatalogos(texto);
@@ -1253,7 +1579,9 @@
       const crit = ctx.estoque.filter(p => num(p.qtd) <= num(p.min || p.minimo || 0));
       if (/critico|minimo|baixo|comprar/.test(q)) {
         if (!crit.length) return 'Nao ha peca abaixo do minimo nos dados carregados.';
-        return `<strong>Estoque critico:</strong><br>${crit.slice(0, 25).map(p => `- ${esc(p.codigo ? '[' + p.codigo + '] ' : '')}${esc(p.desc || p.descricao || 'Peca')} | saldo ${esc(p.qtd || 0)} | minimo ${esc(p.min || p.minimo || 0)}`).join('<br>')}`;
+        const exibidos = crit.slice(0, 10);
+        const restantes = Math.max(0, crit.length - exibidos.length);
+        return `<strong>Estoque cr&iacute;tico (${crit.length}):</strong><br>${exibidos.map(p => `- ${esc(p.codigo ? '[' + p.codigo + '] ' : '')}${esc(p.desc || p.descricao || 'Pe&ccedil;a')} | saldo ${esc(p.qtd || 0)} | m&iacute;nimo ${esc(p.min || p.minimo || 0)}`).join('<br>')}${restantes ? `<br><small>+ ${restantes} item(ns). Pe&ccedil;a &quot;listar estoque cr&iacute;tico completo&quot; para ver todos.</small>` : ''}`;
       }
       const termos = q.split(/\s+/).filter(t => t.length >= 4);
       const achados = ctx.estoque.filter(p => termos.some(t => norm([p.codigo, p.desc, p.descricao, p.oem, p.ean].join(' ')).includes(t))).slice(0, 20);
@@ -1295,13 +1623,13 @@
         ];
         const prioridades = [...vencidos, ...hojeLista, ...pixParcelado, ...pendentes]
           .filter((f, i, arr) => arr.findIndex(x => (x.id || x.desc || x.descricao) === (f.id || f.desc || f.descricao)) === i)
-          .slice(0, 20);
+          .slice(0, 5);
         if (prioridades.length) linhas.push('<br><strong>Prioridades:</strong><br>' + prioridades.map(f => `- ${esc(f.venc || f.vencimento || '-')} | ${esc(f.desc || f.descricao || 'Lancamento')} | ${moeda(f.valor)} | ${esc(f.status || '-')}`).join('<br>'));
         return linhas.join('<br>');
       }
       if (!lista.length) return 'Nao encontrei lancamento financeiro para essa pergunta nos dados carregados.';
       const total = lista.reduce((s, f) => s + num(f.valor), 0);
-      return `<strong>Financeiro localizado (${lista.length}):</strong><br>${lista.slice(0, 25).map(f => `- ${esc(f.venc || f.vencimento || '-')} | ${esc(f.desc || f.descricao || 'Lancamento')} | ${moeda(f.valor)} | ${esc(f.status || '-')}`).join('<br>')}<br><br><strong>Total:</strong> ${moeda(total)}`;
+      return `<strong>Financeiro localizado (${lista.length}):</strong><br>${lista.slice(0, 10).map(f => `- ${esc(f.venc || f.vencimento || '-')} | ${esc(f.desc || f.descricao || 'Lancamento')} | ${moeda(f.valor)} | ${esc(f.status || '-')}`).join('<br>')}<br><br><strong>Total:</strong> ${moeda(total)}`;
     }
 
     if (/equipe|mecanico|mecanicos|funcionario|responsavel/.test(q)) {
@@ -1377,16 +1705,24 @@
     if (!msg) return;
     input.value = '';
     addUser(msg);
-    const consultaCatalogo = /catalog|aplic|equival|codigo|peca|autopeca|rainha|aje|wahler|dni|nytron|ranalle|dpl|brk|jurid|sensor|valvula|bico|pastilha|sapata|tensor|polia|diafragma|bomba/.test(norm(msg));
+    const consultaCatalogo = pareceConsultaCatalogo(msg);
     const lid = addBot(`<span class="j-spinner"></span> ${consultaCatalogo ? 'Consultando dados internos e catálogos técnicos...' : 'Consultando dados internos...'}`);
-    try { await carregarCerebroGlobal(); } catch (_) {}
-    if (consultaCatalogo && typeof W.thiaCatalogosPrepararPergunta === 'function') {
-      try { await W.thiaCatalogosPrepararPergunta(msg); } catch (_) {}
-    }
-    const resp = thiaResponderLocal(msg, { perfil });
+    const resp = await thiaResponderLocalAsync(msg, { perfil });
     W.iaHistorico.push({ role: 'user', text: msg });
     W.iaHistorico.push({ role: 'model', text: String(resp).replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '') });
     replaceBot(lid, resp);
+  }
+
+  async function thiaResponderLocalAsync(pergunta, opts) {
+    const msg = String(pergunta || '').trim();
+    if (!msg) return '';
+    try { await carregarCerebroGlobal(); } catch (_) {}
+    if (pareceConsultaCatalogo(msg) && typeof W.thiaCatalogosPrepararPergunta === 'function') {
+      try { await W.thiaCatalogosPrepararPergunta(msg); } catch (e) {
+        console.warn('[thIAguinho IA] falha ao preparar catálogos:', e?.message || e);
+      }
+    }
+    return thiaResponderLocal(msg, opts);
   }
 
   function setPromptAndAsk(txt, perfil) {
@@ -1399,6 +1735,8 @@
   W.thiaNormalizeBrainJson = normalizeBrainJson;
   W.thiaCarregarCerebroGlobal = carregarCerebroGlobal;
   W.thiaResponderLocal = thiaResponderLocal;
+  W.thiaResponderLocalAsync = thiaResponderLocalAsync;
+  W.thiaPareceConsultaCatalogo = pareceConsultaCatalogo;
   W.thiaIAAsk = thiaIAAsk;
   W.thiaResponderPendenciaConhecimento = async function (pergunta, resposta) {
     const J = getJ();
@@ -1471,6 +1809,5 @@
         }
       });
     }
-    carregarCerebroGlobal();
   });
 })();

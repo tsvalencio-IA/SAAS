@@ -143,10 +143,55 @@ window.getActiveFirebaseConfig = function() {
   return _tenantFirebaseConfig() || window.JARVIS_FB_CONFIG;
 };
 
+const _thiaFirestoreConfigured = new Set();
+const _thiaFirestorePersistence = new Map();
+
+window.thiaConfigurarPersistenciaFirestore = function(db) {
+  if (!db) return Promise.resolve(false);
+  const appName = String(db.app?.name || '[DEFAULT]');
+  if (_thiaFirestorePersistence.has(appName)) return _thiaFirestorePersistence.get(appName);
+
+  try {
+    if (!_thiaFirestoreConfigured.has(appName) && typeof db.settings === 'function') {
+      const settings = { experimentalAutoDetectLongPolling: true };
+      if (window.firebase?.firestore?.CACHE_SIZE_UNLIMITED) {
+        settings.cacheSizeBytes = window.firebase.firestore.CACHE_SIZE_UNLIMITED;
+      }
+      db.settings(settings);
+      _thiaFirestoreConfigured.add(appName);
+    }
+  } catch (e) {
+    if (!/already been started|settings can no longer be changed/i.test(String(e?.message || e))) {
+      console.warn('[Firestore config]', e?.message || e);
+    }
+  }
+
+  const task = (async () => {
+    if (typeof db.enablePersistence !== 'function') return false;
+    try {
+      await db.enablePersistence({ synchronizeTabs: true });
+      return true;
+    } catch (err) {
+      const code = String(err?.code || '');
+      if (!/failed-precondition|unimplemented/i.test(code)) {
+        console.warn('[Firestore persistence]', err?.message || err);
+      }
+      return false;
+    }
+  })();
+  _thiaFirestorePersistence.set(appName, task);
+  return task;
+};
+
+function _thiaPrepararFirestore(db) {
+  try { window.thiaConfigurarPersistenciaFirestore(db); } catch (_) {}
+  return db;
+}
+
 window.initCentralFirebase = function() {
   let app = firebase.apps.find(a => a.name === '[DEFAULT]');
   if (!app) app = firebase.initializeApp(window.JARVIS_FB_CONFIG);
-  return app.firestore();
+  return _thiaPrepararFirestore(app.firestore());
 };
 
 window.initFirebase = function() {
@@ -155,10 +200,10 @@ window.initFirebase = function() {
     const appName = 'tenant-' + String(tenantCfg.projectId).replace(/[^a-z0-9-]/gi, '-');
     let app = firebase.apps.find(a => a.name === appName);
     if (!app) app = firebase.initializeApp(tenantCfg, appName);
-    return app.firestore();
+    return _thiaPrepararFirestore(app.firestore());
   }
   if (!firebase.apps.length) firebase.initializeApp(window.JARVIS_FB_CONFIG);
-  return firebase.firestore();
+  return _thiaPrepararFirestore(firebase.firestore());
 };
 
 // Helper de Cores

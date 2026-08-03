@@ -181,11 +181,59 @@
     return +U.parseNumberBR(value).toFixed(2);
   };
 
+  // V22: desconto individual de cada peça/serviço é armazenado em REAIS.
+  // Mantém leitura compatível com a V21, que gravava o desconto individual como percentual.
+  U.getItemIndividualDiscountValue = function(item, bruto) {
+    const base = Math.max(0, U.parseNumberBR(bruto || 0));
+    const temValorExplicito = item && (
+      item.descontoIndividualTipo === 'valor' ||
+      item.descontoIndividualValor != null ||
+      item.descIndividualValor != null ||
+      item.descontoValorItem != null ||
+      item.descValorItem != null
+    );
+    if (temValorExplicito) {
+      const valor = U.parseNumberBR(
+        item.descontoIndividualValor ?? item.descIndividualValor ?? item.descontoValorItem ?? item.descValorItem ?? item.descontoIndividual ?? 0
+      );
+      return U.roundMoney(Math.min(base, Math.max(0, valor)));
+    }
+    const taxaLegada = U.parseDiscountRate(
+      item?.descIndividualPct ?? item?.descIndividual ?? item?.descontoIndividual ?? item?.descontoItem ?? item?.descItem ?? 0
+    );
+    return U.roundMoney(Math.min(base, Math.max(0, base * taxaLegada)));
+  };
+
+  U.calculateDiscountBreakdown = function(bruto, descontoGeralTaxa, descontoIndividualValor) {
+    const original = U.roundMoney(Math.max(0, U.parseNumberBR(bruto || 0)));
+    const taxaGeral = Math.min(1, Math.max(0, U.parseDiscountRate(descontoGeralTaxa || 0)));
+    const descontoGeralValor = U.roundMoney(original * taxaGeral);
+    const aposGeral = U.roundMoney(Math.max(0, original - descontoGeralValor));
+    const descontoIndividualAplicado = U.roundMoney(Math.min(aposGeral, Math.max(0, U.parseNumberBR(descontoIndividualValor || 0))));
+    const descontoValor = U.roundMoney(descontoGeralValor + descontoIndividualAplicado);
+    const valorFinal = U.roundMoney(Math.max(0, original - descontoValor));
+    const descPct = original > 0 ? +(descontoValor / original).toFixed(6) : 0;
+    return {
+      valorOriginal: original,
+      valorBruto: original,
+      bruto: original,
+      descontoGeralPct: taxaGeral,
+      descGeralPct: taxaGeral,
+      descontoGeralValor,
+      descontoIndividualValor: descontoIndividualAplicado,
+      descIndividualValor: descontoIndividualAplicado,
+      descontoValor,
+      descPct,
+      valorFinal,
+      total: valorFinal
+    };
+  };
+
   U.calcularServicoMaoObra = function(servico, cliente, options) {
     const opts = options || {};
     const tempo = U.parseNumberBR(servico?.tempo || 0);
     const valorInformado = U.parseNumberBR(servico?.valor || servico?.valorBruto || 0);
-    const descMO = opts.descMO != null
+    const descMOGeral = opts.descMO != null
       ? U.parseDiscountRate(opts.descMO)
       : U.getDescontosCliente(cliente, opts.os || {}).descMO;
     const resolvido = U.resolvePMSPServico(servico, {
@@ -225,15 +273,15 @@
       (opts.usarHoraQuandoDisponivel === true && temHoraExplicita && !valorManualTotal)
     );
     const bruto = usaCalculoHora ? U.roundMoney(tempo * valorHora) : U.roundMoney(valorInformado);
-    const valorFinal = U.roundMoney(bruto * (1 - descMO));
+    const descontoIndividualValor = U.getItemIndividualDiscountValue(servico, bruto);
+    const descontos = U.calculateDiscountBreakdown(bruto, descMOGeral, descontoIndividualValor);
     return {
       tempo,
       valorHora,
       valorHoraTabela: U.parseNumberBR(resolvido.valorHoraTabela || servico?.valorHoraTabela || 0),
-      bruto,
-      valorBruto: bruto,
-      valorFinal,
-      descPct: descMO,
+      ...descontos,
+      descIndividualPct: bruto > 0 ? +(descontos.descontoIndividualValor / bruto).toFixed(6) : 0,
+      descontoIndividualTipo: 'valor',
       usaCalculoHora,
       resolvido
     };
@@ -247,6 +295,214 @@
 
   U.getVehicle = function(os, veiculos) {
     return (veiculos || []).find(v => v.id === os?.veiculoId) || {};
+  };
+
+  // V22.4.0 — Blindagem de peças reais vinculadas por NF.
+  // Esses registros continuam preservados na O.S. para auditoria interna, porém
+  // nunca podem compor orçamento/PDF/planilha/portal de cliente oficial.
+  U.isProtectedRealPart = function(peca) {
+    if (!peca || typeof peca !== 'object') return false;
+    const origem = U.normalizeText(peca.origem || '').replace(/\s+/g, '_');
+    const status = U.normalizeText(peca.statusAplicacao || '').replace(/\s+/g, '_');
+    const chaveNF = String(peca.origemNFItemKey || '').trim();
+    const referenciaNF = String(peca.nfId || peca.nf || peca.nfNumero || peca.numeroNF || '').trim();
+    return peca.origemNFVinculada === true ||
+      origem === 'nf_entrada_os' ||
+      origem === 'nf_entrada' ||
+      status === 'comprada_vinculada_nf' ||
+      (!!chaveNF && (!!referenciaNF || origem.includes('nf_entrada')));
+  };
+
+  U.isOfficialClient = function(os, cliente) {
+    const o = os || {};
+    const c = cliente || {};
+    const normalizar = value => String(value || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const nome = normalizar(c.nome || c.razaoSocial || c.govUnidade || o.clienteNome || o.cliente || '');
+    if (!nome || nome === 'CONSUMIDOR') return false;
+    const tipo = String(c.tipoCliente || o.tipoCliente || o.clienteTipo || '').toLowerCase();
+    if (tipo === 'governo' || tipo === 'oficial') return true;
+    const indicadores = [
+      nome,
+      c.clienteOficial === true ? 'OFICIAL' : '',
+      c.orgaoPublico === true ? 'ORGAO PUBLICO' : '',
+      c.publico === true ? 'PUBLICO' : '',
+      c.gov === true ? 'GOVERNO' : '',
+      c.tipoCliente,
+      c.govUnidade,
+      o.clienteOficial === true ? 'OFICIAL' : '',
+      o.orgaoPublico === true ? 'ORGAO PUBLICO' : '',
+      o.gov === true ? 'GOVERNO' : '',
+      o.tipoCliente,
+      o.clienteTipo,
+      o.fiscalContrato,
+      o.contrato,
+      o.orgao,
+      o.unidade
+    ].filter(Boolean).join('|').toUpperCase();
+    return /OFICIAL|GOVERNO|PMSP|POLICIA|POLÍCIA|MILITAR|BPM|PREFEITURA|ESTADO|MUNICIP|SECRETARIA|ORGAO PUBLICO/.test(indicadores);
+  };
+
+  // V22.4.1 — também reconhece registros antigos que perderam os metadados
+  // de origem ao serem reabertos/salvos como peça avulsa de cliente oficial.
+  // A identificação exige correspondência forte com pecasReais e com o custo
+  // real da NF; assim uma peça comercial legítima, com valor de orçamento
+  // diferente, permanece normalmente na O.S.
+  function normalizarCodigoPecaReal(value) {
+    return String(value == null ? '' : value)
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+
+  function normalizarDescricaoPecaReal(value) {
+    return String(value == null ? '' : value)
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+  }
+
+  function codigoFortePecaReal(value) {
+    const codigo = normalizarCodigoPecaReal(value);
+    if (!codigo || codigo.length < 3) return '';
+    if (/^(SEMOEM|SEM|OEM|NI|NA|SN|SNCODIGO|NAOINFORMADO|000+)$/.test(codigo)) return '';
+    return codigo;
+  }
+
+  function codigosPecaReal(item) {
+    return Array.from(new Set([
+      item?.codigo,
+      item?.cod,
+      item?.codigoExibicao,
+      item?.codigoComercial,
+      item?.codigoFornecedor,
+      item?.oem,
+      item?.codigoOEM,
+      item?.partNumber,
+      item?.numeroPeca
+    ].map(codigoFortePecaReal).filter(Boolean)));
+  }
+
+  function descricaoPecaReal(item) {
+    return normalizarDescricaoPecaReal(
+      item?.desc || item?.descricao || item?.descricaoExibicao || item?.descLivre ||
+      item?.descricaoPeca || item?.nomePeca || item?.nome || item?.item || ''
+    );
+  }
+
+  function quantidadePecaReal(item) {
+    return U.parseNumberBR(item?.qtd ?? item?.q ?? item?.quantidadeOperacionalTotal ?? item?.quantidadeFiscal ?? item?.quantidade ?? 1) || 1;
+  }
+
+  function valoresUnitariosPecaOrcamento(item) {
+    return Array.from(new Set([
+      item?.venda,
+      item?.valor,
+      item?.v,
+      item?.valorUnit,
+      item?.valorUnitario,
+      item?.custo,
+      item?.c
+    ].map(U.parseNumberBR).filter(v => v > 0).map(v => +v.toFixed(4))));
+  }
+
+  function custosUnitariosPecaReal(item) {
+    const qtd = quantidadePecaReal(item);
+    const total = U.parseNumberBR(item?.totalCompra ?? item?.valorTotal ?? item?.total ?? 0);
+    const valores = [
+      item?.valorCompra,
+      item?.custo,
+      item?.valorUnitarioFiscal,
+      item?.valorUnitario,
+      item?.custoUnitario,
+      item?.precoCompra,
+      item?.valor
+    ].map(U.parseNumberBR).filter(v => v > 0);
+    if (total > 0 && qtd > 0) valores.push(total / qtd);
+    return Array.from(new Set(valores.map(v => +v.toFixed(4))));
+  }
+
+  function valoresCoincidemPecaReal(peca, real) {
+    const publicos = valoresUnitariosPecaOrcamento(peca);
+    const custos = custosUnitariosPecaReal(real);
+    return publicos.some(v => custos.some(c => Math.abs(v - c) <= Math.max(0.03, Math.abs(c) * 0.0005)));
+  }
+
+  function descricoesCoincidemPecaReal(peca, real) {
+    const a = descricaoPecaReal(peca);
+    const b = descricaoPecaReal(real);
+    if (!a || !b) return false;
+    if (a === b) return true;
+    if (a.length < 12 || b.length < 12) return false;
+    const menor = a.length <= b.length ? a : b;
+    const maior = a.length > b.length ? a : b;
+    return menor.length >= 16 && maior.includes(menor);
+  }
+
+  function referenciasNFCoincidemPecaReal(peca, real) {
+    const refsPeca = [peca?.nfId, peca?.nf, peca?.nfNumero, peca?.numeroNF]
+      .map(normalizarCodigoPecaReal).filter(Boolean);
+    const refsReal = [real?.nfId, real?.nf, real?.nfNumero, real?.numeroNF]
+      .map(normalizarCodigoPecaReal).filter(Boolean);
+    return refsPeca.some(ref => refsReal.includes(ref));
+  }
+
+  U.getRealParts = function(os) {
+    const listas = [
+      os?.pecasReais,
+      os?.pecasRealmenteTrocadas,
+      os?.itensReais
+    ];
+    const out = [];
+    const vistos = new Set();
+    listas.forEach(lista => (Array.isArray(lista) ? lista : []).forEach(real => {
+      if (!real || typeof real !== 'object') return;
+      const chave = normalizarCodigoPecaReal(real.origemNFItemKey || real.idReal || real.pecaRealId || '') ||
+        [codigosPecaReal(real)[0] || '', descricaoPecaReal(real), quantidadePecaReal(real), custosUnitariosPecaReal(real)[0] || 0].join('|');
+      if (chave && vistos.has(chave)) return;
+      if (chave) vistos.add(chave);
+      out.push(real);
+    }));
+    return out;
+  };
+
+  U.isBudgetPieceLinkedToRealPart = function(os, peca) {
+    if (!peca || typeof peca !== 'object') return false;
+    if (U.isProtectedRealPart(peca)) return true;
+
+    const reais = U.getRealParts(os);
+    if (!reais.length) return false;
+
+    const chavePeca = normalizarCodigoPecaReal(peca.origemNFItemKey || peca.idReal || peca.pecaRealId || '');
+    const codigosPeca = codigosPecaReal(peca);
+    const qtdPeca = quantidadePecaReal(peca);
+
+    return reais.some(real => {
+      const chaveReal = normalizarCodigoPecaReal(real.origemNFItemKey || real.idReal || real.pecaRealId || '');
+      if (chavePeca && chaveReal && chavePeca === chaveReal) return true;
+
+      const codigosReal = codigosPecaReal(real);
+      const codigoIgual = codigosPeca.some(codigo => codigosReal.includes(codigo));
+      const descricaoIgual = descricoesCoincidemPecaReal(peca, real);
+      const valorIgual = valoresCoincidemPecaReal(peca, real);
+      const qtdIgual = Math.abs(qtdPeca - quantidadePecaReal(real)) < 0.0001;
+      const nfIgual = referenciasNFCoincidemPecaReal(peca, real);
+
+      if (nfIgual && (codigoIgual || descricaoIgual)) return true;
+      if (codigoIgual && valorIgual && (descricaoIgual || qtdIgual)) return true;
+      if (descricaoIgual && valorIgual && qtdIgual) return true;
+      return false;
+    });
+  };
+
+  U.hasProtectedRealParts = function(os) {
+    return (os?.pecas || []).some(peca => U.isBudgetPieceLinkedToRealPart(os, peca));
+  };
+
+  U.getPublicBudgetPieces = function(os, cliente) {
+    const oficial = U.isOfficialClient(os, cliente);
+    return (os?.pecas || [])
+      .map((peca, index) => ({ peca, index }))
+      .filter(item => !oficial || !U.isBudgetPieceLinkedToRealPart(os, item.peca));
   };
 
   U.buildBudgetItems = function(os, cliente) {
@@ -271,20 +527,36 @@
         mecNome: s.mecNome || s.mecanicoNome || s.responsavelNome || '',
         responsavelId: s.responsavelId || s.mecId || s.mecanicoId || '',
         responsavelNome: s.responsavelNome || s.mecNome || s.mecanicoNome || '',
+        rateiosComissao: Array.isArray(s.rateiosComissao) ? s.rateiosComissao.map(r => ({
+          mecId: String(r?.mecId || r?.id || '').trim(),
+          mecNome: r?.mecNome || r?.nome || '',
+          valorBase: U.roundMoney(Math.max(0, U.parseNumberBR(r?.valorBase ?? r?.valorDividido ?? r?.baseComissao ?? 0)))
+        })).filter(r => r.mecId) : [],
         tempo: calc.tempo,
         qtd,
         valorUnit,
         valorHora: calc.valorHora,
+        valorOriginal: bruto,
         valorBruto: bruto,
+        descontoGeralValor: calc.descontoGeralValor || 0,
+        descontoIndividualValor: calc.descontoIndividualValor || 0,
+        descontoValor: calc.descontoValor || Math.max(0, bruto - final),
         valorFinal: final,
+        descGeralPct: calc.descGeralPct || 0,
+        descIndividualPct: calc.descIndividualPct || 0,
+        descIndividualValor: calc.descontoIndividualValor || 0,
+        descontoIndividualTipo: 'valor',
+        descPct: calc.descPct || 0,
         usaCalculoHora: calc.usaCalculoHora
       };
     });
-    const pecas = (os?.pecas || []).map((p, index) => {
+    const pecas = U.getPublicBudgetPieces(os, cliente).map(({ peca: p, index }) => {
       const qtd = U.parseNumberBR(p.qtd || p.q || 1) || 1;
       const valorUnit = U.parseNumberBR(p.venda || p.valor || p.v);
       const bruto = +(qtd * valorUnit).toFixed(2);
-      const final = +(bruto * (1 - descontos.descPeca)).toFixed(2);
+      const descontoIndividualValor = U.getItemIndividualDiscountValue(p, bruto);
+      const calcDesconto = U.calculateDiscountBreakdown(bruto, descontos.descPeca, descontoIndividualValor);
+      const final = calcDesconto.valorFinal;
       return {
         key: 'peca-' + index,
         tipo: 'peca',
@@ -296,8 +568,17 @@
         tempo: 0,
         qtd,
         valorUnit,
+        valorOriginal: bruto,
         valorBruto: bruto,
-        valorFinal: final
+        descontoGeralValor: calcDesconto.descontoGeralValor,
+        descontoIndividualValor: calcDesconto.descontoIndividualValor,
+        descIndividualValor: calcDesconto.descontoIndividualValor,
+        descontoIndividualTipo: 'valor',
+        descontoValor: calcDesconto.descontoValor,
+        valorFinal: final,
+        descGeralPct: descontos.descPeca,
+        descIndividualPct: bruto > 0 ? +(calcDesconto.descontoIndividualValor / bruto).toFixed(6) : 0,
+        descPct: calcDesconto.descPct
       };
     });
     return servicos.concat(pecas).filter(it => it.desc || it.codigo || it.valorBruto > 0);
@@ -332,14 +613,24 @@
   };
 
   U.getValorOrcamento = function(os, cliente) {
-    const total = U.parseNumberBR(os?.total || 0);
-    if (total) return +total.toFixed(2);
+    const protegidoOficial = U.isOfficialClient(os, cliente) && U.hasProtectedRealParts(os);
+    if (!protegidoOficial) {
+      const total = U.parseNumberBR(os?.total || 0);
+      if (total) return +total.toFixed(2);
+    }
     const itens = U.buildBudgetItems(os, cliente);
-    return +itens.reduce((sum, item) => sum + U.parseNumberBR(item.valorFinal), 0).toFixed(2);
+    let totalSeguro = itens.reduce((sum, item) => sum + U.parseNumberBR(item.valorFinal), 0);
+    if (protegidoOficial) {
+      const guincho = os?.deslocamentoGuincho || os?.guincho || {};
+      const ativo = guincho.ativo === true || guincho.cobrar === true || U.parseNumberBR(os?.totalGuincho || guincho.total || 0) > 0;
+      if (ativo) totalSeguro += U.parseNumberBR(os?.totalGuincho || guincho.total || 0);
+    }
+    return +totalSeguro.toFixed(2);
   };
 
   U.getValorAprovado = function(os, cliente) {
-    if (os?.totalAprovado != null) return +U.parseNumberBR(os.totalAprovado).toFixed(2);
+    const protegidoOficial = U.isOfficialClient(os, cliente) && U.hasProtectedRealParts(os);
+    if (!protegidoOficial && os?.totalAprovado != null) return +U.parseNumberBR(os.totalAprovado).toFixed(2);
     if (!U.hasApproval(os)) return 0;
     const keys = U.getApprovedKeys(os);
     return +U.buildBudgetItems(os, cliente)

@@ -40,7 +40,334 @@ const taxaDescontoOS = value => {
   const v = numBR(value);
   return v > 1 ? +(v / 100).toFixed(6) : v;
 };
+
+function combinarDescontosOS(geral, individual) {
+  const g = Math.min(1, Math.max(0, taxaDescontoOS(geral || 0)));
+  const i = Math.min(1, Math.max(0, taxaDescontoOS(individual || 0)));
+  return +(1 - ((1 - g) * (1 - i))).toFixed(6);
+}
+
+function descontoIndividualLinhaOS(row, tipo) {
+  const seletor = tipo === 'servico' ? '.serv-desc-individual' : '.peca-desc-individual';
+  return Math.max(0, numBR(row?.querySelector?.(seletor)?.value || row?.dataset?.descontoIndividualValor || 0));
+}
+
+function descontoIndividualSalvoValorOS(item, bruto) {
+  if (OSU().getItemIndividualDiscountValue) return OSU().getItemIndividualDiscountValue(item || {}, bruto || 0);
+  const base = Math.max(0, numBR(bruto || 0));
+  if (item?.descontoIndividualTipo === 'valor' || item?.descontoIndividualValor != null || item?.descIndividualValor != null) {
+    return Math.min(base, Math.max(0, numBR(item.descontoIndividualValor ?? item.descIndividualValor ?? item.descontoIndividual ?? 0)));
+  }
+  const taxaLegada = taxaDescontoOS(item?.descIndividualPct ?? item?.descIndividual ?? item?.descontoIndividual ?? 0);
+  return +(base * taxaLegada).toFixed(2);
+}
+
+function calcularDescontosValorOS(bruto, taxaGeral, descontoIndividualValor) {
+  if (OSU().calculateDiscountBreakdown) return OSU().calculateDiscountBreakdown(bruto, taxaGeral, descontoIndividualValor);
+  const original = +Math.max(0, numBR(bruto || 0)).toFixed(2);
+  const geralPct = Math.min(1, Math.max(0, taxaDescontoOS(taxaGeral || 0)));
+  const descontoGeralValor = +(original * geralPct).toFixed(2);
+  const individual = +Math.min(Math.max(0, original - descontoGeralValor), Math.max(0, numBR(descontoIndividualValor || 0))).toFixed(2);
+  const descontoValor = +(descontoGeralValor + individual).toFixed(2);
+  const valorFinal = +Math.max(0, original - descontoValor).toFixed(2);
+  return { valorOriginal: original, valorBruto: original, bruto: original, descontoGeralValor, descontoIndividualValor: individual, descontoValor, valorFinal, total: valorFinal, descGeralPct: geralPct, descPct: original > 0 ? +(descontoValor/original).toFixed(6) : 0 };
+}
+
+function garantirEstilosOSV22() {
+  if (document.getElementById('os-v22-estilos')) return;
+  const style = document.createElement('style');
+  style.id = 'os-v22-estilos';
+  style.textContent = `
+    .desconto-individual-os-wrap{grid-column:1/-1;display:grid;grid-template-columns:minmax(150px,1fr) minmax(105px,130px) minmax(150px,1fr) minmax(105px,130px);gap:7px;align-items:center;width:100%;min-width:0;padding-top:4px;font-family:var(--fm);font-size:.58rem;color:var(--muted)}
+    .desconto-individual-os-wrap .j-input{width:100%!important;min-width:0;text-align:right;min-height:34px}
+    .desconto-individual-os-wrap .os-money-field{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px;align-items:center;min-width:0}
+    .serv-rateio-wrap{grid-column:1/-1;width:100%;min-width:0;border:1px solid rgba(0,212,255,.18);background:rgba(0,212,255,.035);border-radius:5px;padding:8px;box-sizing:border-box}
+    .serv-rateio-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+    .serv-rateio-list{display:grid;gap:6px;min-width:0}
+    .serv-rateio-row{display:grid;grid-template-columns:minmax(150px,1fr) minmax(120px,150px) 34px;gap:7px;align-items:center;min-width:0}
+    .serv-rateio-row .j-select,.serv-rateio-row .j-input{width:100%;min-width:0;max-width:100%;box-sizing:border-box}
+    .serv-rateio-help{font-family:var(--fm);font-size:.56rem;color:var(--muted);line-height:1.35}
+    .serv-terceirizado-wrap{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(145px,190px) minmax(250px,1fr);gap:7px;align-items:center;width:100%;min-width:0;border:1px solid rgba(255,184,0,.20);background:rgba(255,184,0,.035);border-radius:5px;padding:8px;box-sizing:border-box;font-family:var(--fm)}
+    .serv-terceirizado-wrap>label{font-size:.58rem;color:var(--muted);font-weight:700;letter-spacing:.35px;white-space:nowrap}
+    .serv-terceirizado-wrap .j-select,.serv-terceirizado-wrap .j-input{width:100%;min-width:0;max-width:100%;box-sizing:border-box}
+    .serv-terceirizado-campo{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px;align-items:center;min-width:0}
+    .serv-terceirizado-campo>label{font-size:.58rem;color:var(--warn);font-weight:700;letter-spacing:.35px;white-space:nowrap}
+    .serv-terceirizado-campo[hidden]{display:none!important}
+    .serv-terceirizado-status{grid-column:1/-1;font-size:.56rem;color:var(--muted);line-height:1.35}
+    @media(max-width:720px){
+      .desconto-individual-os-wrap{grid-template-columns:1fr;gap:4px}
+      .desconto-individual-os-wrap label{margin-top:3px}
+      .serv-rateio-row{grid-template-columns:1fr;gap:5px;border:1px solid rgba(255,255,255,.08);padding:7px;border-radius:4px}
+      .serv-rateio-row .serv-rateio-remove{width:100%!important;height:34px!important}
+      .serv-rateio-head button{width:100%}
+      .serv-terceirizado-wrap{grid-template-columns:1fr;gap:5px}
+      .serv-terceirizado-wrap>label,.serv-terceirizado-campo>label{white-space:normal;margin-top:2px}
+      .serv-terceirizado-campo{grid-template-columns:1fr;gap:4px}
+      #containerServicosOS>div,#containerPecasOS>div{max-width:100%;min-width:0;overflow:hidden;box-sizing:border-box}
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function atualizarDescontoServicoPorValorCobradoOS(input) {
+  const row = input?.closest?.('#containerServicosOS > div, .cilia-serv-relac');
+  if (!row) return;
+  const bruto = Math.max(0, numBR(row.querySelector('.serv-valor')?.value || 0));
+  const geral = Math.min(1, Math.max(0, taxaDescontoOS(descontoMaoObraAtualOS?.() || 0)));
+  const aposGeral = Math.max(0, +(bruto * (1 - geral)).toFixed(2));
+  const cobrado = Math.max(0, Math.min(aposGeral, numBR(input.value || 0)));
+  const descontoIndividual = Math.max(0, +(aposGeral - cobrado).toFixed(2));
+  const campoDesc = row.querySelector('.serv-desc-individual');
+  if (campoDesc) campoDesc.value = descontoIndividual ? descontoIndividual.toFixed(2).replace('.', ',') : '';
+  row.dataset.descontoIndividualValor = descontoIndividual || '';
+  row.dataset.valorCobradoManual = '1';
+  window.calcOSTotal?.();
+}
+window.atualizarDescontoServicoPorValorCobradoOS = atualizarDescontoServicoPorValorCobradoOS;
+
+function instalarDescontoIndividualLinhaOS(row, tipo, valor) {
+  if (!row || row.querySelector('.desconto-individual-os-wrap')) return;
+  garantirEstilosOSV22();
+  const classe = tipo === 'servico' ? 'serv-desc-individual' : 'peca-desc-individual';
+  const label = tipo === 'servico' ? 'DESCONTO DESTE SERVIÇO (R$)' : 'DESCONTO DESTA PEÇA (R$)';
+  const descontoValor = Math.max(0, numBR(valor || 0));
+  const box = document.createElement('div');
+  box.className = 'desconto-individual-os-wrap';
+  if (tipo === 'servico') {
+    const bruto = Math.max(0, numBR(row.querySelector('.serv-valor')?.value || 0));
+    const calc = calcularDescontosValorOS(bruto, descontoMaoObraAtualOS?.() || 0, descontoValor);
+    box.innerHTML = `<label>${label}</label><div class="os-money-field"><b style="color:var(--warn)">R$</b><input type="text" inputmode="decimal" class="j-input ${classe}" value="${descontoValor ? descontoValor.toFixed(2).replace('.', ',') : ''}" placeholder="0,00" oninput="this.closest('#containerServicosOS > div, .cilia-serv-relac').dataset.descontoIndividualValor=this.value;this.closest('#containerServicosOS > div, .cilia-serv-relac').dataset.valorCobradoManual='';window.calcOSTotal()" title="Valor em reais descontado deste serviço."></div><label>VALOR COBRADO (R$)</label><div class="os-money-field"><b style="color:var(--ok)">R$</b><input type="text" inputmode="decimal" class="j-input serv-valor-cobrado" value="${calc.valorFinal.toFixed(2).replace('.', ',')}" placeholder="0,00" oninput="window.atualizarDescontoServicoPorValorCobradoOS(this)" title="Valor final cobrado neste serviço. Ao editar, o desconto em reais é recalculado."></div>`;
+  } else {
+    box.innerHTML = `<label>${label}</label><div class="os-money-field"><b style="color:var(--warn)">R$</b><input type="text" inputmode="decimal" class="j-input ${classe}" value="${descontoValor ? descontoValor.toFixed(2).replace('.', ',') : ''}" placeholder="0,00" oninput="this.closest('[data-cilia-piece-index],#containerPecasOS > div').dataset.descontoIndividualValor=this.value;window.calcOSTotal()" title="Valor em reais descontado desta peça."></div><label>VALOR COBRADO</label><div class="os-money-field"><b style="color:var(--ok)">R$</b><input type="text" class="j-input peca-valor-cobrado" value="0,00" readonly tabindex="-1" title="Valor final cobrado após descontos."></div>`;
+  }
+  row.dataset.descontoIndividualValor = descontoValor || '';
+  row.appendChild(box);
+}
+
+function focarLinhaNovaOS(row, seletor) {
+  if (!row || !window.event?.isTrusted) return;
+  try { row.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { try { row.scrollIntoView(); } catch(__){} }
+  setTimeout(() => {
+    const campo = row.querySelector(seletor) || row.querySelector('input,select,textarea');
+    try { campo?.focus({ preventScroll: true }); } catch (_) { try { campo?.focus(); } catch(__){} }
+  }, 120);
+}
 const escOS = value => (OSU().escapeHtml ? OSU().escapeHtml(value) : String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
+
+function setTextOS(el, value) {
+  if (!el) return false;
+  if (window.thiaRuntimeCore?.setText) return window.thiaRuntimeCore.setText(el, value);
+  const next = String(value ?? '');
+  if (el.textContent === next) return false;
+  el.textContent = next;
+  return true;
+}
+function setHTMLOS(el, value) {
+  if (!el) return false;
+  if (window.thiaRuntimeCore?.setHTML) return window.thiaRuntimeCore.setHTML(el, value);
+  const next = String(value ?? '');
+  if (el.innerHTML === next) return false;
+  el.innerHTML = next;
+  return true;
+}
+function setValueOS(el, value, preserveActive = true) {
+  if (!el || (preserveActive && document.activeElement === el)) return false;
+  if (window.thiaRuntimeCore?.setValue) return window.thiaRuntimeCore.setValue(el, value, preserveActive);
+  const next = String(value ?? '');
+  if (String(el.value ?? '') === next) return false;
+  el.value = next;
+  return true;
+}
+
+function normalizarNomeTerceirizadoOS(value) {
+  return String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function nomeFornecedorTerceirizadoOS(fornecedor) {
+  return String(
+    fornecedor?.nome || fornecedor?.razaoSocial || fornecedor?.razao ||
+    fornecedor?.fantasia || fornecedor?.nomeFantasia || fornecedor?.id || ''
+  ).trim();
+}
+
+const cacheFornecedoresTerceirizadoOS = {
+  fonte: null,
+  tamanho: -1,
+  lista: []
+};
+
+function fornecedoresTerceirizadoOS() {
+  const fonte = window.J?.fornecedores || [];
+  if (cacheFornecedoresTerceirizadoOS.fonte === fonte && cacheFornecedoresTerceirizadoOS.tamanho === fonte.length) {
+    return cacheFornecedoresTerceirizadoOS.lista;
+  }
+  const vistos = new Set();
+  const lista = fonte
+    .map(f => ({
+      id: String(f?.id || '').trim(),
+      nome: nomeFornecedorTerceirizadoOS(f),
+      fantasia: String(f?.fantasia || f?.nomeFantasia || '').trim(),
+      cnpj: String(f?.cnpj || '').trim()
+    }))
+    .filter(f => {
+      const chave = `${f.id}|${normalizarNomeTerceirizadoOS(f.nome)}`;
+      if (!f.nome || vistos.has(chave)) return false;
+      vistos.add(chave);
+      return true;
+    })
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  cacheFornecedoresTerceirizadoOS.fonte = fonte;
+  cacheFornecedoresTerceirizadoOS.tamanho = fonte.length;
+  cacheFornecedoresTerceirizadoOS.lista = lista;
+  return lista;
+}
+
+function localizarFornecedorTerceirizadoOS(nome, idPreferido) {
+  const lista = fornecedoresTerceirizadoOS();
+  const id = String(idPreferido || '').trim();
+  const chaveNome = normalizarNomeTerceirizadoOS(nome);
+  if (chaveNome) {
+    const correspondencias = lista.filter(f => normalizarNomeTerceirizadoOS(f.nome) === chaveNome);
+    if (id) {
+      const porNomeEId = correspondencias.find(f => f.id === id);
+      if (porNomeEId) return porNomeEId;
+    }
+    return correspondencias[0] || null;
+  }
+  return id ? (lista.find(f => f.id === id) || null) : null;
+}
+
+window.atualizarListaTerceirizadosOS = function() {
+  if (!document.body) return null;
+  let list = document.getElementById('os-lista-terceirizados');
+  if (!list) {
+    list = document.createElement('datalist');
+    list.id = 'os-lista-terceirizados';
+    document.body.appendChild(list);
+  }
+  const fornecedores = fornecedoresTerceirizadoOS();
+  const assinatura = fornecedores.map(f => `${f.id}:${f.nome}:${f.fantasia}:${f.cnpj}`).join('|');
+  if (list.dataset.assinatura === assinatura) return list;
+  list.dataset.assinatura = assinatura;
+  list.innerHTML = fornecedores.map(f => {
+    const complemento = [f.fantasia && f.fantasia !== f.nome ? f.fantasia : '', f.cnpj].filter(Boolean).join(' · ');
+    return `<option value="${escOS(f.nome)}" data-fornecedor-id="${escOS(f.id)}"${complemento ? ` label="${escOS(complemento)}"` : ''}></option>`;
+  }).join('');
+  return list;
+};
+
+function linhaServicoTerceirizadoOS(elemento) {
+  return elemento?.closest?.('#containerServicosOS > div, #containerPecasOS .cilia-serv-relac, .cilia-serv-relac') || null;
+}
+
+function normalizarTipoExecucaoServicoOS(value, item) {
+  const raw = String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  if (raw === 'terceirizada' || raw === 'terceirizado' || raw === 'externa' || raw === 'externo') return 'terceirizada';
+  if (item?.terceirizado === true || item?.servicoTerceirizado === true || item?.terceirizadoNome || item?.prestadorNome || item?.fornecedorServicoNome) return 'terceirizada';
+  return 'interna';
+}
+
+window.atualizarTerceirizadoServicoOS = function(input) {
+  const row = linhaServicoTerceirizadoOS(input);
+  if (!row) return;
+  const nome = String(input?.value || '').trim();
+  const nomeAnterior = String(row.dataset.terceirizadoNomeOriginal || row.dataset.terceirizadoNome || '').trim();
+  let fornecedor = localizarFornecedorTerceirizadoOS(nome, '');
+  if (!fornecedor && row.dataset.terceirizadoId && normalizarNomeTerceirizadoOS(nome) === normalizarNomeTerceirizadoOS(nomeAnterior)) {
+    fornecedor = localizarFornecedorTerceirizadoOS('', row.dataset.terceirizadoId);
+  }
+  row.dataset.terceirizadoNome = nome;
+  row.dataset.terceirizadoId = fornecedor?.id || '';
+  row.dataset.terceirizadoOrigem = nome ? (fornecedor ? 'fornecedor_cadastrado' : 'digitado') : '';
+  row.dataset.terceirizadoNomeOriginal = nome;
+  const status = row.querySelector('.serv-terceirizado-status');
+  if (status) {
+    status.textContent = !nome
+      ? 'Selecione um fornecedor cadastrado ou digite livremente o nome do prestador.'
+      : (fornecedor
+          ? `Fornecedor cadastrado selecionado: ${fornecedor.nome}.`
+          : 'Prestador digitado livremente. Nenhum novo fornecedor será cadastrado automaticamente.');
+    status.style.color = fornecedor ? 'var(--success)' : 'var(--muted)';
+  }
+};
+
+window.alternarTipoExecucaoServicoOS = function(select) {
+  const row = linhaServicoTerceirizadoOS(select);
+  if (!row) return;
+  const tipoExecucao = normalizarTipoExecucaoServicoOS(select?.value || 'interna');
+  row.dataset.tipoExecucao = tipoExecucao;
+  const campo = row.querySelector('.serv-terceirizado-campo');
+  const input = row.querySelector('.serv-terceirizado-nome');
+  const status = row.querySelector('.serv-terceirizado-status');
+  const terceirizada = tipoExecucao === 'terceirizada';
+  if (campo) campo.hidden = !terceirizada;
+  if (status) status.hidden = !terceirizada;
+  if (input) {
+    input.disabled = !terceirizada;
+    if (terceirizada) {
+      window.atualizarListaTerceirizadosOS?.();
+      window.atualizarTerceirizadoServicoOS?.(input);
+    }
+  }
+};
+
+function lerTerceirizadoLinhaServicoOS(row) {
+  const select = row?.querySelector?.('.serv-tipo-execucao');
+  const tipoExecucao = normalizarTipoExecucaoServicoOS(select?.value || row?.dataset?.tipoExecucao || 'interna');
+  if (tipoExecucao !== 'terceirizada') {
+    return { tipoExecucao: 'interna', terceirizadoId: '', terceirizadoNome: '', terceirizadoOrigem: '' };
+  }
+  const nome = String(row?.querySelector?.('.serv-terceirizado-nome')?.value || row?.dataset?.terceirizadoNome || '').trim();
+  let fornecedor = localizarFornecedorTerceirizadoOS(nome, '');
+  const nomeOriginal = String(row?.dataset?.terceirizadoNomeOriginal || row?.dataset?.terceirizadoNome || '').trim();
+  if (!fornecedor && row?.dataset?.terceirizadoId && normalizarNomeTerceirizadoOS(nome) === normalizarNomeTerceirizadoOS(nomeOriginal)) {
+    fornecedor = localizarFornecedorTerceirizadoOS('', row.dataset.terceirizadoId);
+  }
+  return {
+    tipoExecucao: 'terceirizada',
+    terceirizadoId: nome ? (fornecedor?.id || '') : '',
+    terceirizadoNome: nome,
+    terceirizadoOrigem: nome ? (fornecedor ? 'fornecedor_cadastrado' : 'digitado') : ''
+  };
+}
+
+function instalarTerceirizadoLinhaServicoOS(row, item) {
+  if (!row?.querySelector?.('.serv-desc') || row.querySelector('.serv-terceirizado-wrap')) return;
+  garantirEstilosOSV22();
+  window.atualizarListaTerceirizadosOS?.();
+  const origem = item || {};
+  const tipoExecucao = normalizarTipoExecucaoServicoOS(origem.tipoExecucao || origem.execucaoTipo, origem);
+  const terceirizadoId = String(origem.terceirizadoId || origem.prestadorId || origem.fornecedorServicoId || '').trim();
+  const fornecedor = localizarFornecedorTerceirizadoOS('', terceirizadoId);
+  const terceirizadoNome = String(
+    origem.terceirizadoNome || origem.prestadorNome || origem.fornecedorServicoNome || fornecedor?.nome || ''
+  ).trim();
+  row.dataset.tipoExecucao = tipoExecucao;
+  row.dataset.terceirizadoId = terceirizadoId || fornecedor?.id || '';
+  row.dataset.terceirizadoNome = terceirizadoNome;
+  row.dataset.terceirizadoNomeOriginal = terceirizadoNome;
+  row.dataset.terceirizadoOrigem = String(origem.terceirizadoOrigem || (terceirizadoNome ? (fornecedor ? 'fornecedor_cadastrado' : 'digitado') : '')).trim();
+  const wrap = document.createElement('div');
+  wrap.className = 'serv-terceirizado-wrap';
+  wrap.innerHTML = `
+    <label>EXECUÇÃO DO SERVIÇO</label>
+    <select class="j-select serv-tipo-execucao" onchange="window.alternarTipoExecucaoServicoOS(this)" title="Define somente se este serviço é executado internamente ou por terceiro. Não altera cálculos, comissões ou financeiro.">
+      <option value="interna" ${tipoExecucao === 'interna' ? 'selected' : ''}>INTERNA</option>
+      <option value="terceirizada" ${tipoExecucao === 'terceirizada' ? 'selected' : ''}>TERCEIRIZADA</option>
+    </select>
+    <div class="serv-terceirizado-campo" ${tipoExecucao === 'terceirizada' ? '' : 'hidden'}>
+      <label>TERCEIRIZADO / FORNECEDOR / PRESTADOR</label>
+      <input type="text" class="j-input serv-terceirizado-nome" list="os-lista-terceirizados" value="${escOS(terceirizadoNome)}" placeholder="Selecione um cadastrado ou digite livremente" autocomplete="off" ${tipoExecucao === 'terceirizada' ? '' : 'disabled'} onfocus="window.atualizarListaTerceirizadosOS()" oninput="window.atualizarTerceirizadoServicoOS(this)" onchange="window.atualizarTerceirizadoServicoOS(this)">
+    </div>
+    <div class="serv-terceirizado-status" ${tipoExecucao === 'terceirizada' ? '' : 'hidden'}></div>
+  `;
+  row.appendChild(wrap);
+  const input = wrap.querySelector('.serv-terceirizado-nome');
+  if (tipoExecucao === 'terceirizada') window.atualizarTerceirizadoServicoOS?.(input);
+}
+window.instalarTerceirizadoLinhaServicoOS = instalarTerceirizadoLinhaServicoOS;
 
 function isFirestoreSentinelOS(value) {
   if (!value || typeof value !== 'object') return false;
@@ -333,15 +660,15 @@ function codigoPecaEstoqueOS(p) {
 }
 
 function fornecedorPecaEstoqueOS(p) {
-  return String(p?.fornecedor || p?.fornecedorNome || p?.nomeFornecedor || p?.forn || '').trim();
+  return String(p?.fornecedor || p?.fornecedorNome || p?.ultimaFornecedor || p?.nomeFornecedor || p?.forn || '').trim();
 }
 
 function nfPecaEstoqueOS(p) {
-  return String(p?.nfNumero || p?.notaFiscal || p?.nf || p?.numeroNF || p?.pedido || '').trim();
+  return String(p?.nfNumero || p?.ultimaNF || p?.notaFiscal || p?.nf || p?.numeroNF || p?.pedido || '').trim();
 }
 
 function dataCompraPecaEstoqueOS(p) {
-  const raw = p?.dataCompra || p?.dataNF || p?.dataEntrada || p?.createdAt || '';
+  const raw = p?.dataCompra || p?.dataNF || p?.ultimaDataNF || p?.dataUltimaEntrada || p?.dataEntrada || p?.createdAt || '';
   return String(raw || '').slice(0, 10);
 }
 
@@ -900,11 +1227,11 @@ function garantirBoxDescontoLinhaOS(row, tipo) {
   if (!box) {
     box = document.createElement('div');
     box.className = `${tipo}-desc-box`;
-    box.style.cssText = 'grid-column:1/-1;display:flex;justify-content:flex-end;gap:12px;align-items:center;font-family:var(--fm);font-size:.66rem;color:var(--muted);border-top:1px dashed rgba(255,255,255,.10);padding-top:5px;margin-top:2px;';
+    box.style.cssText = 'grid-column:1/-1;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px 12px;align-items:center;max-width:100%;min-width:0;font-family:var(--fm);font-size:.66rem;color:var(--muted);border-top:1px dashed rgba(255,255,255,.10);padding-top:5px;margin-top:2px;';
     box.innerHTML = `
       <span class="${tipo}-bruto-val">Bruto: R$ 0,00</span>
-      <span class="${tipo}-desc-pct" style="color:var(--purple,#A78BFA);">-0,0%</span>
-      <span class="${tipo}-desc-econ" style="color:var(--warn);">Desc.: R$ 0,00</span>
+      <span class="${tipo}-desc-pct" style="color:var(--warn);">Desconto: R$ 0,00</span>
+      <span class="${tipo}-desc-econ" style="display:none;"></span>
       <strong class="${tipo}-desc-val" style="color:var(--success);">Líquido: R$ 0,00</strong>`;
     row.appendChild(box);
   }
@@ -919,10 +1246,10 @@ function atualizarBoxDescontoLinhaOS(row, tipo, bruto, liquido, taxa) {
   const pctEl = box.querySelector(`.${tipo}-desc-pct`);
   const econEl = box.querySelector(`.${tipo}-desc-econ`);
   const liqEl = box.querySelector(`.${tipo}-desc-val`);
-  if (brutoEl) brutoEl.textContent = `Bruto: ${moedaOS(bruto)}`;
-  if (pctEl) pctEl.textContent = '-' + (taxaDescontoOS(taxa) * 100).toFixed(1).replace('.', ',') + '%';
-  if (econEl) econEl.textContent = `Desc.: ${moedaOS(desconto)}`;
-  if (liqEl) liqEl.textContent = `Líquido: ${moedaOS(liquido)}`;
+  if (brutoEl) setTextOS(brutoEl, `Bruto: ${moedaOS(bruto)}`);
+  if (pctEl) setTextOS(pctEl, `Desconto: ${moedaOS(desconto)}`);
+  if (econEl) setTextOS(econEl, `Desc.: ${moedaOS(desconto)}`);
+  if (liqEl) setTextOS(liqEl, `Líquido: ${moedaOS(liquido)}`);
 }
 
 function atualizarMetaServicoLinhaOS(row) {
@@ -1096,7 +1423,10 @@ const STATUS_MAP_LEGACY = {
 
 window.escutarOS = function() {
   db.collection('ordens_servico').where('tenantId', '==', J.tid).onSnapshot(snap => {
-    J.os = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    J.os = window.thiaRuntimeCore?.dedupeOSForDisplay
+      ? window.thiaRuntimeCore.dedupeOSForDisplay(docs)
+      : (window.thiaRuntimeCore?.dedupeById ? window.thiaRuntimeCore.dedupeById(docs) : docs);
     if(typeof window.renderKanban === 'function') window.renderKanban(); 
     if(typeof window.renderDashboard === 'function') window.renderDashboard(); 
     if(typeof window.calcComissoes === 'function') window.calcComissoes();
@@ -1110,7 +1440,12 @@ window.renderKanban = function() {
   const cols = {}; const cnts = {};
   KANBAN_STATUSES.forEach(s => { cols[s] = []; cnts[s] = 0; });
 
-  (Array.isArray(J.os) ? J.os : []).filter(o => (o.status || '').toLowerCase() !== 'cancelado').forEach(o => {
+  const listaOSKanban = window.thiaRuntimeCore?.dedupeOSForDisplay
+    ? window.thiaRuntimeCore.dedupeOSForDisplay(Array.isArray(J.os) ? J.os : [])
+    : (window.thiaRuntimeCore?.dedupeById
+      ? window.thiaRuntimeCore.dedupeById(Array.isArray(J.os) ? J.os : [])
+      : (Array.isArray(J.os) ? J.os : []));
+  listaOSKanban.filter(o => (o.status || '').toLowerCase() !== 'cancelado').forEach(o => {
     const stRaw = o.status || 'Triagem';
     const st = STATUS_MAP_LEGACY[stRaw] || 'Triagem'; 
     
@@ -1188,7 +1523,7 @@ window.renderKanban = function() {
         ? `<button title="Excluir definitivamente esta O.S." onclick="event.stopPropagation();window.excluirOSDef('${os.id}')" style="background:transparent;border:1px solid var(--danger);color:var(--danger);font-family:var(--fm);font-size:0.6rem;padding:3px 7px;border-radius:3px;cursor:pointer;">🗑</button>`
         : '';
 
-      return `<div class="k-card" style="border-left-color:${cor}" onclick="window.prepOS('edit','${os.id}');abrirModal('modalOS')">
+      return `<div class="k-card" data-os-id="${esc(os.id)}" style="border-left-color:${cor}" onclick="window.thiaAbrirOS('${os.id}','edit')">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;gap:6px;">
             <div>
               ${prefixoFmt ? `<div style="font-family:var(--fm);font-size:.58rem;color:var(--warn);letter-spacing:.8px;font-weight:800;margin-bottom:2px;">PREFIXO ${prefixoFmt}</div>` : ''}
@@ -1667,7 +2002,7 @@ function idsMecanicosDocumentoOS(os) {
     os?.mecId,
     ...(Array.isArray(os?.mecIds) ? os.mecIds : []),
     ...(Array.isArray(os?.mecanicos) ? os.mecanicos.map(m => m?.id || m?.mecId) : []),
-    ...(Array.isArray(os?.servicos) ? os.servicos.map(s => s?.mecId || s?.mecanicoId || s?.responsavelId) : [])
+    ...(Array.isArray(os?.servicos) ? os.servicos.flatMap(s => [s?.mecId || s?.mecanicoId || s?.responsavelId, ...(Array.isArray(s?.rateiosComissao) ? s.rateiosComissao.map(r => r?.mecId || r?.id) : [])]) : [])
   ]);
 }
 
@@ -1714,48 +2049,156 @@ window.renderMecanicosEquipeOS = function(selectedIds) {
 };
 
 function opcoesResponsavelServicoOS(selectedId) {
-  let ids = window.obterMecanicosSelecionadosOS();
-  if (!ids.length) ids = (window.J?.equipe || []).map(f => f.id);
-  if (selectedId) ids = idsUnicosMecanicosOS([...ids, selectedId]);
-  const opcoes = ['<option value="">Responsável não definido</option>'];
-  ids.forEach(id => {
-    const mec = (window.J?.equipe || []).find(f => String(f.id) === String(id));
-    opcoes.push(`<option value="${escOS(id)}" ${String(id) === String(selectedId || '') ? 'selected' : ''}>${escOS(mec?.nome || mec?.usuario || id)}</option>`);
+  const equipe = Array.isArray(window.J?.equipe) ? window.J.equipe : [];
+  const opcoes = ['<option value="">Selecione o mecânico</option>'];
+  equipe.forEach(mec => {
+    const id = String(mec?.id || '').trim();
+    if (!id) return;
+    opcoes.push(`<option value="${escOS(id)}" ${id === String(selectedId || '') ? 'selected' : ''}>${escOS(mec.nome || mec.usuario || id)}</option>`);
   });
   return opcoes.join('');
 }
 
+function normalizarRateiosServicoOS(rateios, fallbackId, valorFinal) {
+  const vistos = new Set();
+  const lista = (Array.isArray(rateios) ? rateios : []).map(r => {
+    const mecId = String(r?.mecId || r?.id || '').trim();
+    if (!mecId || vistos.has(mecId)) return null;
+    vistos.add(mecId);
+    const mec = (window.J?.equipe || []).find(f => String(f.id) === mecId);
+    return {
+      mecId,
+      mecNome: r?.mecNome || r?.nome || mec?.nome || '',
+      valorBase: Math.max(0, numBR(r?.valorBase ?? r?.valorDividido ?? r?.baseComissao ?? 0)),
+      automatico: r?.automatico === true
+    };
+  }).filter(Boolean);
+  if (!lista.length && fallbackId) {
+    const mec = (window.J?.equipe || []).find(f => String(f.id) === String(fallbackId));
+    lista.push({ mecId: String(fallbackId), mecNome: mec?.nome || '', valorBase: Math.max(0, numBR(valorFinal || 0)), automatico: true });
+  }
+  return lista;
+}
+
+function valorFinalAtualLinhaServicoOS(row) {
+  try {
+    const calc = calcularServicoLinhaOS(row, descontoMaoObraAtualOS());
+    return Math.max(0, numBR(calc?.valorFinal || 0));
+  } catch (_) {
+    return Math.max(0, numBR(row?.querySelector?.('.serv-valor-cobrado')?.value || row?.querySelector?.('.serv-valor')?.value || 0));
+  }
+}
+
+function criarLinhaRateioServicoOS(row, rateio) {
+  const linha = document.createElement('div');
+  linha.className = 'serv-rateio-row';
+  linha.dataset.autoValor = rateio?.automatico ? '1' : '';
+  linha.innerHTML = `<select class="j-select serv-mec" aria-label="Mecânico que realizou o serviço">${opcoesResponsavelServicoOS(rateio?.mecId || '')}</select><input type="text" inputmode="decimal" class="j-input serv-rateio-valor" value="${numBR(rateio?.valorBase || 0) ? numBR(rateio.valorBase).toFixed(2).replace('.', ',') : ''}" placeholder="Base dividida R$" title="Parte do valor cobrado atribuída a este mecânico. Informação interna, exibida somente no financeiro."><button type="button" class="serv-rateio-remove" title="Remover mecânico" style="width:34px;height:34px;border:1px solid rgba(255,59,59,.35);background:rgba(255,59,59,.09);color:var(--danger);border-radius:3px;cursor:pointer;">✕</button>`;
+  const sel = linha.querySelector('.serv-mec');
+  const valor = linha.querySelector('.serv-rateio-valor');
+  sel.addEventListener('change', () => {
+    const adicional = Array.from(document.querySelectorAll('#osMecanicosEquipe input[type="checkbox"]')).find(chk => String(chk.value) === String(sel.value || ''));
+    if (adicional && sel.value) adicional.checked = true;
+    window.sincronizarRateiosServicoOS?.(row);
+  });
+  valor.addEventListener('input', () => {
+    linha.dataset.autoValor = '';
+    window.sincronizarRateiosServicoOS?.(row);
+  });
+  linha.querySelector('.serv-rateio-remove').addEventListener('click', () => {
+    const lista = linha.parentElement;
+    if (lista?.querySelectorAll('.serv-rateio-row').length <= 1) {
+      sel.value = '';
+      valor.value = '';
+      linha.dataset.autoValor = '';
+    } else linha.remove();
+    window.sincronizarRateiosServicoOS?.(row);
+  });
+  return linha;
+}
+
+window.obterRateiosLinhaServicoOS = function(row, valorFinalInformado) {
+  if (!row) return [];
+  const valorFinal = Math.max(0, numBR(valorFinalInformado ?? valorFinalAtualLinhaServicoOS(row)));
+  const linhas = Array.from(row.querySelectorAll('.serv-rateio-row'));
+  const rateios = [];
+  const vistos = new Set();
+  linhas.forEach((linha, index) => {
+    const sel = linha.querySelector('.serv-mec');
+    const mecId = String(sel?.value || '').trim();
+    if (!mecId || vistos.has(mecId)) return;
+    vistos.add(mecId);
+    let valorBase = Math.max(0, numBR(linha.querySelector('.serv-rateio-valor')?.value || 0));
+    if (linhas.length === 1 && valorBase <= 0) valorBase = valorFinal;
+    const mec = (window.J?.equipe || []).find(f => String(f.id) === mecId);
+    rateios.push({ mecId, mecNome: mec?.nome || mec?.usuario || '', valorBase: +valorBase.toFixed(2), ordem: index });
+  });
+  return rateios;
+};
+
+window.sincronizarRateiosServicoOS = function(row) {
+  if (!row) return;
+  const rateios = window.obterRateiosLinhaServicoOS(row);
+  const primeiro = rateios[0] || {};
+  row.dataset.mecId = primeiro.mecId || '';
+  row.dataset.mecNome = primeiro.mecNome || '';
+  row.dataset.mecIds = rateios.map(r => r.mecId).join(',');
+  row._rateiosComissaoAtual = rateios;
+  window.renderMecanicosEquipeOS?.();
+};
+
+window.adicionarRateioServicoOS = function(row, rateio) {
+  if (!row) return;
+  const lista = row.querySelector('.serv-rateio-list');
+  if (!lista) return;
+  lista.appendChild(criarLinhaRateioServicoOS(row, rateio || {}));
+  window.sincronizarRateiosServicoOS(row);
+  setTimeout(() => lista.lastElementChild?.querySelector('.serv-mec')?.focus(), 30);
+};
+
 window.garantirResponsavelLinhaServicoOS = function(row, selectedId) {
   if (!row?.querySelector?.('.serv-desc')) return;
+  garantirEstilosOSV22();
   const mecanicoPrincipal = document.getElementById('osMec')?.value || '';
-  const idAtual = selectedId || row.dataset?.mecId || row.querySelector('.serv-mec')?.value || mecanicoPrincipal;
-  let wrap = row.querySelector('.serv-mec-wrap');
+  const idAtual = selectedId || row.dataset?.mecId || mecanicoPrincipal;
+  let wrap = row.querySelector('.serv-rateio-wrap');
   if (!wrap) {
     wrap = document.createElement('div');
-    wrap.className = 'serv-mec-wrap';
-    wrap.style.cssText = 'grid-column:1/-1;display:grid;grid-template-columns:minmax(145px,220px) minmax(180px,1fr);gap:7px;align-items:center;';
-    wrap.innerHTML = '<label style="font-family:var(--fm);font-size:.60rem;color:var(--muted);letter-spacing:.6px;">MECÂNICO RESPONSÁVEL</label><select class="j-select serv-mec" style="font-size:.70rem;"></select>';
+    wrap.className = 'serv-rateio-wrap';
+    wrap.innerHTML = `<div class="serv-rateio-head"><div><b style="font-family:var(--fd);font-size:.68rem;color:var(--cyan);letter-spacing:.5px;">MECÂNICOS E DIVISÃO DO SERVIÇO</b><div class="serv-rateio-help">Interno: serve somente para calcular e pagar comissões. Não aparece na O.S., no PDF ou nas planilhas.</div></div><button type="button" class="btn-ghost serv-rateio-add" style="padding:6px 9px;font-size:.62rem;">+ DIVIDIR COM OUTRO MECÂNICO</button></div><div class="serv-rateio-list"></div>`;
     row.appendChild(wrap);
+    wrap.querySelector('.serv-rateio-add').addEventListener('click', () => window.adicionarRateioServicoOS(row, {}));
+    const valorFinal = valorFinalAtualLinhaServicoOS(row);
+    const salvos = normalizarRateiosServicoOS(row._rateiosComissaoInicial, idAtual, valorFinal);
+    const lista = wrap.querySelector('.serv-rateio-list');
+    (salvos.length ? salvos : [{ mecId: idAtual, valorBase: valorFinal, automatico: true }]).forEach(r => lista.appendChild(criarLinhaRateioServicoOS(row, r)));
+    delete row._rateiosComissaoInicial;
+  } else {
+    wrap.querySelectorAll('.serv-mec').forEach(sel => {
+      const atual = sel.value;
+      sel.innerHTML = opcoesResponsavelServicoOS(atual);
+      sel.value = atual;
+    });
   }
-  const select = wrap.querySelector('.serv-mec');
-  select.innerHTML = opcoesResponsavelServicoOS(idAtual);
-  select.value = idAtual;
-  select.onchange = function() {
-    row.dataset.mecId = this.value || '';
-    const mec = (window.J?.equipe || []).find(f => String(f.id) === String(this.value));
-    row.dataset.mecNome = mec?.nome || '';
-    const adicional = Array.from(document.querySelectorAll('#osMecanicosEquipe input[type="checkbox"]'))
-      .find(chk => String(chk.value) === String(this.value || ''));
-    if (adicional && this.value) adicional.checked = true;
-  };
-  row.dataset.mecId = select.value || '';
-  const mec = (window.J?.equipe || []).find(f => String(f.id) === String(select.value));
-  row.dataset.mecNome = mec?.nome || row.dataset?.mecNome || '';
+  window.sincronizarRateiosServicoOS(row);
+};
+
+window.atualizarValorAutomaticoRateioServicoOS = function(row, valorFinal) {
+  const linhas = Array.from(row?.querySelectorAll?.('.serv-rateio-row') || []);
+  if (linhas.length !== 1) return;
+  const linha = linhas[0];
+  const input = linha.querySelector('.serv-rateio-valor');
+  if (!input) return;
+  if (linha.dataset.autoValor === '1' || !String(input.value || '').trim()) {
+    input.value = Math.max(0, numBR(valorFinal || 0)).toFixed(2).replace('.', ',');
+    linha.dataset.autoValor = '1';
+    window.sincronizarRateiosServicoOS(row);
+  }
 };
 
 window.atualizarResponsaveisServicoOS = function() {
   document.querySelectorAll('#containerServicosOS > div, #containerPecasOS .cilia-serv-relac').forEach(row => {
-    window.garantirResponsavelLinhaServicoOS(row, row.querySelector('.serv-mec')?.value || row.dataset?.mecId || '');
+    window.garantirResponsavelLinhaServicoOS(row, row.dataset?.mecId || '');
   });
 };
 
@@ -1763,21 +2206,28 @@ window.atualizarEquipeMecanicosOS = function() {
   const principalAnterior = String(window._osMecPrincipalAnterior || '');
   const principalAtual = String(document.getElementById('osMec')?.value || '');
   document.querySelectorAll('#containerServicosOS > div, #containerPecasOS .cilia-serv-relac').forEach(row => {
-    const responsavelAtual = String(row.querySelector('.serv-mec')?.value || row.dataset?.mecId || '');
-    const deveHerdarPrincipal = !responsavelAtual || (!!principalAnterior && responsavelAtual === principalAnterior);
-    window.garantirResponsavelLinhaServicoOS(
-      row,
-      deveHerdarPrincipal ? principalAtual : responsavelAtual
-    );
+    window.garantirResponsavelLinhaServicoOS(row, row.dataset?.mecId || principalAtual);
+    const linhas = Array.from(row.querySelectorAll('.serv-rateio-row'));
+    if (linhas.length === 1) {
+      const sel = linhas[0].querySelector('.serv-mec');
+      const atual = String(sel?.value || '');
+      if (!atual || (principalAnterior && atual === principalAnterior)) {
+        sel.value = principalAtual;
+        window.sincronizarRateiosServicoOS(row);
+      }
+    }
   });
   window.renderMecanicosEquipeOS();
-  window.atualizarResponsaveisServicoOS();
   window._osMecPrincipalAnterior = principalAtual;
 };
 
 
 window.prepOS = function(mode, id = null) {
   ['osId', 'osPlaca', 'osPlacaView', 'osPrefixo', 'osVeiculo', 'osCliente', 'osCelular', 'osCpf', 'osDiagnostico', 'osRelato', 'osDescricao', 'chkObs', 'osKm', 'osData', 'osPrisma'].forEach(f => { if ($(f)) $(f).value = ''; });
+  // Limpa apenas os marcadores de vínculo da O.S. anterior. Eles serão definidos novamente
+  // ao abrir uma O.S. existente e usados para impedir que listeners apaguem cliente/veículo.
+  if ($('osCliente')) delete $('osCliente').dataset.osClienteSalvo;
+  if ($('osVeiculo')) delete $('osVeiculo').dataset.osVeiculoSalvo;
   // Checklist tri-state: limpa valor hidden + botões ativos
   ['chkPainel', 'chkPressao', 'chkCarroceria', 'chkDocumentos'].forEach(f => {
     if ($(f)) $(f).value = '';
@@ -1846,12 +2296,18 @@ window.prepOS = function(mode, id = null) {
       $('osTipoVeiculo').value = o.tipoVeiculoOS || o.tipoVeiculoTabela || o.tipoVeiculo || _vinc?.tipoVeiculo || _vinc?.tipo || o.tipo || '';
     }
     
+    const _clienteVinculadoOS = String(o.clienteId || '');
+    const _veiculoVinculadoOS = String(o.veiculoId || o.veiculo || '');
     if ($('osCliente')) {
-        $('osCliente').value = o.clienteId || '';
-        if(typeof window.filtrarVeiculosOS === 'function') window.filtrarVeiculosOS(); 
+        $('osCliente').dataset.osClienteSalvo = _clienteVinculadoOS;
+        $('osCliente').value = _clienteVinculadoOS;
+        if(typeof window.filtrarVeiculosOS === 'function') window.filtrarVeiculosOS({ preservarVeiculoId: _veiculoVinculadoOS, osFallback: o, origem: 'abrirOSEdit' });
     }
+    if ($('osVeiculo')) $('osVeiculo').dataset.osVeiculoSalvo = _veiculoVinculadoOS;
     setTimeout(() => {
-      if ($('osVeiculo')) $('osVeiculo').value = o.veiculoId || o.veiculo || '';
+      if ($('osCliente') && _clienteVinculadoOS && !$('osCliente').value) $('osCliente').value = _clienteVinculadoOS;
+      if (typeof window.filtrarVeiculosOS === 'function') window.filtrarVeiculosOS({ preservarVeiculoId: _veiculoVinculadoOS, osFallback: o, origem: 'abrirOSEditFallback' });
+      if ($('osVeiculo') && _veiculoVinculadoOS) $('osVeiculo').value = _veiculoVinculadoOS;
       window.atualizarIdentificacaoVeiculoOS?.(o);
     }, 100);
 
@@ -1909,14 +2365,15 @@ window.prepOS = function(mode, id = null) {
     renderPagamentosCombinadosOS(o.pgtoCombinado || []);
     aplicarRegraParcelasPagamentoOS();
     
-    window.osPecas = o.pecas || [];
+    const _pecasReconciliadasOS = osReconciliarPecasReaisParaClienteComumOS(o, Array.isArray(o.pecas) ? o.pecas : [], Array.isArray(o.pecasReais) ? o.pecasReais : []);
+    const pecasOS = osPecasOrcamentoVisiveisOS(o, _pecasReconciliadasOS);
+    o.pecas = _pecasReconciliadasOS; // preserva integralmente os registros internos já gravados
+    window.osPecas = pecasOS;
     window.osFotos = o.media || o.fotos || [];
-    
+
     if(typeof window.renderItensOS === 'function') window.renderItensOS();
-    
+
     const servicosOS = Array.isArray(o.servicos) ? o.servicos : [];
-    const pecasOS = osReconciliarPecasReaisParaClienteComumOS(o, Array.isArray(o.pecas) ? o.pecas : [], Array.isArray(o.pecasReais) ? o.pecasReais : []);
-    o.pecas = pecasOS;
     const servicosCiliaPorPeca = {};
     const servicosNormais = [];
     servicosOS.forEach(s => {
@@ -2169,6 +2626,13 @@ function descontoMaoObraAtualOS() {
   return campo !== '' && campo != null ? taxaDescontoOS(campo) : taxaDescontoOS(dadosGov?.descMO || 0);
 }
 
+function descontoPecasAtualOS() {
+  const ehGov = typeof window._osClienteGovernamental === 'function' && window._osClienteGovernamental();
+  const dadosGov = ehGov && typeof window._osDadosGovernamental === 'function' ? window._osDadosGovernamental() : null;
+  const campo = document.getElementById('osDescPeca')?.value?.trim();
+  return campo !== '' && campo != null ? taxaDescontoOS(campo) : taxaDescontoOS(dadosGov?.descPeca || 0);
+}
+
 function dadosServicoLinhaOS(row) {
   const sel = row?.querySelector?.('.serv-secao-hora');
   const secaoHora = sel?.value || row?.dataset?.secaoHora || '';
@@ -2181,6 +2645,7 @@ function dadosServicoLinhaOS(row) {
     sistema: sistemaTabela,
     secaoHoraLabel: row?.dataset?.secaoHoraLabel
   }, window._osVeiculoAtual?.() || {});
+  const terceirizado = lerTerceirizadoLinhaServicoOS(row);
   return {
     desc: row?.querySelector?.('.serv-desc')?.value || '',
     valor: numBR(row?.querySelector?.('.serv-valor')?.value || 0),
@@ -2205,34 +2670,47 @@ function dadosServicoLinhaOS(row) {
     origemServico: row?.dataset?.servRelacionado === '1'
       ? ((row?.dataset?.codigoTabela || '') ? (row?.dataset?.tempaManual === '1' ? 'cilia_tabela_tempa_editado' : 'cilia_tabela_tempa') : 'cilia_manual')
       : ((row?.dataset?.codigoTabela || row?.dataset?.codigoInterno || row?.dataset?.secaoHora) ? 'tabela_tempa' : 'manual'),
-    ciliaPieceIndex: row?.closest?.('.cilia-peca-wrap')?.dataset?.ciliaPieceIndex || row?.dataset?.ciliaPieceIndex || ''
+    ciliaPieceIndex: row?.closest?.('.cilia-peca-wrap')?.dataset?.ciliaPieceIndex || row?.dataset?.ciliaPieceIndex || '',
+    tipoExecucao: terceirizado.tipoExecucao,
+    terceirizadoId: terceirizado.terceirizadoId,
+    terceirizadoNome: terceirizado.terceirizadoNome,
+    terceirizadoOrigem: terceirizado.terceirizadoOrigem
   };
 }
 
 function calcularServicoLinhaOS(row, descMO) {
   const dados = dadosServicoLinhaOS(row);
+  const descGeral = taxaDescontoOS(descMO || 0);
+  const descontoIndividualValor = descontoIndividualLinhaOS(row, 'servico');
+  dados.descontoIndividualTipo = 'valor';
+  dados.descontoIndividualValor = descontoIndividualValor;
+  dados.descIndividualValor = descontoIndividualValor;
   const calc = OSU().calcularServicoMaoObra
     ? OSU().calcularServicoMaoObra(dados, null, {
-        descMO,
+        descMO: descGeral,
         veiculo: window._osVeiculoAtual?.(),
         fallbackValorHora: window._osValorHoraCliente?.(),
         usarHoraQuandoDisponivel: true
       })
-    : {
+    : Object.assign({
         tempo: dados.tempo,
         valorHora: dados.valorHora,
         valorHoraTabela: dados.valorHoraTabela,
-        valorBruto: dados.valor,
-        bruto: dados.valor,
-        valorFinal: +(dados.valor * (1 - numBR(descMO || 0))).toFixed(2),
-        descPct: descMO || 0,
         usaCalculoHora: false
-      };
+      }, calcularDescontosValorOS(dados.valor, descGeral, descontoIndividualValor));
   const valorInput = row?.querySelector?.('.serv-valor');
   if (valorInput && calc.usaCalculoHora && document.activeElement !== valorInput) {
     valorInput.value = calc.valorBruto.toFixed(2).replace('.', ',');
   }
-  return Object.assign(dados, calc);
+  return Object.assign(dados, calc, {
+    descGeralPct: descGeral,
+    descontoIndividualTipo: 'valor',
+    descontoIndividualValor: numBR(calc.descontoIndividualValor ?? descontoIndividualValor),
+    descIndividualValor: numBR(calc.descontoIndividualValor ?? descontoIndividualValor),
+    descIndividualPct: numBR(calc.valorBruto || calc.bruto || 0) > 0 ? +(numBR(calc.descontoIndividualValor ?? descontoIndividualValor) / numBR(calc.valorBruto || calc.bruto || 0)).toFixed(6) : 0,
+    descontoValor: numBR(calc.descontoValor ?? (numBR(calc.valorBruto || calc.bruto || 0) - numBR(calc.valorFinal || 0))),
+    descPct: numBR(calc.descPct || 0)
+  });
 }
 
 window.atualizarValorServicoPorHora = function(row) {
@@ -2241,7 +2719,7 @@ window.atualizarValorServicoPorHora = function(row) {
   window.calcOSTotal?.();
 };
 
-window.adicionarServicoOS = function() {
+window.adicionarServicoOS = function(options = {}) {
   const sel = document.createElement('div');
   const ehGov = typeof window._osClienteGovernamental === 'function' && window._osClienteGovernamental();
   const dadosGov = ehGov && typeof window._osDadosGovernamental === 'function' ? window._osDadosGovernamental() : null;
@@ -2270,13 +2748,19 @@ window.adicionarServicoOS = function() {
     `;
   }
   if($('containerServicosOS')) $('containerServicosOS').appendChild(sel);
+  instalarDescontoIndividualLinhaOS(sel, 'servico', 0);
   window.garantirResponsavelLinhaServicoOS?.(sel, '');
+  instalarTerceirizadoLinhaServicoOS(sel, { tipoExecucao: 'interna' });
+  window.calcOSTotal?.();
+  if (options.focus !== false) focarLinhaNovaOS(sel, '.serv-desc');
+  return sel;
 };
 
 window.renderServicoOSRow = function(s) {
   const div = document.createElement('div');
   div.dataset.mecId = s.mecId || s.mecanicoId || s.responsavelId || '';
   div.dataset.mecNome = s.mecNome || s.mecanicoNome || s.responsavelNome || '';
+  div._rateiosComissaoInicial = Array.isArray(s.rateiosComissao) ? s.rateiosComissao : [];
   div.dataset.codigoInterno = s.codigoInterno || s.codInterno || s.codigoServicoInterno || '';
   div.dataset.codigoTabela = s.codigoTabela || s.codigo || '';
   div.dataset.sistemaTabela = s.sistemaTabela || s.sistema || '';
@@ -2331,13 +2815,16 @@ window.renderServicoOSRow = function(s) {
     `;
   }
   if($('containerServicosOS')) $('containerServicosOS').appendChild(div);
+  instalarDescontoIndividualLinhaOS(div, 'servico', descontoIndividualSalvoValorOS(s, vBruto));
   window.garantirResponsavelLinhaServicoOS?.(div, div.dataset.mecId || '');
+  instalarTerceirizadoLinhaServicoOS(div, s || {});
   atualizarMetaServicoLinhaOS(div);
 };
 
-window.adicionarPecaOS = function() {
+window.adicionarPecaOS = function(options = {}) {
   const ehGov = typeof window._osClienteGovernamental === 'function' && window._osClienteGovernamental();
   const existeFluxoAgrupado = !!document.querySelector('#containerPecasOS .cilia-peca-wrap');
+  if (existeFluxoAgrupado && options.auto === true) return null;
   if (existeFluxoAgrupado && typeof window.renderCiliaPecaOSRow === 'function') {
     const idx = document.querySelectorAll('#containerPecasOS [data-cilia-piece-index]').length;
     window.renderCiliaPecaOSRow({
@@ -2353,7 +2840,7 @@ window.adicionarPecaOS = function() {
       ciliaManual: true
     }, []);
     window.toast?.('Peca manual criada com grupo editavel e servicos vinculados.', 'ok');
-    return;
+    return document.querySelector('#containerPecasOS [data-cilia-piece-index]:last-of-type') || null;
   }
   const sel = document.createElement('div');
 
@@ -2396,7 +2883,11 @@ window.adicionarPecaOS = function() {
       <div class="peca-estoque-info" style="grid-column:1/-1;font-family:var(--fm);font-size:.62rem;color:var(--muted);line-height:1.45;"></div>
     `;
   }
-  if($('containerPecasOS')) $('containerPecasOS').appendChild(sel); window.calcOSTotal();
+  if($('containerPecasOS')) $('containerPecasOS').appendChild(sel);
+  instalarDescontoIndividualLinhaOS(sel, 'peca', 0);
+  window.calcOSTotal();
+  if (options.focus !== false) focarLinhaNovaOS(sel, '.peca-busca-estoque, .peca-desc-livre, .peca-codigo');
+  return sel;
 };
 
 
@@ -2412,22 +2903,115 @@ function osClienteOficialSeguroOS(os) {
   if (!nome || nome === 'CONSUMIDOR') return false;
   const tipoCliente = String(cli?.tipoCliente || o.tipoCliente || o.clienteTipo || '').toLowerCase();
   if (tipoCliente === 'governo' || tipoCliente === 'oficial') return true;
-  const raw = JSON.stringify({
-    clienteOficial: cli?.clienteOficial,
-    clienteOrgaoPublico: cli?.orgaoPublico,
-    clientePublico: cli?.publico,
-    clienteGov: cli?.gov,
-    tipoCliente: cli?.tipoCliente,
-    osClienteOficial: o.clienteOficial,
-    osOrgaoPublico: o.orgaoPublico,
-    osGov: o.gov,
-    fiscalContrato: o.fiscalContrato,
-    contrato: o.contrato,
-    orgao: o.orgao,
-    unidade: o.unidade
-  }).toUpperCase();
-  return /OFICIAL|GOVERNO|PMSP|POLICIA|POLÍCIA|MILITAR|BPM|PREFEITURA|ESTADO|MUNICIP|SECRETARIA/.test(raw);
+  const indicadores = [
+    nome,
+    cli?.clienteOficial === true ? 'OFICIAL' : '',
+    cli?.orgaoPublico === true ? 'ORGAO PUBLICO' : '',
+    cli?.publico === true ? 'PUBLICO' : '',
+    cli?.gov === true ? 'GOVERNO' : '',
+    cli?.tipoCliente,
+    cli?.govUnidade,
+    o.clienteOficial === true ? 'OFICIAL' : '',
+    o.orgaoPublico === true ? 'ORGAO PUBLICO' : '',
+    o.gov === true ? 'GOVERNO' : '',
+    o.tipoCliente,
+    o.clienteTipo,
+    o.fiscalContrato,
+    o.contrato,
+    o.orgao,
+    o.unidade
+  ].filter(Boolean).join('|').toUpperCase();
+  return /OFICIAL|GOVERNO|PMSP|POLICIA|POLÍCIA|MILITAR|BPM|PREFEITURA|ESTADO|MUNICIP|SECRETARIA|ORGAO PUBLICO/.test(indicadores);
 }
+
+function osSegredo177AtivoOS() {
+  return window._pecasReaisDesbloqueadas === true || document.body?.dataset?.secret177 === 'on';
+}
+
+function osPecaRealProtegidaOS(peca) {
+  if (!peca || typeof peca !== 'object') return false;
+  if (typeof OSU().isProtectedRealPart === 'function') return OSU().isProtectedRealPart(peca);
+  const origem = String(peca.origem || '').toLowerCase().trim();
+  const status = String(peca.statusAplicacao || '').toLowerCase().trim();
+  const chaveNF = String(peca.origemNFItemKey || '').trim();
+  const referenciaNF = String(peca.nfId || peca.nf || peca.nfNumero || peca.numeroNF || '').trim();
+  return peca.origemNFVinculada === true ||
+    origem === 'nf_entrada_os' ||
+    origem === 'nf_entrada' ||
+    status === 'comprada_vinculada_nf' ||
+    (!!chaveNF && (!!referenciaNF || origem.includes('nf_entrada')));
+}
+
+function osPecaRealProtegidaNoContextoOS(os, peca) {
+  if (!peca || typeof peca !== 'object') return false;
+  if (typeof OSU().isBudgetPieceLinkedToRealPart === 'function') {
+    return OSU().isBudgetPieceLinkedToRealPart(os || {}, peca);
+  }
+  return osPecaRealProtegidaOS(peca);
+}
+
+function osLinhaPecaRealProtegidaOS(row, os) {
+  if (!row) return false;
+  const peca = {
+    origem: row.dataset?.origemPecaOS || '',
+    origemNFVinculada: row.dataset?.origemNFVinculada === '1',
+    origemNFItemKey: row.dataset?.origemNFItemKey || '',
+    nfId: row.dataset?.pecaNfId || '',
+    nf: row.dataset?.pecaNf || '',
+    codigo: row.querySelector?.('.peca-codigo')?.value?.trim() || row.dataset?.pecaCodigo || '',
+    desc: row.querySelector?.('.peca-desc-livre')?.value?.trim() || row.dataset?.pecaDesc || '',
+    qtd: numBR(row.querySelector?.('.peca-qtd')?.value || 1) || 1,
+    custo: numBR(row.querySelector?.('.peca-custo')?.value || 0),
+    venda: numBR(row.querySelector?.('.peca-venda')?.value || 0)
+  };
+  return osPecaRealProtegidaNoContextoOS(os || {}, peca);
+}
+
+function osContextoClienteAtualOS(base) {
+  const clienteId = document.getElementById('osCliente')?.value || base?.clienteId || '';
+  const cliente = (window.J?.clientes || []).find(c => String(c.id) === String(clienteId)) || {};
+  return Object.assign({}, base || {}, {
+    clienteId,
+    clienteNome: cliente.nome || cliente.razaoSocial || cliente.govUnidade || base?.clienteNome || base?.cliente || '',
+    cliente: cliente.nome || base?.cliente || '',
+    tipoCliente: cliente.tipoCliente || base?.tipoCliente || base?.clienteTipo || '',
+    clienteOficial: cliente.clienteOficial ?? base?.clienteOficial,
+    orgaoPublico: cliente.orgaoPublico ?? base?.orgaoPublico,
+    gov: cliente.gov ?? base?.gov
+  });
+}
+
+function osPecasOrcamentoVisiveisOS(os, pecas) {
+  const lista = Array.isArray(pecas) ? pecas : [];
+  if (!osClienteOficialSeguroOS(os)) return lista.slice();
+  const contexto = Object.assign({}, os || {}, { pecas: lista });
+  return lista.filter(peca => !osPecaRealProtegidaNoContextoOS(contexto, peca));
+}
+
+function osMesclarPecasProtegidasClienteOficialOS(osAnterior, contextoAtual, pecasEditadas) {
+  const visiveis = Array.isArray(pecasEditadas) ? pecasEditadas.slice() : [];
+  const contexto = Object.assign({}, osAnterior || {}, contextoAtual || {}, { pecas: visiveis });
+  if (!osClienteOficialSeguroOS(contexto)) return visiveis;
+  // Os registros internos permanecem integralmente em pecasReais. Aqui, no campo
+  // público pecas, removemos inclusive duplicatas antigas que perderam os metadados
+  // de NF ao serem salvas como peça avulsa depois da troca de cliente/placa.
+  return osPecasOrcamentoVisiveisOS(contexto, visiveis);
+}
+
+function osEventoPecaRealProtegidoOS(evento) {
+  if (!evento || typeof evento !== 'object') return false;
+  const tipo = String(evento.tipo || evento.modulo || '').toLowerCase();
+  if (['nf_peca_real','edicao_nf_peca_real','devolucao_nf_peca_real','vinculo_nf_peca_real_os'].includes(tipo)) return true;
+  const texto = String(evento.acao || evento.descricao || evento.mensagem || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /peca real|pecas reais|vinculad[ao] por nf|nf.*peca.*real|peca.*nf.*vinculad/.test(texto);
+}
+
+window.thiaPecaRealProtegidaOS = osPecaRealProtegidaOS;
+window.thiaPecaRealProtegidaNoContextoOS = osPecaRealProtegidaNoContextoOS;
+window.thiaClienteOficialSeguroOS = osClienteOficialSeguroOS;
+window.thiaSegredo177AtivoOS = osSegredo177AtivoOS;
+window.thiaEventoPecaRealProtegidoOS = osEventoPecaRealProtegidoOS;
 
 function osChavePecaAtendimentoOS(p) {
   if (!p) return '';
@@ -2660,6 +3244,7 @@ window.renderPecaOSRow = function(p) {
     `;
   }
   if($('containerPecasOS')) $('containerPecasOS').appendChild(div);
+  instalarDescontoIndividualLinhaOS(div, 'peca', descontoIndividualSalvoValorOS(p, numBR(p.valorBruto || ((p.qtd || p.q || 1) * numBR(p.venda || p.v || p.valor || 0)))));
   atualizarPecaOSInfoRow(div);
 };
 
@@ -2731,11 +3316,13 @@ function osAdicionarLinhaAutomatica(tipo) {
   const cont = document.getElementById(containerId);
   if (!cont || cont.dataset.autoRowLock === '1') return null;
   cont.dataset.autoRowLock = '1';
+  const antes = osRowsDiretas(containerId);
   try {
-    if (tipo === 'servico') window.adicionarServicoOS?.();
-    else window.adicionarPecaOS?.();
+    const criada = tipo === 'servico'
+      ? window.adicionarServicoOS?.({ focus:false, scroll:false, auto:true })
+      : window.adicionarPecaOS?.({ focus:false, scroll:false, auto:true });
     const rows = osRowsDiretas(containerId);
-    const nova = rows[rows.length - 1] || null;
+    const nova = rows.length > antes.length ? rows[rows.length - 1] : (criada || null);
     if (nova) nova.dataset.autoLinhaOS = '1';
     return nova;
   } finally {
@@ -2774,7 +3361,12 @@ window.inicializarAutoLinhasOS = function() {
   const pec = document.getElementById('containerPecasOS');
   if (serv && serv.dataset.autoRowsInit !== '1') {
     serv.dataset.autoRowsInit = '1';
-    const onEdit = () => setTimeout(() => osGarantirProximaLinha('servico'), 0);
+    let autoRowTimerServico = null;
+    const onEdit = ev => {
+      if (ev?.isComposing) return;
+      clearTimeout(autoRowTimerServico);
+      autoRowTimerServico = setTimeout(() => osGarantirProximaLinha('servico'), 90);
+    };
     serv.addEventListener('input', onEdit);
     serv.addEventListener('change', onEdit);
     serv.addEventListener('keydown', ev => {
@@ -2787,7 +3379,12 @@ window.inicializarAutoLinhasOS = function() {
   }
   if (pec && pec.dataset.autoRowsInit !== '1') {
     pec.dataset.autoRowsInit = '1';
-    const onEdit = () => setTimeout(() => osGarantirProximaLinha('peca'), 0);
+    let autoRowTimerPeca = null;
+    const onEdit = ev => {
+      if (ev?.isComposing) return;
+      clearTimeout(autoRowTimerPeca);
+      autoRowTimerPeca = setTimeout(() => osGarantirProximaLinha('peca'), 90);
+    };
     pec.addEventListener('input', onEdit);
     pec.addEventListener('change', onEdit);
     pec.addEventListener('keydown', ev => {
@@ -2812,9 +3409,9 @@ window.renderResumoSecoesOS = function(resumoSecoes) {
     const rows = Object.entries(resumoSecoes || {})
       .filter(([, item]) => item.horas || item.total)
       .sort((a, b) => b[1].total - a[1].total);
-    if (!rows.length) { el.innerHTML = ''; return; }
+    if (!rows.length) { setHTMLOS(el, ''); return; }
     const moedaLocal = v => 'R$ ' + numBR(v).toFixed(2).replace('.', ',');
-    el.innerHTML = rows.map(([secao, item]) => {
+    const html = rows.map(([secao, item]) => {
       const codigos = listaResumoOS(item.codigos, 8);
       const tipos = listaResumoOS(item.tiposVeiculo, 3);
       const sistemas = listaResumoOS(item.sistemas, 3);
@@ -2828,9 +3425,18 @@ window.renderResumoSecoesOS = function(resumoSecoes) {
         ${sistemas ? `<span style="display:block;color:var(--muted);">Sistema: ${escOS(sistemas)}</span>` : ''}
       </div>`;
     }).join('');
+    setHTMLOS(el, html);
 };
 
-window.calcOSTotal = function() {
+function atualizarCamposValorCobradoLinhaOS(row, tipo, valorFinal) {
+  if (!row) return;
+  const seletor = tipo === 'servico' ? '.serv-valor-cobrado' : '.peca-valor-cobrado';
+  const campo = row.querySelector(seletor);
+  if (campo) setValueOS(campo, Math.max(0, numBR(valorFinal || 0)).toFixed(2).replace('.', ','), true);
+  if (tipo === 'servico') window.atualizarValorAutomaticoRateioServicoOS?.(row, valorFinal);
+}
+
+function calcularOSTotalAgora() {
     let total = 0;
     let totalServicos = 0;
     let totalPecas = 0;
@@ -2868,9 +3474,10 @@ window.calcOSTotal = function() {
         // Atualiza badge de desconto em tempo real
         const descBox = row.querySelector('.serv-desc-val');
         const pctBox = row.querySelector('.serv-desc-pct');
-        if (pctBox) pctBox.textContent = '-' + (descMO * 100).toFixed(1).replace('.', ',') + '%';
-        if (descBox) descBox.textContent = 'R$ ' + vFinal.toFixed(2).replace('.', ',');
-        atualizarBoxDescontoLinhaOS(row, 'serv', vBruto, vFinal, descMO);
+        if (pctBox) setTextOS(pctBox, '- ' + moedaOS(calc.descontoValor || Math.max(0, vBruto - vFinal)));
+        if (descBox) setTextOS(descBox, 'R$ ' + vFinal.toFixed(2).replace('.', ','));
+        atualizarCamposValorCobradoLinhaOS(row, 'servico', vFinal);
+        atualizarBoxDescontoLinhaOS(row, 'serv', vBruto, vFinal, calc.descPct || 0);
         totalServicos += vFinal;
         if (desc || vBruto || tempo) {
             const sel = row.querySelector('.serv-secao-hora');
@@ -2909,9 +3516,10 @@ window.calcOSTotal = function() {
         const desc = String(calc.desc || '').trim();
         const descBox = row.querySelector('.serv-desc-val');
         const pctBox = row.querySelector('.serv-desc-pct');
-        if (pctBox) pctBox.textContent = '-' + (descMO * 100).toFixed(1).replace('.', ',') + '%';
-        if (descBox) descBox.textContent = 'R$ ' + vFinal.toFixed(2).replace('.', ',');
-        atualizarBoxDescontoLinhaOS(row, 'serv', vBruto, vFinal, descMO);
+        if (pctBox) setTextOS(pctBox, '- ' + moedaOS(calc.descontoValor || Math.max(0, vBruto - vFinal)));
+        if (descBox) setTextOS(descBox, 'R$ ' + vFinal.toFixed(2).replace('.', ','));
+        atualizarCamposValorCobradoLinhaOS(row, 'servico', vFinal);
+        atualizarBoxDescontoLinhaOS(row, 'serv', vBruto, vFinal, calc.descPct || 0);
         totalServicos += vFinal;
         if (desc || vBruto || tempo) {
             const sel = row.querySelector('.serv-secao-hora');
@@ -2944,25 +3552,29 @@ window.calcOSTotal = function() {
         const qtd   = numBR(row.querySelector('.peca-qtd')?.value   || 0);
         const venda = numBR(row.querySelector('.peca-venda')?.value  || 0);
         const vBruto = qtd * venda;
-        const vFinal = +(vBruto * (1 - descPeca)).toFixed(2);
+        const descontoIndividualValor = descontoIndividualLinhaOS(row, 'peca');
+        const calcDesconto = calcularDescontosValorOS(vBruto, descPeca, descontoIndividualValor);
+        const descEfetivo = calcDesconto.descPct;
+        const vFinal = calcDesconto.valorFinal;
         brutoPecas += vBruto;
         // Atualiza badge de desconto em tempo real
         const descBox = row.querySelector('.peca-desc-val');
         const pctBox = row.querySelector('.peca-desc-pct') || row.querySelector('.peca-desc-box div:first-child');
-        if (pctBox) pctBox.textContent = '-' + (descPeca * 100).toFixed(1).replace('.', ',') + '%';
-        if (descBox) descBox.textContent = 'R$ ' + vFinal.toFixed(2).replace('.', ',');
-        atualizarBoxDescontoLinhaOS(row, 'peca', vBruto, vFinal, descPeca);
+        if (pctBox) setTextOS(pctBox, '- ' + moedaOS(calcDesconto.descontoValor || Math.max(0, vBruto - vFinal)));
+        if (descBox) setTextOS(descBox, 'R$ ' + vFinal.toFixed(2).replace('.', ','));
+        atualizarCamposValorCobradoLinhaOS(row, 'peca', vFinal);
+        atualizarBoxDescontoLinhaOS(row, 'peca', vBruto, vFinal, descEfetivo);
         totalPecas += vFinal;
     });
 
     const guinchoOS = window.calcularDeslocamentoGuinchoOS?.() || { total: 0 };
     const totalGuincho = guinchoOS.ativo ? _numGuinchoOS(guinchoOS.total || 0) : 0;
     total = +(totalServicos + totalPecas + totalGuincho).toFixed(2);
-    if ($('osTotalVal')) $('osTotalVal').innerText = total.toFixed(2).replace('.', ',');
-    if ($('osTotalServicosVal')) $('osTotalServicosVal').innerText = totalServicos.toFixed(2).replace('.', ',');
-    if ($('osTotalPecasVal')) $('osTotalPecasVal').innerText = totalPecas.toFixed(2).replace('.', ',');
-    if ($('osTotalValMirror')) $('osTotalValMirror').innerText = total.toFixed(2).replace('.', ',');
-    if ($('osTotalHidden')) $('osTotalHidden').value = total;
+    setTextOS($('osTotalVal'), total.toFixed(2).replace('.', ','));
+    setTextOS($('osTotalServicosVal'), totalServicos.toFixed(2).replace('.', ','));
+    setTextOS($('osTotalPecasVal'), totalPecas.toFixed(2).replace('.', ','));
+    setTextOS($('osTotalValMirror'), total.toFixed(2).replace('.', ','));
+    setValueOS($('osTotalHidden'), total, false);
     atualizarResumoDescontosCompletoOS({
       descMO,
       descPeca,
@@ -2975,6 +3587,30 @@ window.calcOSTotal = function() {
     });
     window.renderResumoSecoesOS(resumoSecoesOS);
     window.atualizarCotacaoPecasOrcamentoAtualOS?.();
+    return { total, totalServicos, totalPecas, brutoServicos, brutoPecas };
+}
+
+let _calcOSTotalTimer = null;
+let _calcOSTotalFrame = null;
+window.calcOSTotalAgora = function() {
+  clearTimeout(_calcOSTotalTimer);
+  _calcOSTotalTimer = null;
+  if (_calcOSTotalFrame != null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(_calcOSTotalFrame);
+  _calcOSTotalFrame = null;
+  return calcularOSTotalAgora();
+};
+window.calcOSTotal = function(options) {
+  if (options === true || options?.imediato === true) return window.calcOSTotalAgora();
+  clearTimeout(_calcOSTotalTimer);
+  _calcOSTotalTimer = setTimeout(() => {
+    _calcOSTotalTimer = null;
+    const executar = () => {
+      _calcOSTotalFrame = null;
+      calcularOSTotalAgora();
+    };
+    if (typeof requestAnimationFrame === 'function') _calcOSTotalFrame = requestAnimationFrame(executar);
+    else executar();
+  }, 55);
 };
 
 window.verificarStatusOS = function() {
@@ -3022,16 +3658,37 @@ function calcularComissoesPorMecanicoOS(payload, totalPecasFallback) {
     if (temAprovacao && !aprovados.has(item.key)) return;
     const registro = execucao[item.key] || {};
     if (temExecucaoServico && !statusExecucaoComissaoOS(registro.status)) return;
-    const mecId = registro.mecId || registro.responsavelId || item.mecId || item.responsavelId || payload.mecId || '';
-    const grupo = garantir(mecId);
-    if (!grupo) return;
-    const valor = numBR(item.valorFinal || 0);
-    grupo.baseServico += valor;
-    grupo.servicos.push({
-      key: item.key,
-      desc: item.desc || '',
-      valor,
-      statusExecucao: registro.status || (temExecucaoServico ? 'sem_confirmacao' : 'legado_finalizado')
+    const origemServico = (payload?.servicos || [])[item.index] || {};
+    let rateios = Array.isArray(origemServico.rateiosComissao) ? origemServico.rateiosComissao : [];
+    rateios = rateios.map(r => ({
+      mecId: String(r?.mecId || r?.id || '').trim(),
+      mecNome: r?.mecNome || r?.nome || '',
+      valorBase: Math.max(0, numBR(r?.valorBase ?? r?.valorDividido ?? r?.baseComissao ?? 0))
+    })).filter(r => r.mecId && r.valorBase > 0);
+    if (!rateios.length) {
+      const mecId = registro.mecId || registro.responsavelId || item.mecId || item.responsavelId || payload.mecId || '';
+      if (mecId) rateios = [{ mecId: String(mecId), mecNome: item.mecNome || '', valorBase: Math.max(0, numBR(item.valorFinal || 0)) }];
+    }
+    const vistos = new Set();
+    rateios.forEach(rateio => {
+      if (vistos.has(rateio.mecId)) return;
+      vistos.add(rateio.mecId);
+      const grupo = garantir(rateio.mecId);
+      if (!grupo) return;
+      const baseRateada = +Math.min(Math.max(0, numBR(item.valorFinal || 0)), Math.max(0, numBR(rateio.valorBase || 0))).toFixed(2);
+      if (baseRateada <= 0) return;
+      grupo.baseServico += baseRateada;
+      const percentual = numBR(grupo.mec.comissaoServico ?? grupo.mec.comissao ?? 0);
+      grupo.servicos.push({
+        key: item.key,
+        desc: item.desc || '',
+        valor: baseRateada,
+        valorBase: baseRateada,
+        valorServicoCobrado: numBR(item.valorFinal || 0),
+        percentual,
+        valorComissao: +(baseRateada * (percentual / 100)).toFixed(2),
+        statusExecucao: registro.status || (temExecucaoServico ? 'sem_confirmacao' : 'legado_finalizado')
+      });
     });
   });
 
@@ -3044,11 +3701,11 @@ function calcularComissoesPorMecanicoOS(payload, totalPecasFallback) {
   }
 
   return Array.from(mapa.values()).map(grupo => {
-    const percServico = numBR(grupo.mec.comissaoServico ?? 0);
+    const percServico = numBR(grupo.mec.comissaoServico ?? grupo.mec.comissao ?? 0);
     const percPeca = numBR(grupo.mec.comissaoPeca || 0);
     const baseServico = +grupo.baseServico.toFixed(2);
     const basePecas = +grupo.basePecas.toFixed(2);
-    const valorServico = +(baseServico * (percServico / 100)).toFixed(2);
+    const valorServico = +grupo.servicos.reduce((soma, servico) => soma + numBR(servico.valorComissao || 0), 0).toFixed(2);
     const valorPeca = +(basePecas * (percPeca / 100)).toFixed(2);
     return {
       mecId: grupo.mecId,
@@ -3080,6 +3737,14 @@ async function reconciliarComissoesOS(osId, payload, calculos) {
     ...existentes.map(fin => String(fin.mecId || '')).filter(Boolean)
   ]);
   const agora = new Date().toISOString();
+  const batch = db.batch();
+  let operacoes = 0;
+  const atualizar = (ref, dados) => { batch.update(ref, limparUndefinedFirestoreOS(dados)); operacoes += 1; };
+  const criar = dados => {
+    const ref = db.collection('financeiro').doc();
+    batch.set(ref, limparUndefinedFirestoreOS(dados));
+    operacoes += 1;
+  };
 
   for (const mecId of mecanicos) {
     const calc = alvos.get(mecId);
@@ -3092,7 +3757,9 @@ async function reconciliarComissoesOS(osId, payload, calculos) {
 
     if (Math.abs(saldoPendente) < 0.01 || !calc) {
       for (const pendente of pendentes) {
-        await pendente.ref.update({
+        const saldoManualDividido = pendente.origem === 'saldo_pagamento_comissao_detalhado' || pendente.categoria === 'comissao_os_servico_parcial';
+        if (!calc && saldoManualDividido) continue;
+        atualizar(pendente.ref, {
           status: 'Cancelado',
           canceladoEm: agora,
           motivoCancelamento: calc
@@ -3132,9 +3799,9 @@ async function reconciliarComissoesOS(osId, payload, calculos) {
       updatedAt: agora
     };
     if (pendentes.length) {
-      await pendentes[0].ref.update(dados);
+      atualizar(pendentes[0].ref, dados);
       for (const duplicada of pendentes.slice(1)) {
-        await duplicada.ref.update({
+        atualizar(duplicada.ref, {
           status: 'Cancelado',
           canceladoEm: agora,
           motivoCancelamento: 'Comissão duplicada reconciliada por mecânico e serviço',
@@ -3142,13 +3809,32 @@ async function reconciliarComissoesOS(osId, payload, calculos) {
         });
       }
     } else {
-      await db.collection('financeiro').add({ ...dados, createdAt: agora });
+      criar({ ...dados, createdAt: agora });
     }
   }
+  if (operacoes) await batch.commit();
 }
 
 window.salvarOS = async function() {
+  window.calcOSTotalAgora?.();
   const osId = $v('osId');
+  const osRefSalvar = osId ? db.collection('ordens_servico').doc(osId) : db.collection('ordens_servico').doc();
+  const targetOsId = osRefSalvar.id;
+  const batchSalvarOS = db.batch();
+  let operacoesBatchSalvarOS = 0;
+  const auditoriasFinanceiroDepoisCommitOS = [];
+  const queueFinanceiroAddOS = dados => {
+    if (operacoesBatchSalvarOS >= 450) throw new Error('A O.S. excedeu o limite seguro de operações financeiras em uma única gravação.');
+    const ref = db.collection('financeiro').doc();
+    batchSalvarOS.set(ref, limparUndefinedFirestoreOS({ ...dados, osId: dados?.osId || targetOsId }));
+    operacoesBatchSalvarOS += 1;
+    return ref;
+  };
+  const queueFinanceiroUpdateOS = (ref, dados) => {
+    if (operacoesBatchSalvarOS >= 450) throw new Error('A O.S. excedeu o limite seguro de operações financeiras em uma única gravação.');
+    batchSalvarOS.update(ref, limparUndefinedFirestoreOS(dados));
+    operacoesBatchSalvarOS += 1;
+  };
   const prismaInformadoOS = ($v('osPrisma') || '').trim();
   if ($('osPlaca') && !$v('osPlaca')) { window.toast('⚠ Preencha a Placa', 'warn'); return; }
   if ($('osCliente') && $('osVeiculo') && !$v('osCliente') && !$v('osVeiculo')) { window.toast('⚠ Selecione cliente e veículo', 'warn'); return; }
@@ -3164,6 +3850,7 @@ window.salvarOS = async function() {
 
   const servicos = []; 
   let totalMaoObra = 0;
+  let erroRateioOS = '';
 
   // Função local que lê uma linha de serviço e empurra pro array
   const _lerLinhaServico = (row) => {
@@ -3183,9 +3870,15 @@ window.salvarOS = async function() {
     const valorHoraTabela = numBR(calc.valorHoraTabela || (secaoInfo ? secaoInfo.valor : row.dataset?.valorHoraSecao || 0));
     const secaoHoraLabel = calc.secaoHoraLabel || secaoInfo?.label || row.dataset?.secaoHoraLabel || '';
     const valorHoraManual = row.dataset?.valorHoraManual === '1' || (valorHoraTabela > 0 && valorHora > 0 && Math.abs(valorHora - valorHoraTabela) > 0.009);
-    const mecIdServico = calc.mecId || row.querySelector('.serv-mec')?.value || row.dataset?.mecId || '';
+    const idsRateioBrutos = Array.from(row.querySelectorAll('.serv-rateio-row .serv-mec')).map(sel => String(sel.value || '').trim()).filter(Boolean);
+    if (new Set(idsRateioBrutos).size !== idsRateioBrutos.length && !erroRateioOS) erroRateioOS = `O serviço "${desc || 'sem descrição'}" possui o mesmo mecânico selecionado mais de uma vez.`;
+    const rateiosComissao = window.obterRateiosLinhaServicoOS?.(row, valorFinal) || [];
+    const somaRateios = +rateiosComissao.reduce((soma, r) => soma + numBR(r.valorBase || 0), 0).toFixed(2);
+    if (rateiosComissao.length > 1 && rateiosComissao.some(r => numBR(r.valorBase || 0) <= 0) && !erroRateioOS) erroRateioOS = `Informe o valor dividido para cada mecânico no serviço "${desc || 'sem descrição'}".`;
+    if (somaRateios - valorFinal > 0.011 && !erroRateioOS) erroRateioOS = `A divisão interna do serviço "${desc || 'sem descrição'}" (${moeda(somaRateios)}) supera o valor cobrado (${moeda(valorFinal)}).`;
+    const mecIdServico = rateiosComissao[0]?.mecId || calc.mecId || row.querySelector('.serv-mec')?.value || row.dataset?.mecId || '';
     const mecServico = (window.J?.equipe || []).find(f => String(f.id) === String(mecIdServico));
-    const mecNomeServico = mecServico?.nome || calc.mecNome || row.dataset?.mecNome || '';
+    const mecNomeServico = rateiosComissao[0]?.mecNome || mecServico?.nome || calc.mecNome || row.dataset?.mecNome || '';
     if (desc || valor > 0 || valorFinal > 0 || tempo > 0) {
       servicos.push({
         desc,
@@ -3194,6 +3887,15 @@ window.salvarOS = async function() {
         bruto: valor,
         valorFinal,
         total: valorFinal,
+        descGeralPct: numBR(calc.descGeralPct || 0),
+        descontoGeralValor: numBR(calc.descontoGeralValor || 0),
+        descontoIndividualTipo: 'valor',
+        descontoIndividualValor: numBR(calc.descontoIndividualValor || 0),
+        descIndividualValor: numBR(calc.descontoIndividualValor || 0),
+        descontoIndividual: numBR(calc.descontoIndividualValor || 0),
+        descIndividualPct: numBR(calc.descIndividualPct || 0),
+        descontoValor: numBR(calc.descontoValor || Math.max(0, valor - valorFinal)),
+        descPct: numBR(calc.descPct || 0),
         tempo,
         codigoInterno,
         codigoTabela,
@@ -3208,6 +3910,12 @@ window.salvarOS = async function() {
         mecNome: mecNomeServico,
         responsavelId: mecIdServico,
         responsavelNome: mecNomeServico,
+        mecIds: rateiosComissao.map(r => r.mecId),
+        rateiosComissao: rateiosComissao.map(r => ({ mecId: r.mecId, mecNome: r.mecNome || '', valorBase: +numBR(r.valorBase || 0).toFixed(2) })),
+        tipoExecucao: calc.tipoExecucao === 'terceirizada' ? 'terceirizada' : 'interna',
+        terceirizadoId: calc.tipoExecucao === 'terceirizada' ? String(calc.terceirizadoId || '') : '',
+        terceirizadoNome: calc.tipoExecucao === 'terceirizada' ? String(calc.terceirizadoNome || '') : '',
+        terceirizadoOrigem: calc.tipoExecucao === 'terceirizada' ? String(calc.terceirizadoOrigem || '') : '',
         tempaManual: row.dataset?.tempaManual === '1',
         relacionadoCilia: row.dataset?.servRelacionado === '1',
         origemServico: row.dataset?.servRelacionado === '1'
@@ -3222,10 +3930,11 @@ window.salvarOS = async function() {
   document.querySelectorAll('#containerServicosOS > div').forEach(_lerLinhaServico);
   // CORREÇÃO 6: também lê serviços relacionados Cilia (dentro das peças)
   document.querySelectorAll('#containerPecasOS .cilia-serv-relac').forEach(_lerLinhaServico);
+  if (erroRateioOS) { window.toast(erroRateioOS, 'warn'); return; }
 
   let mecanicoIdsOS = idsUnicosMecanicosOS([
     ...window.obterMecanicosSelecionadosOS(),
-    ...servicos.map(s => s.mecId)
+    ...servicos.flatMap(s => [s.mecId, ...(Array.isArray(s.rateiosComissao) ? s.rateiosComissao.map(r => r.mecId) : [])])
   ]);
   let mecanicoPrincipalOS = $v('osMec') || mecanicoIdsOS[0] || '';
   if (mecanicoPrincipalOS) {
@@ -3240,6 +3949,11 @@ window.salvarOS = async function() {
         s.mecNome = unico.nome;
         s.responsavelId = unico.id;
         s.responsavelNome = unico.nome;
+        s.mecIds = [unico.id];
+        s.rateiosComissao = [{ mecId: unico.id, mecNome: unico.nome, valorBase: +numBR(s.valorFinal || 0).toFixed(2) }];
+      } else if (!Array.isArray(s.rateiosComissao) || !s.rateiosComissao.length) {
+        s.mecIds = [s.mecId];
+        s.rateiosComissao = [{ mecId: s.mecId, mecNome: s.mecNome || snapshotMecanicoOS(s.mecId).nome || '', valorBase: +numBR(s.valorFinal || 0).toFixed(2) }];
       }
     });
   }
@@ -3250,9 +3964,14 @@ window.salvarOS = async function() {
     return;
   }
 
+  const _oldOSProtecaoPecas = osId ? (window.J?.os || []).find(x => x.id === osId) : null;
+  const _contextoProtecaoPecas = osContextoClienteAtualOS(_oldOSProtecaoPecas || {});
+  const _protegerPecasReaisNoOrcamento = osClienteOficialSeguroOS(_contextoProtecaoPecas);
+
   const pecas = [];
   let totalPecas = 0;
   document.querySelectorAll('#containerPecasOS [data-peca-avulsa="1"], #containerPecasOS > div:not(.cilia-peca-wrap)').forEach(row => {
+    if (_protegerPecasReaisNoOrcamento && osLinhaPecaRealProtegidaOS(row, _contextoProtecaoPecas)) return;
     const wrapCilia = row.closest?.('.cilia-peca-wrap') || row;
     // Peça AVULSA (cliente governo)
     if (row.dataset?.pecaAvulsa === '1') {
@@ -3260,8 +3979,13 @@ window.salvarOS = async function() {
       const descLivre = row.querySelector('.peca-desc-livre')?.value || '';
       const qtd = numBR(row.querySelector('.peca-qtd')?.value || 1) || 1;
       const venda = numBR(row.querySelector('.peca-venda')?.value || 0);
+      const descontoIndividualValor = descontoIndividualLinhaOS(row, 'peca');
+      const valorBrutoItem = +(qtd * venda).toFixed(2);
+      const calcDescontoItem = calcularDescontosValorOS(valorBrutoItem, descontoPecasAtualOS(), descontoIndividualValor);
+      const descEfetivo = calcDescontoItem.descPct;
+      const valorFinalItem = calcDescontoItem.valorFinal;
       if (descLivre || codigo) {
-        totalPecas += (qtd * venda);
+        totalPecas += valorFinalItem;
         pecas.push({
           avulsa: true,        // marcador
           estoqueId: '',       // não baixa estoque
@@ -3273,6 +3997,17 @@ window.salvarOS = async function() {
           qtd: qtd,
           custo: 0,
           venda: venda,
+          valorBruto: valorBrutoItem,
+          valorFinal: valorFinalItem,
+          total: valorFinalItem,
+          descontoGeralValor: calcDescontoItem.descontoGeralValor,
+          descontoIndividualTipo: 'valor',
+          descontoIndividualValor: calcDescontoItem.descontoIndividualValor,
+          descIndividualValor: calcDescontoItem.descontoIndividualValor,
+          descontoIndividual: calcDescontoItem.descontoIndividualValor,
+          descIndividualPct: valorBrutoItem > 0 ? +(calcDescontoItem.descontoIndividualValor / valorBrutoItem).toFixed(6) : 0,
+          descontoValor: calcDescontoItem.descontoValor,
+          descPct: descEfetivo,
           origem: row.dataset?.origemPecaOS || 'manual',
           origemNFItemKey: row.dataset?.origemNFItemKey || '',
           nfId: row.dataset?.pecaNfId || '',
@@ -3300,8 +4035,13 @@ window.salvarOS = async function() {
     const qtd = numBR(row.querySelector('.peca-qtd')?.value || 1) || 1;
     const venda = numBR(row.querySelector('.peca-venda')?.value || 0);
     const custo = numBR(row.querySelector('.peca-custo')?.value || 0);
+    const descontoIndividualValor = descontoIndividualLinhaOS(row, 'peca');
+    const valorBrutoItem = +(qtd * venda).toFixed(2);
+    const calcDescontoItem = calcularDescontosValorOS(valorBrutoItem, descontoPecasAtualOS(), descontoIndividualValor);
+    const descEfetivo = calcDescontoItem.descPct;
+    const valorFinalItem = calcDescontoItem.valorFinal;
     if (!estoqueId && !venda && !custo && !descPeca && !codigo) return;
-    totalPecas += (qtd * venda);
+    totalPecas += valorFinalItem;
 
     pecas.push({
       estoqueId,
@@ -3311,6 +4051,17 @@ window.salvarOS = async function() {
       descricao: descPeca,
       descricaoExibicao: descPeca,
       qtd: qtd, custo: custo, venda: venda,
+      valorBruto: valorBrutoItem,
+      valorFinal: valorFinalItem,
+      total: valorFinalItem,
+      descontoGeralValor: calcDescontoItem.descontoGeralValor,
+      descontoIndividualTipo: 'valor',
+      descontoIndividualValor: calcDescontoItem.descontoIndividualValor,
+      descIndividualValor: calcDescontoItem.descontoIndividualValor,
+      descontoIndividual: calcDescontoItem.descontoIndividualValor,
+      descIndividualPct: valorBrutoItem > 0 ? +(calcDescontoItem.descontoIndividualValor / valorBrutoItem).toFixed(6) : 0,
+      descontoValor: calcDescontoItem.descontoValor,
+      descPct: descEfetivo,
       baixarEstoqueReal: pecaOSBaixaRealAtiva(row),
       fornecedor: row.dataset?.pecaFornecedor || opt?.dataset?.fornecedor || '',
       nf: row.dataset?.pecaNf || opt?.dataset?.nf || '',
@@ -3337,7 +4088,7 @@ window.salvarOS = async function() {
   payload.deslocamentoGuincho = guinchoPayload;
   payload.totalGuincho = guinchoPayload.ativo ? _numGuinchoOS(guinchoPayload.total || 0) : 0;
 
-  const _oldOSPreservar = osId ? (window.J?.os || []).find(x => x.id === osId) : null;
+  const _oldOSPreservar = _oldOSProtecaoPecas;
 
   // Prisma da O.S.: persiste enquanto o veículo estiver no pátio.
   // Ao entregar, preserva o último número no histórico e libera o prisma para reutilização.
@@ -3393,7 +4144,7 @@ window.salvarOS = async function() {
   if ($v('osDescricao')) payload.desc = $v('osDescricao');
   payload.mecId = mecanicoPrincipalOS || _oldOSPreservar?.mecId || '';
   payload.mecNome = snapshotMecanicoOS(payload.mecId, _oldOSPreservar).nome || _oldOSPreservar?.mecNome || '';
-  payload.mecIds = idsUnicosMecanicosOS([payload.mecId, ...mecanicoIdsOS, ...servicos.map(s => s.mecId)]);
+  payload.mecIds = idsUnicosMecanicosOS([payload.mecId, ...mecanicoIdsOS, ...servicos.flatMap(s => [s.mecId, ...(Array.isArray(s.rateiosComissao) ? s.rateiosComissao.map(r => r.mecId) : [])])]);
   payload.mecanicos = payload.mecIds.map(id => snapshotMecanicoOS(id, _oldOSPreservar));
   if ($v('osData')) payload.data = $v('osData');
   if ($v('osKm')) payload.km = $v('osKm');
@@ -3458,7 +4209,9 @@ window.salvarOS = async function() {
   const _pecasReaisOcultasNaOS = osAtualizarOcultasPecasNFRemovidasOS(_oldOSPreservar || {}, pecas);
   payload.pecasReaisOcultasNaOS = _pecasReaisOcultasNaOS;
   payload.pecasNFRemovidasDaOS = _pecasReaisOcultasNaOS;
-  payload.pecas = osReconciliarPecasReaisParaClienteComumOS(Object.assign({}, _oldOSPreservar || {}, payload), pecas, payload.pecasReais || _pecasReais || []);
+  const _contextoFinalPecasOS = Object.assign({}, _oldOSPreservar || {}, payload);
+  const _pecasOrcamentoReconciliadasOS = osReconciliarPecasReaisParaClienteComumOS(_contextoFinalPecasOS, pecas, payload.pecasReais || _pecasReais || []);
+  payload.pecas = osMesclarPecasProtegidasClienteOficialOS(_oldOSPreservar || {}, _contextoFinalPecasOS, _pecasOrcamentoReconciliadasOS);
   payload.maoObra = totalMaoObra;
 
   // Mapeia media para o payload antes do Deep Diff para podermos comparar
@@ -3898,7 +4651,7 @@ window.salvarOS = async function() {
                 continue;
               }
               if (financeiroOSCanceladoOS(finAntes)) continue;
-              await db.collection('financeiro').doc(docSnap.id).update({
+              queueFinanceiroUpdateOS(db.collection('financeiro').doc(docSnap.id), {
                 status: 'Cancelado',
                 canceladoPorReemissaoOS: true,
                 canceladoEm: new Date().toISOString(),
@@ -3906,7 +4659,15 @@ window.salvarOS = async function() {
                 dadosAntesCancelamento: finAntes
               });
               if (typeof window.thiaAudit === 'function') {
-                await window.thiaAudit('cancelou_financeiro_pendente_por_reemissao_os', 'financeiro', docSnap.id, finAntes, { status: 'Cancelado' }, 'Reemissão financeira da O.S.', { osId });
+                auditoriasFinanceiroDepoisCommitOS.push(() => window.thiaAudit(
+                  'cancelou_financeiro_pendente_por_reemissao_os',
+                  'financeiro',
+                  docSnap.id,
+                  finAntes,
+                  { status: 'Cancelado' },
+                  'Reemissão financeira da O.S.',
+                  { osId: targetOsId }
+                ));
               }
             }
           } catch(e) { console.warn('Reconciliação financeiro OS:', e); }
@@ -3940,11 +4701,11 @@ window.salvarOS = async function() {
             const parteCartao = formaPagamentoParcelaOperadoraOS(formaParte) || (formaNormParte.includes('credito') && !formaNormParte.includes('boleto') && !formaNormParte.includes('crediario'));
             const parteCreditoOficina = formaPagamentoParcelaClienteOS(formaParte);
             if (parteAVista) {
-              await db.collection('financeiro').add({
+              queueFinanceiroAddOS({
                 tenantId: J.tid, tipo: 'Entrada', status: 'Pago',
                 desc: `${descBaseFinanceiroOS} — parte ${parte.indice || ''} (${formaParte})`,
                 valor: valorParte, pgto: formaParte, venc: dataParte, dataPgto: dataParte,
-                osId: osId || null, clienteId: payload.clienteId || null,
+                osId: targetOsId, clienteId: payload.clienteId || null,
                 quitadoPeloCliente: true, origem: 'recebimento_os_combinado',
                 parteCombinada: parte, valorTotalOS: valorFinanceiro, valorJaLiquidadoOS, complementoFinanceiroOS,
                 createdAt: new Date().toISOString()
@@ -3952,11 +4713,11 @@ window.salvarOS = async function() {
             } else if (parteCartao) {
               const valorParcelaParte = valorParte / parcParte;
               for (let i = 0; i < parcParte; i++) {
-                await db.collection('financeiro').add({
+                queueFinanceiroAddOS({
                   tenantId: J.tid, tipo: 'Entrada', status: 'A Receber',
                   desc: `Recebimento operadora — ${descBaseFinanceiroOS} — ${formaParte} ${parcParte > 1 ? `(${i + 1}/${parcParte})` : ''}`,
                   valor: valorParcelaParte, pgto: formaParte, venc: somarDiasISOOS(dataParte, 30 * (i + 1)),
-                  osId: osId || null, clienteId: payload.clienteId || null,
+                  osId: targetOsId, clienteId: payload.clienteId || null,
                   quitadoPeloCliente: true, aReceberDe: 'Operadora de Cartão', origem: 'recebimento_os_combinado',
                   parteCombinada: parte, valorTotalOS: valorFinanceiro, valorJaLiquidadoOS, complementoFinanceiroOS,
                   createdAt: new Date().toISOString()
@@ -3965,22 +4726,22 @@ window.salvarOS = async function() {
             } else if (parteCreditoOficina) {
               const valorParcelaParte = valorParte / parcParte;
               for (let i = 0; i < parcParte; i++) {
-                await db.collection('financeiro').add({
+                queueFinanceiroAddOS({
                   tenantId: J.tid, tipo: 'Entrada', status: 'Pendente',
                   desc: `${descBaseFinanceiroOS} — ${formaParte} ${parcParte > 1 ? `(${i + 1}/${parcParte})` : ''}`,
                   valor: valorParcelaParte, pgto: formaParte, venc: somarMesesISOOS(dataParte, i),
-                  osId: osId || null, clienteId: payload.clienteId || null,
+                  osId: targetOsId, clienteId: payload.clienteId || null,
                   quitadoPeloCliente: false, aReceberDe: 'Cliente', origem: 'recebimento_os_combinado',
                   parteCombinada: parte, valorTotalOS: valorFinanceiro, valorJaLiquidadoOS, complementoFinanceiroOS,
                   createdAt: new Date().toISOString()
                 });
               }
             } else {
-              await db.collection('financeiro').add({
+              queueFinanceiroAddOS({
                 tenantId: J.tid, tipo: 'Entrada', status: 'Pendente',
                 desc: `${descBaseFinanceiroOS} — parte ${parte.indice || ''} (${formaParte})`,
                 valor: valorParte, pgto: formaParte, venc: dataParte,
-                osId: osId || null, clienteId: payload.clienteId || null,
+                osId: targetOsId, clienteId: payload.clienteId || null,
                 quitadoPeloCliente: false, origem: 'recebimento_os_combinado',
                 parteCombinada: parte, valorTotalOS: valorFinanceiro, valorJaLiquidadoOS, complementoFinanceiroOS,
                 createdAt: new Date().toISOString()
@@ -3991,7 +4752,7 @@ window.salvarOS = async function() {
           // ═══ CLIENTE PAGOU À VISTA (Dinheiro/PIX/Débito) ═══
           payload.pgtoQuitado = true;
           payload.pgtoResumoCliente = `${pgtoBase} à vista`;
-          await db.collection('financeiro').add({
+          queueFinanceiroAddOS({
             tenantId:  J.tid,
             tipo:      'Entrada',
             status:    'Pago',
@@ -4019,7 +4780,7 @@ window.salvarOS = async function() {
 
           for (let i = 0; i < parcelas; i++) {
             const vencParcela = somarDiasISOOS(payload.pgtoData, 30 * (i + 1));
-            await db.collection('financeiro').add({
+            queueFinanceiroAddOS({
               tenantId:   J.tid,
               tipo:       'Entrada',
               status:     'A Receber',
@@ -4048,7 +4809,7 @@ window.salvarOS = async function() {
 
           for (let i = 0; i < parcelas; i++) {
             const vencParcela = somarMesesISOOS(payload.pgtoData, i);
-            await db.collection('financeiro').add({
+            queueFinanceiroAddOS({
               tenantId:   J.tid,
               tipo:       'Entrada',
               status:     'Pendente',
@@ -4072,7 +4833,7 @@ window.salvarOS = async function() {
           // ═══ OUTRAS FORMAS / INDEFINIDO ═══
           payload.pgtoQuitado = false;
           payload.pgtoResumoCliente = `${pgtoBase} — verificar`;
-          await db.collection('financeiro').add({
+          queueFinanceiroAddOS({
             tenantId:  J.tid,
             tipo:      'Entrada',
             status:    'Pendente',
@@ -4095,34 +4856,46 @@ window.salvarOS = async function() {
   }
   // FIM bloco recebimento financeiro
 
-  const payloadFirestore = limparUndefinedFirestoreOS(payload);
-
-  let savedOsId = osId;
-if (osId) {
-    await db.collection('ordens_servico').doc(osId).update(payloadFirestore);
-    window.toast('✓ O.S. ATUALIZADA');
-    audit('OS', `Editou OS ${osId.slice(-6)}`);
-  } else {
+  if (!osId) {
     payload.createdAt = new Date().toISOString();
-    payload.pin = Math.floor(1000 + Math.random() * 9000).toString(); 
-    const ref = await db.collection('ordens_servico').add(limparUndefinedFirestoreOS(payload));
-    savedOsId = ref.id;
-    if (document.getElementById('osId')) document.getElementById('osId').value = savedOsId;
+    payload.pin = Math.floor(1000 + Math.random() * 9000).toString();
+  }
+  const payloadFirestore = limparUndefinedFirestoreOS(payload);
+  if (osId) batchSalvarOS.update(osRefSalvar, payloadFirestore);
+  else batchSalvarOS.set(osRefSalvar, payloadFirestore);
+  operacoesBatchSalvarOS += 1;
+
+  await batchSalvarOS.commit();
+  const savedOsId = targetOsId;
+  if (document.getElementById('osId')) document.getElementById('osId').value = savedOsId;
+
+  if (osId) {
+    window.toast('✓ O.S. ATUALIZADA');
+    audit('OS', `Editou OS ${savedOsId.slice(-6)}`);
+  } else {
     window.toast('✓ O.S. CRIADA');
     audit('OS', `Criou OS para ${payload.placa || payload.cliente || J.clientes.find(c => c.id === payload.clienteId)?.nome}`);
   }
 
-  await reconciliarComissoesOS(savedOsId, payload, comissoesOSCalculadas);
-
+  const tarefasPosGravacaoOS = [
+    reconciliarComissoesOS(savedOsId, payload, comissoesOSCalculadas)
+  ];
+  if (auditoriasFinanceiroDepoisCommitOS.length) {
+    tarefasPosGravacaoOS.push(Promise.allSettled(
+      auditoriasFinanceiroDepoisCommitOS.map(executar => Promise.resolve().then(executar))
+    ));
+  }
   if (auditoriaGeralOS.length) {
-    for (const acao of auditoriaGeralOS) {
-      await auditGeralOS(savedOsId, acao);
-    }
+    tarefasPosGravacaoOS.push(Promise.allSettled(
+      auditoriaGeralOS.map(acao => auditGeralOS(savedOsId, acao))
+    ));
   }
-
   if (_pecasReais.length > 0 || (oldOSParaAprovacao.pecasReais || []).length > 0) {
-    await window.baixarEstoquePecasReais?.(savedOsId, oldOSParaAprovacao.pecasReais || [], _pecasReais);
+    tarefasPosGravacaoOS.push(
+      Promise.resolve(window.baixarEstoquePecasReais?.(savedOsId, oldOSParaAprovacao.pecasReais || [], _pecasReais))
+    );
   }
+  await Promise.all(tarefasPosGravacaoOS);
 
   // CHECKLIST INTELIGENTE V15.11 — após salvar a O.S., atualiza o bloco do checklist
   // se o modal permanecer aberto em "Salvar e continuar". O update do Firestore preserva
@@ -4416,7 +5189,8 @@ window.removerMediaOS = function(idx) {
 window.renderTimelineOS = function() {
   if(!$('osTimeline')) return;
   const tl = JSON.parse($('osTimelineData')?.value || '[]');
-  $('osTimeline').innerHTML = [...tl].reverse().map(e => `<div class="tl-item"><div class="tl-date">${dtHrBr(e.dt)}</div><div class="tl-user">${e.user}</div><div class="tl-action">${e.acao}</div></div>`).join('');
+  const visiveis = osSegredo177AtivoOS() ? tl : tl.filter(e => !osEventoPecaRealProtegidoOS(e));
+  $('osTimeline').innerHTML = [...visiveis].reverse().map(e => `<div class="tl-item"><div class="tl-date">${dtHrBr(e.dt)}</div><div class="tl-user">${e.user}</div><div class="tl-action">${e.acao}</div></div>`).join('');
 };
 
 
@@ -4701,7 +5475,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
       resumoSecoesPDF[categoria].horas += tempo;
       resumoSecoesPDF[categoria].total += final;
       addMetaResumoServicoOS(resumoSecoesPDF[categoria], meta);
-      servicos.push({ codigo: meta.codigo || '-', codigoInterno: meta.codigoInterno || '', codigoTabela: meta.codigoTabela || '', sistema: sistema || meta.sistema || '-', tipoVeiculo: meta.tipoVeiculo || '-', desc: desc || '-', tempo, valorHora, descPct: descMO, total: final, categoria });
+      servicos.push({ codigo: meta.codigo || '-', codigoInterno: meta.codigoInterno || '', codigoTabela: meta.codigoTabela || '', sistema: sistema || meta.sistema || '-', tipoVeiculo: meta.tipoVeiculo || '-', desc: desc || '-', tempo, valorHora, bruto, descontoValor: numBR(calc.descontoValor || Math.max(0, bruto - final)), descontoIndividualValor: numBR(calc.descontoIndividualValor || 0), descPct: numBR(calc.descPct || 0), total: final, categoria });
     }
   };
   document.querySelectorAll('#containerServicosOS > div').forEach(_coletarServicoParaPDF);
@@ -4709,7 +5483,9 @@ window.gerarPDFOS = async function(opcoes = {}) {
 
   const pecas = [];
   let totalPecas = 0;
+  const _contextoPDFPecasOS = osContextoClienteAtualOS(osAtual);
   document.querySelectorAll('#containerPecasOS [data-peca-avulsa="1"], #containerPecasOS > div:not(.cilia-peca-wrap)').forEach(row => {
+    if (osClienteOficialSeguroOS(_contextoPDFPecasOS) && osLinhaPecaRealProtegidaOS(row, _contextoPDFPecasOS)) return;
     const sel = row.querySelector('.peca-sel');
     const opt = sel?.options?.[sel.selectedIndex];
     const estoqueId = sel?.value || '';
@@ -4717,10 +5493,12 @@ window.gerarPDFOS = async function(opcoes = {}) {
     const desc = descricaoPecaLinhaOS(row, opt, estoqueId);
     const qtd = numBR(row.querySelector('.peca-qtd')?.value || 0) || 1;
     const unit = numBR(row.querySelector('.peca-venda')?.value || 0);
-    const final = +(qtd * unit * (1 - descPeca)).toFixed(2);
+    const brutoItem = +(qtd * unit).toFixed(2);
+    const calcDescontoItem = calcularDescontosValorOS(brutoItem, descPeca, descontoIndividualLinhaOS(row, 'peca'));
+    const final = calcDescontoItem.valorFinal;
     if (desc || codigo || unit) {
       totalPecas += final;
-      pecas.push([codigo || 'sem oem', desc || '-', qtd, moedaPdf(unit), descPeca ? (descPeca * 100).toFixed(1).replace('.', ',') + '%' : '0,0%', moedaPdf(final)]);
+      pecas.push([codigo || 'sem oem', desc || '-', qtd, moedaPdf(unit), moedaPdf(brutoItem), moedaPdf(calcDescontoItem.descontoValor), moedaPdf(final)]);
     }
   });
 
@@ -4741,7 +5519,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
         if (!resumoSecoesPDF[categoria]) resumoSecoesPDF[categoria] = { horas: 0, total: 0, codigos: new Set(), sistemas: new Set(), tiposVeiculo: new Set() };
         resumoSecoesPDF[categoria].horas += numBR(it.tempo || 0);
         resumoSecoesPDF[categoria].total += numBR(it.valorFinal || 0);
-        servicos.push({ codigo: it.codigo || '-', sistema: it.sistema || '-', tipoVeiculo: '-', desc: it.desc || '-', tempo: numBR(it.tempo || 0), valorHora: numBR(it.valorHora || 0), descPct: descMO, total: numBR(it.valorFinal || 0), categoria });
+        servicos.push({ codigo: it.codigo || '-', sistema: it.sistema || '-', tipoVeiculo: '-', desc: it.desc || '-', tempo: numBR(it.tempo || 0), valorHora: numBR(it.valorHora || 0), bruto: numBR(it.valorBruto || it.valorOriginal || 0), descontoValor: numBR(it.descontoValor || Math.max(0, numBR(it.valorBruto || it.valorOriginal || 0) - numBR(it.valorFinal || 0))), descontoIndividualValor: numBR(it.descontoIndividualValor || 0), descPct: numBR(it.descPct || 0), total: numBR(it.valorFinal || 0), categoria });
         totalServicos += numBR(it.valorFinal || 0);
       } else {
         const tela = pecasTelaPorKeyPDF.get(it.key) || {};
@@ -4751,8 +5529,10 @@ window.gerarPDFOS = async function(opcoes = {}) {
         const descItem = descTela || descSalva || '-';
         const qtdItem = it.qtd || tela.qtd || 1;
         const valorUnitItem = it.valorUnit || tela.valorUnit || 0;
-        const valorFinalItem = it.valorFinal || tela.valorFinal || 0;
-        pecas.push([codigoItem, descItem, qtdItem, moedaPdf(valorUnitItem), descPeca ? (descPeca * 100).toFixed(1).replace('.', ',') + '%' : '0,0%', moedaPdf(valorFinalItem)]);
+        const valorBrutoItem = numBR(it.valorBruto || it.valorOriginal || tela.valorBruto || (qtdItem * valorUnitItem));
+        const valorFinalItem = numBR(it.valorFinal || tela.valorFinal || 0);
+        const descontoValorItem = numBR(it.descontoValor || Math.max(0, valorBrutoItem - valorFinalItem));
+        pecas.push([codigoItem, descItem, qtdItem, moedaPdf(valorUnitItem), moedaPdf(valorBrutoItem), moedaPdf(descontoValorItem), moedaPdf(valorFinalItem)]);
         totalPecas += numBR(valorFinalItem || 0);
       }
     });
@@ -4847,14 +5627,15 @@ window.gerarPDFOS = async function(opcoes = {}) {
     linhaTitulo('SERVIÇOS / MÃO DE OBRA');
     doc.autoTable({
       startY: y,
-      head: [['Cód.', 'Sistema / tipo veic.', 'Descrição do serviço', 'TMO', 'Valor h', 'Desc.', 'Valor']],
+      head: [['Cód.', 'Sistema / tipo veic.', 'Descrição do serviço', 'TMO', 'Valor h', 'Valor original', 'Desconto', 'Valor cobrado']],
       body: servicos.map(s => [
         s.codigo,
         [s.sistema, s.tipoVeiculo && s.tipoVeiculo !== '-' ? `Tipo: ${s.tipoVeiculo}` : ''].filter(Boolean).join('\n'),
         s.desc,
         s.tempo ? s.tempo.toFixed(2).replace('.', ',') : '-',
         moedaPdf(s.valorHora),
-        s.descPct ? (s.descPct * 100).toFixed(1).replace('.', ',') + '%' : '0,0%',
+        moedaPdf(s.bruto || s.total || 0),
+        moedaPdf(s.descontoValor || Math.max(0, numBR(s.bruto || 0) - numBR(s.total || 0))),
         moedaPdf(s.total)
       ]),
       theme: 'grid',
@@ -4862,7 +5643,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
       tableWidth: larguraUtilPdf,
       styles: { fontSize: 6.7, cellPadding: 1.45, lineColor: [190, 198, 210], lineWidth: 0.12, overflow: 'linebreak' },
       headStyles: headStylesPadraoPDF,
-      columnStyles: { 0: { cellWidth: 16 }, 1: { cellWidth: 44 }, 2: { cellWidth: 62 }, 3: { halign: 'center', cellWidth: 12 }, 4: { halign: 'right', cellWidth: 18 }, 5: { halign: 'center', cellWidth: 14 }, 6: { halign: 'right', cellWidth: 20 } }
+      columnStyles: { 0: { cellWidth: 13 }, 1: { cellWidth: 29 }, 2: { cellWidth: 47 }, 3: { halign: 'center', cellWidth: 11 }, 4: { halign: 'right', cellWidth: 17 }, 5: { halign: 'right', cellWidth: 22 }, 6: { halign: 'right', cellWidth: 21 }, 7: { halign: 'right', cellWidth: 26 } }
     });
     y = doc.lastAutoTable.finalY + 6;
   }
@@ -4873,14 +5654,14 @@ window.gerarPDFOS = async function(opcoes = {}) {
     linhaTitulo('PEÇAS / MATERIAIS');
     doc.autoTable({
       startY: y,
-      head: [['Código da peça', 'Descrição', 'Qtd', 'Valor unit.', 'Desc.', 'Valor']],
+      head: [['Código da peça', 'Descrição', 'Qtd', 'Valor unit.', 'Valor original', 'Desconto', 'Valor cobrado']],
       body: pecas,
       theme: 'grid',
       margin: { left: margem, right: margem },
       tableWidth: larguraUtilPdf,
       styles: { fontSize: 7.2, cellPadding: 1.55, lineColor: [190, 198, 210], lineWidth: 0.12, overflow: 'linebreak' },
       headStyles: headStylesPadraoPDF,
-      columnStyles: { 0: { cellWidth: 32 }, 1: { cellWidth: 76 }, 2: { halign: 'center', cellWidth: 12 }, 3: { halign: 'right', cellWidth: 24 }, 4: { halign: 'center', cellWidth: 16 }, 5: { halign: 'right', cellWidth: 26 } }
+      columnStyles: { 0: { cellWidth: 26 }, 1: { cellWidth: 58 }, 2: { halign: 'center', cellWidth: 10 }, 3: { halign: 'right', cellWidth: 21 }, 4: { halign: 'right', cellWidth: 24 }, 5: { halign: 'right', cellWidth: 21 }, 6: { halign: 'right', cellWidth: 26 } }
     });
     y = doc.lastAutoTable.finalY + 6;
   }
@@ -4916,24 +5697,30 @@ window.gerarPDFOS = async function(opcoes = {}) {
     linhaTitulo('ITENS NÃO APROVADOS - HISTÓRICO DO ORÇAMENTO ORIGINAL');
     doc.autoTable({
       startY: y,
-      head: [['Tipo', 'Código', 'Descrição', 'Valor original']],
+      head: [['Tipo', 'Código', 'Descrição', 'Valor original', 'Desconto', 'Valor cobrado']],
       body: itensNaoAprovadosPDF.map(it => {
         const tela = it.tipo === 'peca' ? (pecasTelaPorKeyPDF.get(it.key) || {}) : {};
         const descSalva = it.tipo === 'peca' && descricaoPecaGeradaSistemaOS(it.desc) ? '' : (it.desc || '');
         const descTela = tela.desc || '';
-        return [it.labelTipo || it.tipo, it.codigo || tela.codigo || '-', descTela || descSalva || '-', moedaPdf(it.valorFinal || tela.valorFinal || 0)];
+        const brutoItem = numBR(it.valorBruto || it.valorOriginal || tela.valorBruto || it.valorFinal || tela.valorFinal || 0);
+        const finalItem = numBR(it.valorFinal || tela.valorFinal || 0);
+        const descontoItem = numBR(it.descontoValor || Math.max(0, brutoItem - finalItem));
+        return [it.labelTipo || it.tipo, it.codigo || tela.codigo || '-', descTela || descSalva || '-', moedaPdf(brutoItem), moedaPdf(descontoItem), moedaPdf(finalItem)];
       }),
       theme: 'grid',
       margin: { left: margem, right: margem },
       styles: { fontSize: 7, cellPadding: 1.5, lineColor: [190,198,210], lineWidth: 0.12, overflow: 'linebreak' },
       headStyles: headStylesGarantiaPDF,
-      columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 35 }, 2: { cellWidth: 95 }, 3: { cellWidth: 32, halign: 'right' } }
+      columnStyles: { 0: { cellWidth: 18 }, 1: { cellWidth: 27 }, 2: { cellWidth: 75 }, 3: { cellWidth: 25, halign: 'right' }, 4: { cellWidth: 22, halign: 'right' }, 5: { cellWidth: 25, halign: 'right' } }
     });
     y = doc.lastAutoTable.finalY + 6;
   }
 
   if (y > ph - 34) { doc.addPage(); y = 12; }
   const totalGeral = +(totalServicos + totalPecas + totalGuinchoPdf).toFixed(2);
+  const totalOriginalServicosPDF = +servicos.reduce((sum, item) => sum + numBR(item.bruto || item.total || 0), 0).toFixed(2);
+  const totalOriginalPecasPDF = +pecas.reduce((sum, item) => sum + numBR(String(item[4] || '').replace(/R\$|\s|\./g, '').replace(',', '.')), 0).toFixed(2);
+  const totalDescontoPDF = +((totalOriginalServicosPDF + totalOriginalPecasPDF) - (totalServicos + totalPecas)).toFixed(2);
     doc.autoTable({
       startY: y,
       theme: 'plain',
@@ -4941,14 +5728,16 @@ window.gerarPDFOS = async function(opcoes = {}) {
     tableWidth: 88,
     styles: { fontSize: 9, cellPadding: 1.8 },
     body: [
-      ['TOTAL DE PEÇAS', moedaPdf(totalPecas)],
-      ['TOTAL DE MÃO DE OBRA', moedaPdf(totalServicos)],
+      ['VALOR ORIGINAL DE PEÇAS E SERVIÇOS', moedaPdf(totalOriginalPecasPDF + totalOriginalServicosPDF)],
+      ['DESCONTO TOTAL CONCEDIDO', '- ' + moedaPdf(Math.max(0, totalDescontoPDF))],
+      ['TOTAL DE PEÇAS COBRADO', moedaPdf(totalPecas)],
+      ['TOTAL DE MÃO DE OBRA COBRADO', moedaPdf(totalServicos)],
       ['DESLOCAMENTO / GUINCHO', moedaPdf(totalGuinchoPdf)],
       [aprovacaoPDFAtiva ? 'VALOR APROVADO / CONTRATO' : 'VALOR DO CONTRATO', moedaPdf(totalGeral)]
     ],
     columnStyles: { 0: { fontStyle: visualizacaoEconomicaPDF ? 'normal' : 'bold', halign: 'right', cellWidth: 56 }, 1: { fontStyle: visualizacaoEconomicaPDF ? 'normal' : 'bold', halign: 'right', cellWidth: 32 } },
     didParseCell: data => {
-      if (data.row.index === 3) {
+      if (data.row.index === 5) {
         data.cell.styles.fillColor = visualizacaoEconomicaPDF ? [255, 255, 255] : [205, 200, 160];
         data.cell.styles.fontSize = 12;
         data.cell.styles.fontStyle = visualizacaoEconomicaPDF ? 'normal' : 'bold';
@@ -5123,6 +5912,403 @@ window.atualizarResumoPecasReais177 = function() {
     <div style="border:1px solid rgba(255,59,59,.24);background:rgba(255,59,59,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Custo real total</small><br><b style="color:var(--danger);">${moedaLocal(r.total)}</b></div>`;
 };
 
+function dataHoraRelatorioPecasReaisOS(value) {
+  if (!value) return 'Não registrada';
+  let dt = null;
+  try {
+    if (value && typeof value.toDate === 'function') dt = value.toDate();
+    else if (value && Number.isFinite(Number(value.seconds))) dt = new Date(Number(value.seconds) * 1000);
+    else {
+      const txt = String(value).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(txt)) {
+        const [ano, mes, dia] = txt.split('-');
+        return `${dia}/${mes}/${ano} — hora não registrada`;
+      }
+      dt = new Date(value);
+    }
+  } catch (_) { dt = null; }
+  if (!dt || Number.isNaN(dt.getTime())) return escOS(String(value));
+  try {
+    return dt.toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+  } catch (_) {
+    return dt.toLocaleString('pt-BR');
+  }
+}
+
+function dataRelatorioPecasReaisOS(value) {
+  if (!value) return '-';
+  const txt = String(value).slice(0, 10);
+  const m = txt.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : escOS(txt);
+}
+
+
+function normalizarRastreioEstoqueOS(value) {
+  return String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function codigoRastreioEstoqueOS(item) {
+  return String(item?.codigo || item?.codigoFornecedor || item?.codigoComercial || item?.oem || item?.ean || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function dataMsRastreioEstoqueOS(value) {
+  if (!value) return 0;
+  try {
+    if (value && typeof value.toDate === 'function') return value.toDate().getTime();
+    if (value && Number.isFinite(Number(value.seconds))) return Number(value.seconds) * 1000;
+    const dt = new Date(value);
+    return Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
+  } catch (_) { return 0; }
+}
+
+function registroFiscalValidoRastreioEstoqueOS(item) {
+  const status = normalizarRastreioEstoqueOS(item?.status || item?.statusVinculo || item?.situacao || '');
+  return !/(cancelad|excluid|estornad|devolvid)/.test(status);
+}
+
+function movimentoEntradaValidoRastreioEstoqueOS(mov) {
+  if (!registroFiscalValidoRastreioEstoqueOS(mov)) return false;
+  const tipo = normalizarRastreioEstoqueOS(mov?.tipo || mov?.movimento || '');
+  const qtd = numBR(mov?.qtd ?? mov?.quantidade ?? mov?.saldoMovimento ?? 0);
+  if (qtd <= 0) return false;
+  if (/(baixa|saida|devolucao|estorno|cancelamento)/.test(tipo)) return false;
+  return /(entrada|compra|nf)/.test(tipo) || !!(mov?.nfId || mov?.nfNumero || mov?.notaFiscal);
+}
+
+function notaFiscalRastreioEstoqueOS(nfId, nfNumero) {
+  const id = String(nfId || '').trim();
+  const numero = String(nfNumero || '').trim();
+  return (window.J?.notasFiscaisEntrada || []).find(n => {
+    if (!registroFiscalValidoRastreioEstoqueOS(n)) return false;
+    if (id && String(n?.id || '') === id) return true;
+    const nNumero = String(n?.numero || n?.nfNumero || n?.numeroNF || n?.nf || '').trim();
+    return !!(numero && nNumero && nNumero === numero);
+  }) || null;
+}
+
+function itemCompativelRastreioEstoqueOS(a, b) {
+  const codigoA = codigoRastreioEstoqueOS(a);
+  const codigoB = codigoRastreioEstoqueOS(b);
+  if (codigoA && codigoB && (codigoA === codigoB || codigoA.includes(codigoB) || codigoB.includes(codigoA))) return true;
+  const descA = normalizarRastreioEstoqueOS(a?.desc || a?.descricao || '');
+  const descB = normalizarRastreioEstoqueOS(b?.desc || b?.descricao || '');
+  if (!descA || !descB) return false;
+  return descA === descB || (descA.length >= 10 && descB.length >= 10 && (descA.includes(descB.slice(0, 18)) || descB.includes(descA.slice(0, 18))));
+}
+
+function montarResultadoRastreioEstoqueOS(base, fonte, exato, estoqueItem) {
+  const nfId = String(base?.nfOrigemId || base?.nfId || base?.ultimaNFId || '').trim();
+  const nfNumero = String(base?.nfOrigemNumero || base?.nfNumero || base?.ultimaNF || base?.notaFiscal || base?.nf || base?.numeroNF || '').trim();
+  const nota = notaFiscalRastreioEstoqueOS(nfId, nfNumero);
+  const fornecedor = String(
+    base?.fornecedorOrigemNome || base?.fornecedorNome || base?.fornecedor || base?.ultimaFornecedor ||
+    nota?.fornecedorSnapshot?.nome || nota?.fornecedorNome || estoqueItem?.ultimaFornecedor || fornecedorPecaEstoqueOS(estoqueItem) || ''
+  ).trim();
+  const dataEntrada = base?.dataEntrada || base?.dataNF || base?.dataCompra || base?.createdAt || nota?.dataNF || nota?.dataEmissao || nota?.createdAt || '';
+  const numeroFinal = nfNumero || String(nota?.numero || nota?.nfNumero || '').trim();
+  const idFinal = nfId || String(nota?.id || '').trim();
+  const rotulos = {
+    movimento_os: 'ESTOQUE • baixa vinculada à O.S. no Kardex',
+    vinculo_os: 'ESTOQUE • vínculo fiscal direto com a O.S.',
+    peca_os: 'ESTOQUE • referência fiscal gravada na peça',
+    entrada_kardex: 'ESTOQUE • última entrada de NF localizada no Kardex antes da O.S.',
+    vinculo_estoque: 'ESTOQUE • entrada fiscal localizada nos vínculos do Kardex',
+    cadastro_estoque: 'ESTOQUE • referência fiscal do cadastro atual do item',
+    sem_rastreio: 'ESTOQUE • NF de entrada não localizada no Kardex'
+  };
+  return {
+    veioDoEstoque: true,
+    rastreado: !!(numeroFinal || idFinal),
+    rastreioExato: !!exato,
+    fonte,
+    nfId: idFinal,
+    nfNumero: numeroFinal,
+    fornecedor,
+    dataEntrada,
+    origemTexto: rotulos[fonte] || rotulos.sem_rastreio
+  };
+}
+
+function rastrearOrigemEstoquePecaOS(peca, osAtual) {
+  const pecaAtual = peca || {};
+  const os = osAtual || {};
+  const estoqueId = String(pecaAtual.estoqueId || pecaAtual.estoqueItemId || '').trim();
+  if (!estoqueId) {
+    return {
+      veioDoEstoque: false,
+      rastreado: false,
+      rastreioExato: false,
+      fonte: 'fora_estoque',
+      nfId: String(pecaAtual.nfId || '').trim(),
+      nfNumero: String(pecaAtual.nf || pecaAtual.nfNumero || pecaAtual.notaFiscal || '').trim(),
+      fornecedor: String(pecaAtual.fornecedor || pecaAtual.fornecedorNome || '').trim(),
+      dataEntrada: pecaAtual.dataCompra || pecaAtual.dataNF || '',
+      origemTexto: 'Peça sem baixa vinculada ao estoque'
+    };
+  }
+
+  const estoqueItem = estoqueItemOS(estoqueId) || {};
+  const osId = String(os?.id || pecaAtual.osId || '').trim();
+  const movimentos = (window.J?.estoqueMovimentos || []).filter(m =>
+    registroFiscalValidoRastreioEstoqueOS(m) && String(m?.estoqueId || m?.estoqueItemId || '') === estoqueId
+  );
+  const vinculos = (window.J?.nfItensVinculos || []).filter(v =>
+    registroFiscalValidoRastreioEstoqueOS(v) && String(v?.estoqueId || v?.estoqueItemId || '') === estoqueId
+  );
+
+  const movimentoOS = movimentos
+    .filter(m => osId && String(m?.osId || '') === osId && numBR(m?.qtd ?? m?.quantidade ?? 0) < 0 && (m?.nfOrigemNumero || m?.nfNumero || m?.nfOrigemId || m?.nfId))
+    .sort((a, b) => dataMsRastreioEstoqueOS(b?.createdAt || b?.dataMov) - dataMsRastreioEstoqueOS(a?.createdAt || a?.dataMov))[0];
+  if (movimentoOS) return montarResultadoRastreioEstoqueOS(movimentoOS, 'movimento_os', true, estoqueItem);
+
+  const vinculoOS = vinculos
+    .filter(v => osId && String(v?.osId || '') === osId && itemCompativelRastreioEstoqueOS(v, pecaAtual))
+    .sort((a, b) => dataMsRastreioEstoqueOS(b?.createdAt || b?.dataNF) - dataMsRastreioEstoqueOS(a?.createdAt || a?.dataNF))[0];
+  if (vinculoOS) return montarResultadoRastreioEstoqueOS(vinculoOS, 'vinculo_os', true, estoqueItem);
+
+  const nfPeca = String(pecaAtual.nf || pecaAtual.nfNumero || pecaAtual.notaFiscal || '').trim();
+  const nfIdPeca = String(pecaAtual.nfId || '').trim();
+  if (nfPeca || nfIdPeca) return montarResultadoRastreioEstoqueOS(pecaAtual, 'peca_os', true, estoqueItem);
+
+  const limite = dataMsRastreioEstoqueOS(pecaAtual.dataAplicacao || os.updatedAt || os.finalizadoEm || os.createdAt || new Date());
+  const entradas = movimentos
+    .filter(m => movimentoEntradaValidoRastreioEstoqueOS(m) && itemCompativelRastreioEstoqueOS(m, pecaAtual.desc || pecaAtual.codigo ? pecaAtual : estoqueItem))
+    .sort((a, b) => dataMsRastreioEstoqueOS(b?.createdAt || b?.dataNF) - dataMsRastreioEstoqueOS(a?.createdAt || a?.dataNF));
+  const entradaAntesOS = entradas.find(m => !limite || !dataMsRastreioEstoqueOS(m?.createdAt || m?.dataNF) || dataMsRastreioEstoqueOS(m?.createdAt || m?.dataNF) <= limite);
+  if (entradaAntesOS || entradas[0]) return montarResultadoRastreioEstoqueOS(entradaAntesOS || entradas[0], 'entrada_kardex', false, estoqueItem);
+
+  const vinculoEstoque = vinculos
+    .filter(v => {
+      const finalidade = normalizarRastreioEstoqueOS(v?.finalidade || v?.destino || 'estoque');
+      return !/(os|placa|veiculo)/.test(finalidade) && itemCompativelRastreioEstoqueOS(v, pecaAtual.desc || pecaAtual.codigo ? pecaAtual : estoqueItem);
+    })
+    .sort((a, b) => dataMsRastreioEstoqueOS(b?.createdAt || b?.dataNF) - dataMsRastreioEstoqueOS(a?.createdAt || a?.dataNF))[0];
+  if (vinculoEstoque) return montarResultadoRastreioEstoqueOS(vinculoEstoque, 'vinculo_estoque', false, estoqueItem);
+
+  if (nfPecaEstoqueOS(estoqueItem) || estoqueItem?.ultimaNFId) return montarResultadoRastreioEstoqueOS(estoqueItem, 'cadastro_estoque', false, estoqueItem);
+  return montarResultadoRastreioEstoqueOS({}, 'sem_rastreio', false, estoqueItem);
+}
+window.rastrearOrigemEstoquePeca177 = rastrearOrigemEstoquePecaOS;
+
+async function garantirDadosKardexRelatorioPecasReaisOS() {
+  try {
+    if (typeof window.thiaLoadFiscalV2612 === 'function') await window.thiaLoadFiscalV2612(false);
+    else if (typeof window.thiaEnsureKeyV2612 === 'function') await window.thiaEnsureKeyV2612('fiscal', { force: false });
+  } catch (erro) {
+    console.warn('[RELATÓRIO PEÇAS REAIS] Não foi possível atualizar o cache fiscal; será usado somente o conteúdo já carregado.', erro);
+  }
+}
+
+function enriquecerPecaRelatorioEstoqueOS(peca, osAtual) {
+  const p = Object.assign({}, peca || {});
+  const estoqueId = p.estoqueId || p.estoqueItemId || '';
+  const estoqueItem = estoqueItemOS(estoqueId);
+  const rastreio = rastrearOrigemEstoquePecaOS(p, osAtual);
+  const codigoEstoque = codigoPecaEstoqueOS(estoqueItem);
+  const descEstoque = String(estoqueItem?.desc || estoqueItem?.descricao || '').trim();
+  const origemItem = estoqueItem
+    ? ['ESTOQUE', codigoEstoque, descEstoque, `Saldo atual: ${numBR(estoqueItem?.qtd || 0)}`].filter(Boolean).join(' | ')
+    : (estoqueId ? `ESTOQUE | Item ${estoqueId}` : 'Sem baixa de estoque');
+  const nfManual = String(p.nf || p.nfNumero || p.notaFiscal || '').trim();
+  const fornecedorManual = String(p.fornecedor || p.fornecedorNome || '').trim();
+  const dataManual = p.dataCompra || p.dataNF || p.dataEntrada || '';
+  let nfRelatorio = nfManual;
+  if (!nfRelatorio && rastreio.veioDoEstoque) {
+    nfRelatorio = rastreio.nfNumero
+      ? `${rastreio.nfNumero}${rastreio.rastreioExato ? ' • vínculo confirmado' : ' • referência Kardex'}`
+      : 'ESTOQUE • NF não localizada';
+  }
+  return Object.assign(p, {
+    rastreioEstoqueRelatorio: rastreio,
+    fornecedorRelatorio: fornecedorManual || rastreio.fornecedor || (rastreio.veioDoEstoque ? 'Estoque • fornecedor não localizado' : 'Não informado'),
+    nfRelatorio: nfRelatorio || 'Não informada',
+    dataCompraRelatorio: dataManual || rastreio.dataEntrada || '',
+    estoqueOrigemRelatorio: rastreio.veioDoEstoque ? `${origemItem} | ${rastreio.origemTexto}` : (p.estoqueOrigem || 'Sem baixa de estoque')
+  });
+}
+
+function pecasReaisAtuaisParaRelatorioOS(osAtual) {
+  const rows = Array.from(document.querySelectorAll('#containerPecasReais > div'));
+  if (rows.length) {
+    return rows.map(row => {
+      let meta = {};
+      try { meta = JSON.parse(row.querySelector('.pr-meta')?.value || '{}') || {}; } catch (_) { meta = {}; }
+      const selEstoque = row.querySelector('.pr-estoque');
+      const optEstoque = selEstoque?.options?.[selEstoque.selectedIndex];
+      return Object.assign({}, meta, {
+        codigo: row.querySelector('.pr-codigo')?.value?.trim() || meta.codigo || '',
+        desc: row.querySelector('.pr-desc')?.value?.trim() || meta.desc || meta.descricao || '',
+        qtd: numBR(row.querySelector('.pr-qtd')?.value || meta.qtd || 1) || 1,
+        fornecedor: row.querySelector('.pr-fornec')?.value?.trim() || meta.fornecedor || meta.fornecedorNome || '',
+        nf: row.querySelector('.pr-nf')?.value?.trim() || meta.nf || meta.nfNumero || '',
+        dataCompra: row.querySelector('.pr-datacompra')?.value?.trim() || meta.dataCompra || meta.dataNF || '',
+        valorCompra: numBR(row.querySelector('.pr-valor')?.value || meta.valorCompra || meta.custo || 0),
+        estoqueId: selEstoque?.value || meta.estoqueId || meta.estoqueItemId || '',
+        estoqueOrigem: selEstoque?.value ? String(optEstoque?.textContent || selEstoque.value).trim() : 'Sem baixa de estoque'
+      });
+    }).filter(p => p.codigo || p.desc);
+  }
+  return (Array.isArray(osAtual?.pecasReais) ? osAtual.pecasReais : []).map(p => {
+    const est = estoqueItemOS(p.estoqueId || p.estoqueItemId || '');
+    return Object.assign({}, p, {
+      desc: p.desc || p.descricao || '',
+      fornecedor: p.fornecedor || p.fornecedorNome || '',
+      nf: p.nf || p.nfNumero || p.notaFiscal || '',
+      dataCompra: p.dataCompra || p.dataNF || p.dataEntrada || '',
+      valorCompra: numBR(p.valorCompra || p.custo || p.valorUnitario || 0),
+      estoqueOrigem: est ? [codigoPecaEstoqueOS(est), est.desc || est.descricao, `Saldo: ${numBR(est.qtd || 0)}`].filter(Boolean).join(' | ') : 'Sem baixa de estoque'
+    });
+  }).filter(p => p.codigo || p.desc);
+}
+
+window.imprimirRelatorioPecasReaisOS = async function() {
+  const ativo177 = window._pecasReaisDesbloqueadas === true || document.body?.dataset?.secret177 === 'on';
+  if (!ativo177) {
+    window.toast?.('Área restrita. Libere primeiro com o código *177.', 'warn');
+    return;
+  }
+
+  const win = window.open('', '_blank');
+  if (!win) {
+    window.toast?.('O navegador bloqueou a janela do relatório. Libere pop-ups e tente novamente.', 'warn');
+    return;
+  }
+  try {
+    win.document.open();
+    win.document.write('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Preparando relatório</title></head><body style="font-family:Arial,sans-serif;padding:20px">Preparando relatório e rastreando o Kardex...</body></html>');
+    win.document.close();
+  } catch (_) {}
+
+  await garantirDadosKardexRelatorioPecasReaisOS();
+
+  const osId = document.getElementById('osId')?.value || '';
+  const osAtual = (window.J?.os || []).find(o => String(o.id) === String(osId)) || {};
+  const clienteId = document.getElementById('osCliente')?.value || osAtual.clienteId || '';
+  const veiculoId = document.getElementById('osVeiculo')?.value || osAtual.veiculoId || osAtual.veiculo || '';
+  const cliente = (window.J?.clientes || []).find(c => String(c.id) === String(clienteId)) || {};
+  const veiculo = (window.J?.veiculos || []).find(v => String(v.id) === String(veiculoId)) || osAtual.veiculoSnapshot || {};
+  const pecasBase = pecasReaisAtuaisParaRelatorioOS(osAtual);
+  if (!pecasBase.length) {
+    try { win.close?.(); } catch (_) {}
+    window.toast?.('Esta O.S. não possui peças reais registradas para imprimir.', 'warn');
+    return;
+  }
+  const pecas = pecasBase.map(p => enriquecerPecaRelatorioEstoqueOS(p, osAtual));
+
+  const oficina = window.J?.oficina || {};
+  const nomeOficina = window.J?.tnome || oficina.nomeFantasia || oficina.razaoSocial || oficina.nome || 'OFICIN-IA';
+  const enderecoOficina = [oficina.endereco || oficina.rua || oficina.logradouro, oficina.numero, oficina.bairro, oficina.cidade, oficina.uf].filter(Boolean).join(', ');
+  const placa = placaFormatadaOS(veiculo.placa || osAtual.placa || '');
+  const prefixo = String(veiculo.prefixo || osAtual.prefixo || osAtual.prefixoVeiculo || '').toUpperCase();
+  const modelo = modeloVeiculoOS(osAtual, veiculo) || veiculo.modelo || '-';
+  const clienteNome = cliente.nome || cliente.razaoSocial || cliente.nomeFantasia || osAtual.clienteNome || 'Não identificado';
+  const responsaveis = (Array.isArray(osAtual.mecanicos) ? osAtual.mecanicos.map(m => m?.nome).filter(Boolean) : []);
+  if (!responsaveis.length) {
+    const mecId = document.getElementById('osMec')?.value || osAtual.mecId || '';
+    const mec = (window.J?.equipe || []).find(f => String(f.id) === String(mecId));
+    if (mec?.nome || osAtual.mecNome) responsaveis.push(mec?.nome || osAtual.mecNome);
+  }
+  const total = pecas.reduce((s, p) => s + Math.max(0, numBR(p.qtd || 0)) * Math.max(0, numBR(p.valorCompra || 0)), 0);
+  const moedaLocal = typeof moedaOS === 'function' ? moedaOS : (v => 'R$ ' + numBR(v).toFixed(2).replace('.', ','));
+  const linhas = pecas.map((p, index) => {
+    const qtd = Math.max(0, numBR(p.qtd || 0));
+    const unit = Math.max(0, numBR(p.valorCompra || 0));
+    return `<tr>
+      <td data-label="#">${index + 1}</td>
+      <td data-label="Código real">${escOS(p.codigo || '-')}</td>
+      <td data-label="Descrição real instalada">${escOS(p.desc || p.descricao || '-')}</td>
+      <td data-label="Quantidade" class="num">${qtd}</td>
+      <td data-label="Onde comprou / fornecedor">${escOS(p.fornecedorRelatorio)}</td>
+      <td data-label="Nota fiscal / rastreio">${escOS(p.nfRelatorio)}</td>
+      <td data-label="Data da compra / entrada">${dataRelatorioPecasReaisOS(p.dataCompraRelatorio)}</td>
+      <td data-label="Origem / estoque">${escOS(p.estoqueOrigemRelatorio)}</td>
+      <td data-label="Custo unitário" class="num">${moedaLocal(unit)}</td>
+      <td data-label="Custo total" class="num"><b>${moedaLocal(qtd * unit)}</b></td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><title>Relatório Peças Reais ${escOS(placa || osId)}</title><style>
+    @page{size:A4 landscape;margin:8mm}
+    *{box-sizing:border-box}
+    html,body{width:100%;max-width:100%;margin:0;padding:0;overflow-x:hidden}
+    body{font-family:Arial,sans-serif;color:#111;background:#fff;font-size:10px}
+    .page{width:100%;max-width:100%;padding:10px;overflow:hidden}
+    .no-print{display:flex;justify-content:flex-end;margin-bottom:8px}
+    .no-print button{max-width:100%;padding:9px 14px;font-weight:700;cursor:pointer;white-space:normal}
+    header{width:100%;border-bottom:3px solid #111;padding-bottom:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:18px;min-width:0}
+    header>div{min-width:0;overflow-wrap:anywhere}
+    .oficina{text-align:right;max-width:48%;overflow-wrap:anywhere}
+    h1{font-size:18px;line-height:1.12;margin:0 0 3px;overflow-wrap:anywhere}
+    .restrito{font-size:9px;font-weight:700;color:#a00;overflow-wrap:anywhere}
+    .meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:10px;width:100%;min-width:0}
+    .box{border:1px solid #777;padding:6px;min-height:39px;min-width:0;overflow-wrap:anywhere}
+    .box b{display:block;font-size:9px;text-transform:uppercase;margin-bottom:3px}
+    .wide{grid-column:span 2}
+    .table-wrap{width:100%;max-width:100%;overflow:hidden}
+    table{width:100%;max-width:100%;border-collapse:collapse;table-layout:fixed}
+    th,td{border:1px solid #777;padding:5px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word;min-width:0}
+    th{background:#e8e8e8;text-transform:uppercase;font-size:8px}
+    td.num{text-align:right;white-space:nowrap}
+    tfoot td{font-size:12px;background:#f2f2f2}
+    .total-geral{text-align:right}.total-geral b:first-child{margin-right:18px}
+    .rodape{margin-top:8px;font-size:8px;color:#555;display:flex;justify-content:space-between;gap:10px;overflow-wrap:anywhere}
+    @media screen and (max-width:860px){
+      body{font-size:12px}
+      .page{padding:8px}
+      .no-print{justify-content:stretch}
+      .no-print button{width:100%;font-size:14px;min-height:44px}
+      header{display:block;gap:0}
+      .oficina{max-width:100%;text-align:left!important;margin-top:8px;font-size:10px}
+      h1{font-size:16px}
+      .meta{grid-template-columns:1fr}
+      .wide{grid-column:auto}
+      .box{min-height:0;font-size:11px}
+      .table-wrap{overflow:visible}
+      table,tbody,tfoot,tr,td{display:block;width:100%;max-width:100%}
+      thead{display:none}
+      tbody{display:grid;gap:10px}
+      tbody tr{border:1px solid #777;border-radius:4px;overflow:hidden;background:#fff}
+      tbody td{border:0;border-bottom:1px solid #ddd;display:grid;grid-template-columns:minmax(108px,38%) minmax(0,1fr);gap:8px;padding:7px;text-align:left!important;white-space:normal!important;font-size:11px}
+      tbody td:last-child{border-bottom:0}
+      tbody td::before{content:attr(data-label);font-weight:700;text-transform:uppercase;font-size:9px;line-height:1.25;color:#444;overflow-wrap:anywhere}
+      tfoot{margin-top:10px}
+      tfoot tr{border:1px solid #777}
+      tfoot td{border:0}
+      .total-geral{display:flex;justify-content:space-between;gap:10px;font-size:12px;text-align:left}.total-geral b:first-child{margin-right:0}
+      .rodape{display:block;line-height:1.5}
+      .rodape span{display:block}
+    }
+    @media print{
+      html,body{overflow:visible}
+      .page{padding:0;overflow:visible}
+      .no-print{display:none}
+      body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    }
+  </style></head><body><main class="page"><div class="no-print"><button onclick="window.print()">IMPRIMIR / SALVAR PDF</button></div><header><div><h1>RELATÓRIO INTERNO DE PEÇAS REAIS INSTALADAS</h1><div class="restrito">ACESSO RESTRITO DO PROPRIETÁRIO — CÓDIGO *177</div></div><div class="oficina"><b>${escOS(nomeOficina)}</b><br>${escOS(enderecoOficina || 'Local da oficina não informado')}</div></header><section class="meta">
+    <div class="box"><b>O.S.</b>#${escOS(String(osAtual.numero || osAtual.numeroOS || osId || 'NÃO SALVA').slice(-12).toUpperCase())}</div>
+    <div class="box"><b>Status</b>${escOS(document.getElementById('osStatus')?.value || osAtual.status || '-')}</div>
+    <div class="box"><b>Abertura da O.S.</b>${dataHoraRelatorioPecasReaisOS(osAtual.createdAt || osAtual.abertaEm || osAtual.dataAbertura || osAtual.data)}</div>
+    <div class="box"><b>Relatório emitido em</b>${dataHoraRelatorioPecasReaisOS(new Date())}</div>
+    <div class="box wide"><b>Cliente / órgão</b>${escOS(clienteNome)}</div>
+    <div class="box wide"><b>Veículo onde as peças foram instaladas</b>${escOS([prefixo, placa, modelo].filter(Boolean).join(' / ') || '-')}</div>
+    <div class="box"><b>KM da troca</b>${escOS(document.getElementById('osKm')?.value || osAtual.km || '-')}</div>
+    <div class="box"><b>Responsável(is)</b>${escOS(responsaveis.join(', ') || 'Não informado')}</div>
+    <div class="box wide"><b>Local da troca</b>${escOS([nomeOficina, enderecoOficina].filter(Boolean).join(' — '))}</div>
+  </section><div class="table-wrap"><table><colgroup><col style="width:3%"><col style="width:9%"><col style="width:20%"><col style="width:4%"><col style="width:12%"><col style="width:9%"><col style="width:8%"><col style="width:16%"><col style="width:9%"><col style="width:10%"></colgroup><thead><tr><th>#</th><th>Código real</th><th>Descrição real instalada</th><th>Qtd.</th><th>Onde comprou / fornecedor</th><th>Nota fiscal / rastreio</th><th>Data compra / entrada</th><th>Origem / estoque</th><th>Custo unit.</th><th>Custo total</th></tr></thead><tbody>${linhas}</tbody><tfoot><tr><td colspan="10" class="total-geral"><b>CUSTO REAL TOTAL DAS PEÇAS</b><b>${moedaLocal(total)}</b></td></tr></tfoot></table></div><div class="rodape"><span>Documento interno gerado pelo OFICIN-IA. Quando a peça vem do estoque, o rastreio fiscal é obtido do Kardex carregado.</span><span>Powered by thIAguinho Soluções Digitais</span></div></main></body></html>`;
+
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { try { win.print(); } catch (_) {} }, 350);
+};
+
 window.adicionarPecaRealRow = function(p) {
   const ct = document.getElementById('containerPecasReais');
   if (!ct) return;
@@ -5235,23 +6421,30 @@ window.baixarEstoquePecasReais = async function(osId, antigas, novas) {
     if (!p.estoqueId) return;
     novasPorEstoque[p.estoqueId] = (novasPorEstoque[p.estoqueId] || 0) + numBR(p.qtd || 0);
   });
-  for (const estoqueId of Object.keys(novasPorEstoque)) {
+
+  const batch = db.batch();
+  let operacoes = 0;
+  const agora = new Date().toISOString();
+  Object.keys(novasPorEstoque).forEach(estoqueId => {
     const delta = novasPorEstoque[estoqueId] - (antigasPorEstoque[estoqueId] || 0);
-    if (delta <= 0) continue;
+    if (delta <= 0) return;
     const item = (window.J?.estoque || []).find(x => x.id === estoqueId);
-    if (!item) continue;
-    await db.collection('estoqueItems').doc(estoqueId).update({
+    if (!item) return;
+    batch.update(db.collection('estoqueItems').doc(estoqueId), {
       qtd: Math.max(0, numBR(item.qtd || 0) - delta),
-      updatedAt: new Date().toISOString()
+      updatedAt: agora
     });
-    await db.collection('lixeira_auditoria').add({
+    const auditRef = db.collection('lixeira_auditoria').doc();
+    batch.set(auditRef, {
       tenantId: J.tid,
       modulo: 'ESTOQUE',
       acao: `Baixa por peca real instalada OS ${String(osId || '').slice(-6).toUpperCase()}: ${item.desc || estoqueId} (-${delta})`,
       usuario: J.nome || 'Gestor',
-      ts: new Date().toISOString()
-    }).catch(() => {});
-  }
+      ts: agora
+    });
+    operacoes += 2;
+  });
+  if (operacoes) await batch.commit();
 };
 
 function statusOptionsExecOS(tipo, atual) {
@@ -5725,6 +6918,7 @@ window.aplicarMarcadoresAprovacaoOS = function(os) {
 // BUSCA HISTÓRICO POR PLACA + SERVIÇO/PEÇA
 // ══════════════════════════════════════════════════════════════════════
 window.buscarHistoricoOS = function(opts = {}) {
+  const liberarPecasReais = osSegredo177AtivoOS();
   const placaId = opts.placaId || 'histBuscaPlaca';
   const termoId = opts.termoId || 'histBuscaTermo';
   const resultadoId = opts.resultadoId || 'histBuscaResultado';
@@ -5748,8 +6942,8 @@ window.buscarHistoricoOS = function(opts = {}) {
     if (!termo) return true;
     const textoOS = [
       ...(o.servicos||[]).map(s=>[s.desc,s.codigoInterno,s.codigoTabela,s.sistemaTabela,s.tempo].join(' ')),
-      ...(o.pecas||[]).map(p=>[p.desc,p.codigo,p.qtd,p.venda].join(' ')),
-      ...(o.pecasReais||[]).map(pecaRealTexto),
+      ...osPecasOrcamentoVisiveisOS(o, o.pecas||[]).map(p=>[p.desc,p.codigo,p.qtd,p.venda].join(' ')),
+      ...(liberarPecasReais ? (o.pecasReais||[]).map(pecaRealTexto) : []),
       o.diagnostico || '',
       o.relato || '',
       o.desc || ''
@@ -5767,8 +6961,8 @@ window.buscarHistoricoOS = function(opts = {}) {
     const veic = (window.J?.veiculos||[]).find(v=>v.id===o.veiculoId)||{};
     const matchText = value => !termo || (OSU().normalizeText ? OSU().normalizeText(value) : String(value||'').toLowerCase()).includes(termo);
     const servMatches = (o.servicos||[]).filter(s=>matchText([s.desc,s.codigoInterno,s.codigoTabela,s.sistemaTabela,s.tempo].join(' ')));
-    const pecMatches  = (o.pecas||[]).filter(p=>matchText([p.desc,p.codigo,p.qtd,p.venda].join(' ')));
-    const reaisMtch   = (o.pecasReais||[]).filter(p=>matchText(pecaRealTexto(p)));
+    const pecMatches  = osPecasOrcamentoVisiveisOS(o, o.pecas||[]).filter(p=>matchText([p.desc,p.codigo,p.qtd,p.venda].join(' ')));
+    const reaisMtch   = liberarPecasReais ? (o.pecasReais||[]).filter(p=>matchText(pecaRealTexto(p))) : [];
     const pecaRealResumo = p => {
       const codigo = p.codigo || p.codigoComercial || p.oem || p.codigoFornecedor || '';
       const desc = p.desc || p.descricao || '';
@@ -6889,6 +8083,7 @@ window.renderCiliaPecaOSRow = function(p, servicosRelacionados = []) {
     <button type="button" onclick="this.closest('.cilia-peca-wrap').remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;" title="Remover peça e seus serviços">✕</button>
   `;
   wrap.appendChild(div);
+  instalarDescontoIndividualLinhaOS(div, 'peca', descontoIndividualSalvoValorOS(p, numBR(p.valorBruto || ((p.qtd || p.q || 1) * numBR(p.venda || p.valor || 0)))));
 
   const servBloco = document.createElement('div');
   servBloco.className = 'cilia-servs-relacionados';
@@ -6903,6 +8098,7 @@ window.renderCiliaPecaOSRow = function(p, servicosRelacionados = []) {
   wrap.appendChild(servBloco);
 
   if (typeof $ === 'function' && $('containerPecasOS')) $('containerPecasOS').appendChild(wrap);
+  if (p.ciliaManual === true) focarLinhaNovaOS(div, '.peca-desc-livre, .peca-codigo');
   (servicosRelacionados || []).forEach(s => {
     window._ciliaAddServicoRelacionado(servBloco.querySelector('button'), { servico: s, peca: p, auto: false });
   });
@@ -6962,6 +8158,7 @@ window._ciliaAddServicoRelacionado = function(btn, opts = {}) {
   row.dataset.tempaManual = servico?.tempaManual ? '1' : (itemTempa ? '' : '1');
   row.dataset.mecId = servico?.mecId || servico?.mecanicoId || servico?.responsavelId || '';
   row.dataset.mecNome = servico?.mecNome || servico?.mecanicoNome || servico?.responsavelNome || '';
+  row._rateiosComissaoInicial = Array.isArray(servico?.rateiosComissao) ? servico.rateiosComissao : [];
 
   if (itemTempa) {
     const { secaoInfo } = _ciliaResolverValorHoraTempa(itemTempa, ctxBase);
@@ -7006,7 +8203,9 @@ window._ciliaAddServicoRelacionado = function(btn, opts = {}) {
     </div>
   `;
   list.appendChild(row);
+  instalarDescontoIndividualLinhaOS(row, 'servico', descontoIndividualSalvoValorOS(servico, numBR(servico?.valorBruto || servico?.valor || valor || 0)));
   window.garantirResponsavelLinhaServicoOS?.(row, row.dataset.mecId || '');
+  instalarTerceirizadoLinhaServicoOS(row, servico || {});
   if (!opts.auto && !opts.servico) {
     setTimeout(() => {
       const inp = row.querySelector('.serv-desc');

@@ -114,8 +114,12 @@
     ov.innerHTML=`<div style="max-width:920px;width:100%;max-height:88vh;overflow:auto;background:#0f172a;color:#e5e7eb;border:1px solid rgba(148,163,184,.35);border-radius:12px;padding:16px;font-family:system-ui"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><h2 style="margin:0;font-size:18px">Checklist Técnico Inteligente</h2><button style="background:#ef4444;color:white;border:0;border-radius:8px;padding:8px 12px;font-weight:700" data-close>Fechar</button></div><p style="color:#94a3b8">Placa ${esc(c.placa||'-')} • O.S. ${esc(c.osRef||'-')} • Técnico ${esc(c.tecnicoChecklist||c.responsavel||'-')} • Conferente ${esc(c.verificadorEntrega||entrega?.conferente||'-')} • ${fmtDate(c.criadoEm)}</p>${entrega?`<div style="background:rgba(59,130,246,.10);border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:10px;margin:10px 0"><b>Registro de entrega</b><br>Status: ${esc(entrega.status||'-')} • Entregue por: ${esc(entrega.entreguePor||'-')} • Recebido por: ${esc(entrega.recebidoPor||'-')} • Documento/telefone: ${esc(entrega.documentoRecebedor||'-')} • ${fmtDate(entrega.dataEntrega||entrega.criadoEm)}<br>${esc(entrega.observacaoFinal||'')}</div>`:''}<div>${crit.length?crit.map(i=>`<div style="border:1px solid rgba(148,163,184,.22);border-radius:8px;padding:10px;margin:8px 0"><b>${esc(i.secao||'')} • ${esc(i.item||'')}</b><br><span style="color:#fde68a">${esc(i.acaoLabel||i.acao||'')}</span>${i.obs?`<br><small>${esc(i.obs)}</small>`:''}</div>`).join(''):'<div>Tudo OK/N/A ou sem itens críticos.</div>'}</div>${fotos.length?`<h3>Fotos anexadas</h3><div class="ci-modal-photos">${fotos.map(p=>`<a href="${esc(p.url)}" target="_blank" rel="noopener"><img src="${esc(p.url)}" alt="foto"><div style="padding:7px">${esc(p.label)}</div></a>`).join('')}</div>`:''}</div>`;
     DOC.body.appendChild(ov); ov.querySelector('[data-close]').onclick=()=>ov.remove();
   }
-  function gerarPdf(c,entrega){
-    if(!c) return toast('Nenhum checklist anexado nesta O.S.'); if(!W.jspdf?.jsPDF) return imprimir(c,entrega);
+  async function gerarPdf(c,entrega){
+    if(!c) return toast('Nenhum checklist anexado nesta O.S.');
+    if(!W.jspdf?.jsPDF && typeof W.thiaLoadPdfLibsV23 === 'function') {
+      try { await W.thiaLoadPdfLibsV23(); } catch(e) { console.warn('[Checklist PDF V23]', e?.message || e); }
+    }
+    if(!W.jspdf?.jsPDF) return imprimir(c,entrega);
     const doc=new W.jspdf.jsPDF('p','mm','a4'); const crit=criticosFrom(c); let y=12;
     doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.text('CHECKLIST TÉCNICO INTELIGENTE',12,y); y+=7;
     doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text(`Placa: ${c.placa||'-'}   O.S.: ${c.osRef||'-'}   Técnico: ${c.tecnicoChecklist||c.responsavel||'-'}`,12,y); y+=6; doc.text(`Conferente: ${c.verificadorEntrega||entrega?.conferente||'-'}   Data: ${fmtDate(c.criadoEm)}   Fotos: ${photosFrom(c).length}`,12,y); y+=8;
@@ -124,8 +128,12 @@
     (crit.length?crit:[{secao:'Resumo',item:'Sem itens críticos',acaoLabel:'OK / N/A'}]).forEach(i=>{ if(y>280){doc.addPage(); y=12;} doc.text(`${i.secao||''} • ${i.item||''} — ${i.acaoLabel||i.acao||''}`,12,y); y+=5; if(i.obs){ const lines=doc.splitTextToSize('Obs.: '+i.obs,180); doc.text(lines,14,y); y+=lines.length*4; }});
     doc.save(`CHECKLIST_OS_${c.osRef||c.placa||'OS'}.pdf`);
   }
-  function gerarXlsx(c,entrega){
-    if(!c) return toast('Nenhum checklist anexado nesta O.S.'); if(!W.XLSX) return toast('Biblioteca XLSX não carregou.');
+  async function gerarXlsx(c,entrega){
+    if(!c) return toast('Nenhum checklist anexado nesta O.S.');
+    if(!W.XLSX && typeof W.thiaLoadSheetJSLibV23==='function') {
+      try { await W.thiaLoadSheetJSLibV23(); } catch(e) { console.warn('[Checklist XLSX V23]', e?.message || e); }
+    }
+    if(!W.XLSX) return toast('Biblioteca XLSX não carregou.');
     const wb=W.XLSX.utils.book_new(), crit=criticosFrom(c), fotos=photosFrom(c);
     W.XLSX.utils.book_append_sheet(wb,W.XLSX.utils.json_to_sheet([{Placa:c.placa,OS:c.osRef,Tecnico:c.tecnicoChecklist||c.responsavel,Conferente:c.verificadorEntrega||entrega?.conferente,Data:fmtDate(c.criadoEm),Fotos:fotos.length,StatusEntrega:entrega?.status||'',RecebidoPor:entrega?.recebidoPor||''}]),'Resumo');
     W.XLSX.utils.book_append_sheet(wb,W.XLSX.utils.json_to_sheet((Array.isArray(c.itens)?c.itens:crit).map(i=>({Secao:i.secao,Item:i.item,Acao:i.acaoLabel||i.acao,Observacao:i.obs||i.diagnosticoObs||'',Fotos:(i.fotoUrls||[]).join(' | ')}))),'Itens');
@@ -140,8 +148,16 @@
   }
   function install(){
     render();
-    const oldPrep=W.prepOS; if(typeof oldPrep==='function' && !oldPrep.__ciWrapped){ W.prepOS=function(){ const r=oldPrep.apply(this,arguments); setTimeout(()=>render(),180); return r; }; W.prepOS.__ciWrapped=true; }
-    const oldSwitch=W.switchTab; if(typeof oldSwitch==='function' && !oldSwitch.__ciWrapped){ W.switchTab=function(){ const r=oldSwitch.apply(this,arguments); if([].slice.call(arguments).includes('tabOS2')) setTimeout(()=>render(),120); return r; }; W.switchTab.__ciWrapped=true; }
+    const runtime=W.ThiaRuntimeCoreV2613;
+    const prepFactory=old=>function(){ const r=old.apply(this,arguments); setTimeout(()=>render(),180); return r; };
+    const switchFactory=old=>function(){ const r=old.apply(this,arguments); if([].slice.call(arguments).includes('tabOS2')) setTimeout(()=>render(),120); return r; };
+    if(runtime?.wrapOnce){
+      runtime.wrapOnce('prepOS','checklist-bridge',prepFactory);
+      runtime.wrapOnce('switchTab','checklist-bridge',switchFactory);
+    } else {
+      const oldPrep=W.prepOS; if(typeof oldPrep==='function' && !oldPrep.__ciWrapped){ const wrapped=prepFactory(oldPrep); wrapped.__ciWrapped=true; W.prepOS=wrapped; }
+      const oldSwitch=W.switchTab; if(typeof oldSwitch==='function' && !oldSwitch.__ciWrapped){ const wrapped=switchFactory(oldSwitch); wrapped.__ciWrapped=true; W.switchTab=wrapped; }
+    }
   }
   W.renderChecklistInteligenteOS=function(){ render(); };
   W.abrirChecklistInteligenteAppOS=abrirApp;

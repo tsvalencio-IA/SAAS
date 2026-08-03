@@ -85,8 +85,21 @@
       ts: Date.now(),
       createdAt: new Date().toISOString()
     };
-    try { await database.collection('lixeira_auditoria').add(payload); } catch (e) { console.warn('[thiaAudit]', e); }
-    try { await database.collection('auditoria').add(payload); } catch (e) { /* compat opcional */ }
+    try {
+      if (typeof database.batch === 'function') {
+        const batch = database.batch();
+        const lixeiraRef = database.collection('lixeira_auditoria').doc();
+        const auditoriaRef = database.collection('auditoria').doc();
+        batch.set(lixeiraRef, payload);
+        batch.set(auditoriaRef, payload);
+        await batch.commit();
+        return;
+      }
+      await Promise.allSettled([
+        database.collection('lixeira_auditoria').add(payload),
+        database.collection('auditoria').add(payload)
+      ]);
+    } catch (e) { console.warn('[thiaAudit]', e); }
   };
 
   window.thiaNotify = async function (opts) {
@@ -135,6 +148,7 @@
         }
       });
       root.querySelectorAll('input, textarea').forEach(el => {
+        if (el === D.activeElement) return;
         const txt = el.value || '';
         if (/\bR\$\s*\d/.test(txt)) el.value = txt.replace(/R\$\s*[\d.,]+/g, 'OCULTO');
       });
@@ -146,39 +160,58 @@
 
   function installObserver() {
     hideInternalAndFinance(D);
-    if (typeof MutationObserver === 'undefined' || !D.body) return;
+    if (typeof MutationObserver === 'undefined' || !D.body || D.body.dataset.thiaCommercialObserver === '1') return;
+    D.body.dataset.thiaCommercialObserver = '1';
+    const runtime = window.ThiaRuntimeCoreV2613;
+    const pendingRoots = new Set();
+    const flush = () => {
+      const roots = Array.from(pendingRoots);
+      pendingRoots.clear();
+      roots.forEach(root => hideInternalAndFinance(root));
+    };
     const obs = new MutationObserver(muts => {
-      if (muts.some(m => m.addedNodes && m.addedNodes.length)) hideInternalAndFinance(D);
+      muts.forEach(m => Array.from(m.addedNodes || []).forEach(node => {
+        if (node?.nodeType === 1) pendingRoots.add(node);
+      }));
+      if (!pendingRoots.size) return;
+      if (runtime?.scheduleDom) runtime.scheduleDom('commercial-visibility', flush, { delay:80, maxRetries:4 });
+      else setTimeout(flush, 80);
     });
     obs.observe(D.body, { childList: true, subtree: true });
+    window.__thiaCommercialObserver = obs;
   }
 
   function patchStatusNotifications() {
-    if (typeof window.moverStatusOS === 'function' && !window.moverStatusOS.__thiaComercial) {
-      const old = window.moverStatusOS;
-      window.moverStatusOS = async function (id, novoStatus) {
-        const lista = window.J?.os || window.dbOS || [];
-        const antes = lista.find(o => o.id === id) || null;
-        const ret = await old.apply(this, arguments);
-        const depois = (window.J?.os || window.dbOS || []).find(o => o.id === id) || Object.assign({}, antes || {}, { status: novoStatus });
-        if (novoStatus === 'Pronto' && (!antes || antes.status !== 'Pronto')) {
-          await window.thiaNotify({
-            tipo: 'os_pronta',
-            titulo: 'Veiculo pronto',
-            mensagem: `O.S. ${String(id || '').slice(-6).toUpperCase()} marcada como pronta. Conferir caixa e avisar cliente.`,
-            destinoPerfil: 'admin',
-            entidade: 'ordens_servico',
-            entidadeId: id,
-            prioridade: 'alta',
-            acaoSugerida: 'Enviar aviso ao cliente'
-          });
-        }
-        if (antes && antes.status !== novoStatus) {
-          await window.thiaAudit('alteracao_status_os', 'ordens_servico', id, { status: antes.status }, { status: novoStatus }, '', { origem: 'moverStatusOS' });
-        }
-        return ret;
-      };
-      window.moverStatusOS.__thiaComercial = true;
+    const runtime = window.ThiaRuntimeCoreV2613;
+    if (typeof window.moverStatusOS !== 'function') return;
+    const factory = old => async function (id, novoStatus) {
+      const lista = window.J?.os || window.dbOS || [];
+      const antes = lista.find(o => o.id === id) || null;
+      const ret = await old.apply(this, arguments);
+      const depois = (window.J?.os || window.dbOS || []).find(o => o.id === id) || Object.assign({}, antes || {}, { status: novoStatus });
+      if (novoStatus === 'Pronto' && (!antes || antes.status !== 'Pronto')) {
+        await window.thiaNotify({
+          tipo: 'os_pronta',
+          titulo: 'Veiculo pronto',
+          mensagem: `O.S. ${String(id || '').slice(-6).toUpperCase()} marcada como pronta. Conferir caixa e avisar cliente.`,
+          destinoPerfil: 'admin',
+          entidade: 'ordens_servico',
+          entidadeId: id,
+          prioridade: 'alta',
+          acaoSugerida: 'Enviar aviso ao cliente'
+        });
+      }
+      if (antes && antes.status !== novoStatus) {
+        await window.thiaAudit('alteracao_status_os', 'ordens_servico', id, { status: antes.status }, { status: novoStatus }, '', { origem: 'moverStatusOS' });
+      }
+      return ret;
+    };
+    if (runtime?.wrapOnce) {
+      runtime.wrapOnce('moverStatusOS', 'hardening-comercial-status', factory);
+    } else if (!window.moverStatusOS.__thiaComercial) {
+      const wrapped = factory(window.moverStatusOS);
+      wrapped.__thiaComercial = true;
+      window.moverStatusOS = wrapped;
     }
   }
 
@@ -446,17 +479,14 @@
   }
 
   function init() {
+    if (D.documentElement.dataset.thiaCommercialInit === '1') return;
+    D.documentElement.dataset.thiaCommercialInit = '1';
     installObserver();
     patchStatusNotifications();
     patchObdMessage();
     patchIAComercial();
-    setInterval(() => {
-      hideInternalAndFinance(D);
-      patchStatusNotifications();
-      patchIAComercial();
-    }, 1500);
   }
 
-  if (D.readyState === 'loading') D.addEventListener('DOMContentLoaded', init);
+  if (D.readyState === 'loading') D.addEventListener('DOMContentLoaded', init, { once:true });
   else init();
 })();

@@ -125,6 +125,7 @@ window.abrirAgruparBoletoSelecionados = function() {
     window.prepAgruparBoleto && window.prepAgruparBoleto(selecionadas.map(f => f.id));
 };
 
+window.thiaFinLimitV23 = window.thiaFinLimitV23 || 100;
 window.renderFinanceiro = function() {
     const buscaTipo = $v('filtroFinTipo');
     const buscaStatus = $v('filtroFinStatus');
@@ -155,6 +156,8 @@ window.renderFinanceiro = function() {
     }
 
     base.sort((a, b) => (b.venc || '') > (a.venc || '') ? 1 : -1);
+    const totalFiltradoV23 = base.length;
+    const baseVisivelV23 = base.slice(0, Math.max(20, Number(window.thiaFinLimitV23 || 100)));
 
     let entradas = 0, saidas = 0;
     J.financeiro.filter(f => f.status === 'Pago').forEach(f => {
@@ -183,7 +186,7 @@ window.renderFinanceiro = function() {
         $('filtroFinMes').parentElement.appendChild(btnCsv);
     }
 
-    tb.innerHTML = base.map(f => {
+    tb.innerHTML = baseVisivelV23.map(f => {
         const cancelado = financeiroCanceladoOuReemitidoFin(f);
         const stCls = f.status === 'Pago' ? 'pill-green' : (cancelado ? 'pill-danger' : 'pill-warn'); 
         const tipCls = f.tipo === 'Entrada' ? 'pill-green' : 'pill-danger';
@@ -225,6 +228,9 @@ window.renderFinanceiro = function() {
             </td>
         </tr>`;
     }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Nenhum lançamento encontrado</td></tr>';
+    if (baseVisivelV23.length < totalFiltradoV23) {
+        tb.insertAdjacentHTML('beforeend', `<tr><td colspan="7" style="padding:12px;text-align:center;white-space:normal;"><button type="button" class="btn-outline" style="max-width:100%;white-space:normal;" onclick="window.thiaFinLimitV23+=100;window.renderFinanceiro()">CARREGAR MAIS LANÇAMENTOS (${baseVisivelV23.length}/${totalFiltradoV23})</button></td></tr>`);
+    }
     financeiroAtualizarResumoSelecaoTabelaFin();
 };
 

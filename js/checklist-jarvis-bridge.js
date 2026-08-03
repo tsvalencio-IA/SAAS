@@ -128,8 +128,12 @@
     (crit.length?crit:[{secao:'Resumo',item:'Sem itens críticos',acaoLabel:'OK / N/A'}]).forEach(i=>{ if(y>280){doc.addPage(); y=12;} doc.text(`${i.secao||''} • ${i.item||''} — ${i.acaoLabel||i.acao||''}`,12,y); y+=5; if(i.obs){ const lines=doc.splitTextToSize('Obs.: '+i.obs,180); doc.text(lines,14,y); y+=lines.length*4; }});
     doc.save(`CHECKLIST_OS_${c.osRef||c.placa||'OS'}.pdf`);
   }
-  function gerarXlsx(c,entrega){
-    if(!c) return toast('Nenhum checklist anexado nesta O.S.'); if(!W.XLSX) return toast('Biblioteca XLSX não carregou.');
+  async function gerarXlsx(c,entrega){
+    if(!c) return toast('Nenhum checklist anexado nesta O.S.');
+    if(!W.XLSX && typeof W.thiaLoadSheetJSLibV23==='function') {
+      try { await W.thiaLoadSheetJSLibV23(); } catch(e) { console.warn('[Checklist XLSX V23]', e?.message || e); }
+    }
+    if(!W.XLSX) return toast('Biblioteca XLSX não carregou.');
     const wb=W.XLSX.utils.book_new(), crit=criticosFrom(c), fotos=photosFrom(c);
     W.XLSX.utils.book_append_sheet(wb,W.XLSX.utils.json_to_sheet([{Placa:c.placa,OS:c.osRef,Tecnico:c.tecnicoChecklist||c.responsavel,Conferente:c.verificadorEntrega||entrega?.conferente,Data:fmtDate(c.criadoEm),Fotos:fotos.length,StatusEntrega:entrega?.status||'',RecebidoPor:entrega?.recebidoPor||''}]),'Resumo');
     W.XLSX.utils.book_append_sheet(wb,W.XLSX.utils.json_to_sheet((Array.isArray(c.itens)?c.itens:crit).map(i=>({Secao:i.secao,Item:i.item,Acao:i.acaoLabel||i.acao,Observacao:i.obs||i.diagnosticoObs||'',Fotos:(i.fotoUrls||[]).join(' | ')}))),'Itens');
@@ -144,8 +148,16 @@
   }
   function install(){
     render();
-    const oldPrep=W.prepOS; if(typeof oldPrep==='function' && !oldPrep.__ciWrapped){ W.prepOS=function(){ const r=oldPrep.apply(this,arguments); setTimeout(()=>render(),180); return r; }; W.prepOS.__ciWrapped=true; }
-    const oldSwitch=W.switchTab; if(typeof oldSwitch==='function' && !oldSwitch.__ciWrapped){ W.switchTab=function(){ const r=oldSwitch.apply(this,arguments); if([].slice.call(arguments).includes('tabOS2')) setTimeout(()=>render(),120); return r; }; W.switchTab.__ciWrapped=true; }
+    const runtime=W.ThiaRuntimeCoreV2613;
+    const prepFactory=old=>function(){ const r=old.apply(this,arguments); setTimeout(()=>render(),180); return r; };
+    const switchFactory=old=>function(){ const r=old.apply(this,arguments); if([].slice.call(arguments).includes('tabOS2')) setTimeout(()=>render(),120); return r; };
+    if(runtime?.wrapOnce){
+      runtime.wrapOnce('prepOS','checklist-bridge',prepFactory);
+      runtime.wrapOnce('switchTab','checklist-bridge',switchFactory);
+    } else {
+      const oldPrep=W.prepOS; if(typeof oldPrep==='function' && !oldPrep.__ciWrapped){ const wrapped=prepFactory(oldPrep); wrapped.__ciWrapped=true; W.prepOS=wrapped; }
+      const oldSwitch=W.switchTab; if(typeof oldSwitch==='function' && !oldSwitch.__ciWrapped){ const wrapped=switchFactory(oldSwitch); wrapped.__ciWrapped=true; W.switchTab=wrapped; }
+    }
   }
   W.renderChecklistInteligenteOS=function(){ render(); };
   W.abrirChecklistInteligenteAppOS=abrirApp;

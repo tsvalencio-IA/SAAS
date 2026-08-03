@@ -41,6 +41,33 @@
 
   window.thiaCanSeeFinance = canSeeFinance;
 
+  function segredo177Ativo() {
+    return window._pecasReaisDesbloqueadas === true || document.body?.dataset?.secret177 === 'on';
+  }
+
+  function pecaRealProtegida(os, peca) {
+    const U = window.JOS || window.JarvisOSUtils || {};
+    if (typeof U.isBudgetPieceLinkedToRealPart === 'function') return U.isBudgetPieceLinkedToRealPart(os || {}, peca);
+    if (typeof U.isProtectedRealPart === 'function') return U.isProtectedRealPart(peca);
+    if (!peca || typeof peca !== 'object') return false;
+    const origem = String(peca.origem || '').toLowerCase().trim();
+    return peca.origemNFVinculada === true || origem === 'nf_entrada_os' || origem === 'nf_entrada' || String(peca.statusAplicacao || '').toLowerCase() === 'comprada_vinculada_nf' || !!String(peca.origemNFItemKey || '').trim();
+  }
+
+  function clienteOficialOS(os) {
+    const cliente = (window.J?.clientes || []).find(c => String(c.id) === String(os?.clienteId || '')) || {};
+    const U = window.JOS || window.JarvisOSUtils || {};
+    if (typeof U.isOfficialClient === 'function') return U.isOfficialClient(os, cliente);
+    return String(cliente.tipoCliente || os?.tipoCliente || '').toLowerCase() === 'governo';
+  }
+
+  function eventoPecaReal(evento) {
+    const tipo = String(evento?.tipo || evento?.modulo || '').toLowerCase();
+    if (['nf_peca_real','edicao_nf_peca_real','devolucao_nf_peca_real','vinculo_nf_peca_real_os'].includes(tipo)) return true;
+    const texto = String(evento?.acao || evento?.descricao || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    return /peca real|pecas reais|vinculad[ao] por nf|nf.*peca.*real/.test(texto);
+  }
+
   window.thiaAudit = async function (acao, entidade, entidadeId, antes, depois, motivo, extra) {
     const database = db();
     if (!database || !tenantId()) return;
@@ -58,8 +85,21 @@
       ts: Date.now(),
       createdAt: new Date().toISOString()
     };
-    try { await database.collection('lixeira_auditoria').add(payload); } catch (e) { console.warn('[thiaAudit]', e); }
-    try { await database.collection('auditoria').add(payload); } catch (e) { /* compat opcional */ }
+    try {
+      if (typeof database.batch === 'function') {
+        const batch = database.batch();
+        const lixeiraRef = database.collection('lixeira_auditoria').doc();
+        const auditoriaRef = database.collection('auditoria').doc();
+        batch.set(lixeiraRef, payload);
+        batch.set(auditoriaRef, payload);
+        await batch.commit();
+        return;
+      }
+      await Promise.allSettled([
+        database.collection('lixeira_auditoria').add(payload),
+        database.collection('auditoria').add(payload)
+      ]);
+    } catch (e) { console.warn('[thiaAudit]', e); }
   };
 
   window.thiaNotify = async function (opts) {
@@ -108,6 +148,7 @@
         }
       });
       root.querySelectorAll('input, textarea').forEach(el => {
+        if (el === D.activeElement) return;
         const txt = el.value || '';
         if (/\bR\$\s*\d/.test(txt)) el.value = txt.replace(/R\$\s*[\d.,]+/g, 'OCULTO');
       });
@@ -119,39 +160,58 @@
 
   function installObserver() {
     hideInternalAndFinance(D);
-    if (typeof MutationObserver === 'undefined' || !D.body) return;
+    if (typeof MutationObserver === 'undefined' || !D.body || D.body.dataset.thiaCommercialObserver === '1') return;
+    D.body.dataset.thiaCommercialObserver = '1';
+    const runtime = window.ThiaRuntimeCoreV2613;
+    const pendingRoots = new Set();
+    const flush = () => {
+      const roots = Array.from(pendingRoots);
+      pendingRoots.clear();
+      roots.forEach(root => hideInternalAndFinance(root));
+    };
     const obs = new MutationObserver(muts => {
-      if (muts.some(m => m.addedNodes && m.addedNodes.length)) hideInternalAndFinance(D);
+      muts.forEach(m => Array.from(m.addedNodes || []).forEach(node => {
+        if (node?.nodeType === 1) pendingRoots.add(node);
+      }));
+      if (!pendingRoots.size) return;
+      if (runtime?.scheduleDom) runtime.scheduleDom('commercial-visibility', flush, { delay:80, maxRetries:4 });
+      else setTimeout(flush, 80);
     });
     obs.observe(D.body, { childList: true, subtree: true });
+    window.__thiaCommercialObserver = obs;
   }
 
   function patchStatusNotifications() {
-    if (typeof window.moverStatusOS === 'function' && !window.moverStatusOS.__thiaComercial) {
-      const old = window.moverStatusOS;
-      window.moverStatusOS = async function (id, novoStatus) {
-        const lista = window.J?.os || window.dbOS || [];
-        const antes = lista.find(o => o.id === id) || null;
-        const ret = await old.apply(this, arguments);
-        const depois = (window.J?.os || window.dbOS || []).find(o => o.id === id) || Object.assign({}, antes || {}, { status: novoStatus });
-        if (novoStatus === 'Pronto' && (!antes || antes.status !== 'Pronto')) {
-          await window.thiaNotify({
-            tipo: 'os_pronta',
-            titulo: 'Veiculo pronto',
-            mensagem: `O.S. ${String(id || '').slice(-6).toUpperCase()} marcada como pronta. Conferir caixa e avisar cliente.`,
-            destinoPerfil: 'admin',
-            entidade: 'ordens_servico',
-            entidadeId: id,
-            prioridade: 'alta',
-            acaoSugerida: 'Enviar aviso ao cliente'
-          });
-        }
-        if (antes && antes.status !== novoStatus) {
-          await window.thiaAudit('alteracao_status_os', 'ordens_servico', id, { status: antes.status }, { status: novoStatus }, '', { origem: 'moverStatusOS' });
-        }
-        return ret;
-      };
-      window.moverStatusOS.__thiaComercial = true;
+    const runtime = window.ThiaRuntimeCoreV2613;
+    if (typeof window.moverStatusOS !== 'function') return;
+    const factory = old => async function (id, novoStatus) {
+      const lista = window.J?.os || window.dbOS || [];
+      const antes = lista.find(o => o.id === id) || null;
+      const ret = await old.apply(this, arguments);
+      const depois = (window.J?.os || window.dbOS || []).find(o => o.id === id) || Object.assign({}, antes || {}, { status: novoStatus });
+      if (novoStatus === 'Pronto' && (!antes || antes.status !== 'Pronto')) {
+        await window.thiaNotify({
+          tipo: 'os_pronta',
+          titulo: 'Veiculo pronto',
+          mensagem: `O.S. ${String(id || '').slice(-6).toUpperCase()} marcada como pronta. Conferir caixa e avisar cliente.`,
+          destinoPerfil: 'admin',
+          entidade: 'ordens_servico',
+          entidadeId: id,
+          prioridade: 'alta',
+          acaoSugerida: 'Enviar aviso ao cliente'
+        });
+      }
+      if (antes && antes.status !== novoStatus) {
+        await window.thiaAudit('alteracao_status_os', 'ordens_servico', id, { status: antes.status }, { status: novoStatus }, '', { origem: 'moverStatusOS' });
+      }
+      return ret;
+    };
+    if (runtime?.wrapOnce) {
+      runtime.wrapOnce('moverStatusOS', 'hardening-comercial-status', factory);
+    } else if (!window.moverStatusOS.__thiaComercial) {
+      const wrapped = factory(window.moverStatusOS);
+      wrapped.__thiaComercial = true;
+      window.moverStatusOS = wrapped;
     }
   }
 
@@ -295,17 +355,23 @@
       linhas.push(`OS ${String(o.numero || o.id || '').slice(-8)} | placa ${o.placa || v.placa || 'S/P'} | veiculo ${o.veiculo || v.modelo || o.modelo || o.tipoVeiculo || 'N/I'} | cliente ${c.nome || o.cliente || 'N/I'} | status ${o.status || 'N/I'} | etapa ${o.etapa || 'N/I'} | data ${o.data || o.createdAt || 'N/I'}`);
       if (o.desc || o.relato) linhas.push(`Relato: ${o.desc || o.relato}`);
       if (o.diagnostico) linhas.push(`Diagnostico: ${o.diagnostico}`);
-      const pecas = Array.isArray(o.pecas) ? o.pecas : [];
+      const pecas = (Array.isArray(o.pecas) ? o.pecas : []).filter(p => !(clienteOficialOS(o) && pecaRealProtegida(o, p)));
       const servicos = Array.isArray(o.servicos) ? o.servicos : [];
       pecas.slice(0, 20).forEach(p => linhas.push(`Peca: ${iaItemLabel(p)} | aprovacao ${iaAprovacaoItem(p)} | execucao ${iaExecucaoItem(p, o)}`));
       servicos.slice(0, 20).forEach(s => linhas.push(`Servico: ${iaItemLabel(s)} | aprovacao ${iaAprovacaoItem(s)} | execucao ${iaExecucaoItem(s, o)}`));
-      if (canFinance && Array.isArray(o.pecasReais) && o.pecasReais.length) {
+      if (canFinance && segredo177Ativo() && Array.isArray(o.pecasReais) && o.pecasReais.length) {
         o.pecasReais.slice(0, 20).forEach(p => linhas.push(`Auditoria interna peca real: ${iaItemLabel(p)} | codigo ${p.codigo || p.codigoFornecedor || p.codigoComercial || 'N/I'} | NF ${p.nf || p.nfNumero || 'N/I'} | fornecedor ${p.fornecedor || 'N/I'} | compra ${p.dataCompra || p.dataNF || 'N/I'} | status ${p.statusAplicacao || 'comprada/vinculada, nao executada'}`));
       }
       if (Array.isArray(o.timeline) && o.timeline.length) {
-        linhas.push('Timeline recente: ' + o.timeline.slice(-5).map(t => `${t.data || t.dt || t.createdAt || ''} ${t.acao || t.status || ''}`).join(' | '));
+        const timelineVisivel = segredo177Ativo() ? o.timeline : o.timeline.filter(t => !eventoPecaReal(t));
+        linhas.push('Timeline recente: ' + timelineVisivel.slice(-5).map(t => `${t.data || t.dt || t.createdAt || ''} ${t.acao || t.status || ''}`).join(' | '));
       }
-      if (canFinance) linhas.push(`Financeiro OS: total ${o.total || o.valorTotal || 0}; aprovado ${o.totalAprovado || o.valorAprovado || 0}; nao aprovado ${o.totalNaoAprovado || 0}.`);
+      if (canFinance) {
+        const U = window.JOS || window.JarvisOSUtils || {};
+        const totalSeguro = clienteOficialOS(o) && typeof U.getValorOrcamento === 'function' ? U.getValorOrcamento(o, c) : (o.total || o.valorTotal || 0);
+        const aprovadoSeguro = clienteOficialOS(o) && typeof U.getValorAprovado === 'function' ? U.getValorAprovado(o, c) : (o.totalAprovado || o.valorAprovado || 0);
+        linhas.push(`Financeiro OS: total ${totalSeguro}; aprovado ${aprovadoSeguro}; nao aprovado ${o.totalNaoAprovado || 0}.`);
+      }
     });
     if (canFinance && Array.isArray(window.J?.financeiro)) {
       linhas.push(`Financeiro geral: ${window.J.financeiro.length} lancamentos carregados no painel.`);
@@ -371,9 +437,9 @@
     const lid = iaAddBot('<span class="j-spinner"></span> Analisando contexto real...');
     try {
       if (typeof window.thiaCarregarCerebroGlobal === 'function') await window.thiaCarregarCerebroGlobal();
-      const local = typeof window.thiaResponderLocal === 'function'
-        ? window.thiaResponderLocal(msg, { perfil })
-        : iaFallback(msg, perfil, 'motor local indisponivel');
+      const local = typeof window.thiaResponderLocalAsync === 'function'
+        ? await window.thiaResponderLocalAsync(msg, { perfil })
+        : (typeof window.thiaResponderLocal === 'function' ? window.thiaResponderLocal(msg, { perfil }) : iaFallback(msg, perfil, 'motor local indisponivel'));
       iaReplaceBot(lid, local);
       return;
     } catch (e) {
@@ -413,17 +479,14 @@
   }
 
   function init() {
+    if (D.documentElement.dataset.thiaCommercialInit === '1') return;
+    D.documentElement.dataset.thiaCommercialInit = '1';
     installObserver();
     patchStatusNotifications();
     patchObdMessage();
     patchIAComercial();
-    setInterval(() => {
-      hideInternalAndFinance(D);
-      patchStatusNotifications();
-      patchIAComercial();
-    }, 1500);
   }
 
-  if (D.readyState === 'loading') D.addEventListener('DOMContentLoaded', init);
+  if (D.readyState === 'loading') D.addEventListener('DOMContentLoaded', init, { once:true });
   else init();
 })();

@@ -1410,15 +1410,28 @@
     if (!/(boleto|crediario|crediário|credito|crédito|parcel)/i.test(forma)) parcelas.value = '1';
   }
   function wrapSalvarOS() {
-    const old = W.salvarOS;
-    if (typeof old !== 'function' || old._hardeningPgto) return;
-    const wrapped = async function () {
+    const factory = old => async function () {
       corrigirPagamentoOS();
       return old.apply(this, arguments);
     };
-    wrapped._hardeningPgto = true;
-    W.salvarOS = wrapped;
-    D.addEventListener('change', e => { if (e.target?.id === 'osPgtoForma') corrigirPagamentoOS(); });
+    if (W.thiaRuntimeCore?.wrapOnce) W.thiaRuntimeCore.wrapOnce('salvarOS', 'hardening-pagamento-v2613', factory);
+    else {
+      const old = W.salvarOS;
+      if (typeof old === 'function' && !old._hardeningPgto) {
+        const wrapped = factory(old);
+        wrapped._hardeningPgto = true;
+        wrapped.__original = old;
+        W.salvarOS = wrapped;
+      }
+    }
+    if (W.thiaRuntimeCore?.addEventOnce) {
+      W.thiaRuntimeCore.addEventOnce(D, 'change', 'hardening-pagamento-os', e => {
+        if (e.target?.id === 'osPgtoForma') corrigirPagamentoOS();
+      });
+    } else if (!D.__hardeningPagamentoOSChange) {
+      D.__hardeningPagamentoOSChange = true;
+      D.addEventListener('change', e => { if (e.target?.id === 'osPgtoForma') corrigirPagamentoOS(); });
+    }
   }
 
   function installOrcamentoAuto() {
@@ -1690,12 +1703,13 @@
 
   D.addEventListener('DOMContentLoaded', function () {
     tick();
-    setTimeout(tick, 400);
-    setTimeout(tick, 1200);
-    setInterval(() => {
-      if (J().tid && !W._hardeningFiscalListeners) installFiscalListeners();
-      installOrcamentoAuto();
-      ensureNFBatchTools();
-    }, 2500);
-  });
+    if (!W.__THIA_HARDENING_MAINTENANCE_V2613__) {
+      W.__THIA_HARDENING_MAINTENANCE_V2613__ = setInterval(() => {
+        if (D.hidden) return;
+        if (J().tid && !W._hardeningFiscalListeners) installFiscalListeners();
+        if (byId('s-estoque')?.classList.contains('active')) ensureNFBatchTools();
+        if (byId('modalOS')?.classList.contains('open') && !W.thiaRuntimeCore?.activeEditor?.('#modalOS')) installOrcamentoAuto();
+      }, 5000);
+    }
+  }, { once:true });
 })();

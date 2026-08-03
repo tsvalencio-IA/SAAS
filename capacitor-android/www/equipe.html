@@ -19,10 +19,10 @@ if ('serviceWorker' in navigator) {
   });
 }
 </script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script src="js/config.js"></script>
-<script src="js/os-utils.js?v=15.15.0"></script>
+<script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-firestore-compat.js"></script>
+<script src="js/config.js?v=26.13.0"></script>
+<script src="js/os-utils.js?v=22.0.0"></script>
 <script src="js/links-publicos.js"></script>
 <script src="js/tenant-modules.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=JetBrains+Mono:wght@400;700&family=Exo+2:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -406,7 +406,7 @@ body.equipe-page .overlay.open{display:flex!important;}
 <div class="mec-kpi c3 mec-financeiro-only" id="kpiComissao" style="display:none; border-bottom: 2px solid var(--success); cursor:pointer; transition: background 0.2s;" onclick="abrirModal('modalExtratoFunc')" onmouseover="this.style.background='rgba(0, 255, 136, 0.05)'" onmouseout="this.style.background=''">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
             <div>
-              <div class="mec-kpi-label" style="color:var(--success)">COMISSÕES A RECEBER</div>
+              <div class="mec-kpi-label" style="color:var(--success)">COMISSÕES RECEBIDAS</div>
               <div class="mec-kpi-val" id="kMinhaComissao" style="color:var(--success);">R$ 0,00</div>
             </div>
             <div style="font-size:1.4rem; opacity:0.6;">📄</div>
@@ -905,7 +905,6 @@ function irTab(id,el){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   $(id)?.classList.add('active'); el?.classList.add('active');
   if(id==='t-chat') iniciarChatEquipeDados();
-  if(id==='t-kanban') iniciarEstoqueEquipeDados();
   repararLayoutEquipe();
 }
 
@@ -1243,9 +1242,9 @@ async function iaEnviar() {
 
   try {
     if (typeof window.thiaCarregarCerebroGlobal === 'function') await window.thiaCarregarCerebroGlobal();
-    const resp = typeof window.thiaResponderLocal === 'function'
-      ? window.thiaResponderLocal(msg, { perfil:'equipe' })
-      : 'Motor interno indisponivel nesta tela.';
+    const resp = typeof window.thiaResponderLocalAsync === 'function'
+      ? await window.thiaResponderLocalAsync(msg, { perfil:'equipe' })
+      : (typeof window.thiaResponderLocal === 'function' ? window.thiaResponderLocal(msg, { perfil:'equipe' }) : 'Motor interno indisponivel nesta tela.');
     _iaHist.push({ role: 'model', text: String(resp).replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '') });
     _iaReplace(lid, resp);
   } catch(e) {
@@ -1589,28 +1588,20 @@ document.addEventListener('DOMContentLoaded',()=>{
     });
   }
 
-  statusEquipeDados('Sincronizando pátio da equipe...', 'warn');
-  db.collection('ordens_servico').where('tenantId','==',J.tid).onSnapshot(snap=>{
-    dbOS=snap.docs.map(d=>({id:d.id,...d.data()}));
-    statusEquipeDados('');
-    renderKanban(); renderKPIs();
-  }, err => {
-    console.error('[Equipe] Falha ao carregar O.S.', err);
-    statusEquipeDados('Não foi possível carregar as O.S. da equipe. Verifique permissão do Firestore, tenant da sessão e conexão.', 'err');
-    renderKanbanFalhaEquipe('Falha ao carregar O.S.');
-  });
-  db.collection('clientes').where('tenantId','==',J.tid).onSnapshot(snap=>{
-    dbClientes=snap.docs.map(d=>({id:d.id,...d.data()}));
-    popularSelects();
-  });
-  db.collection('veiculos').where('tenantId','==',J.tid).onSnapshot(snap=>{
-    dbVeiculos=snap.docs.map(d=>({id:d.id,...d.data()}));
-    popularSelects();
-  });
-  // Estoque é necessário apenas ao manipular peças da O.S.; aguarda o
-  // primeiro intervalo ocioso para não competir com o carregamento do pátio.
-  if('requestIdleCallback' in window) requestIdleCallback(iniciarEstoqueEquipeDados,{timeout:1400});
-  else setTimeout(iniciarEstoqueEquipeDados,450);
+  if (typeof window.equipeEconomiaV265Start === 'function') {
+    window.equipeEconomiaV265Start();
+  } else {
+    statusEquipeDados('Sincronizando pátio da equipe...', 'warn');
+    db.collection('ordens_servico').where('tenantId','==',J.tid).onSnapshot(snap=>{
+      const todasOS=snap.docs.map(d=>({id:d.id,...d.data()}));
+      const roleAtual=String(J.role||'').toLowerCase();
+      const podeVerTodas=['gerente','gestor','admin','superadmin','dono'].includes(roleAtual);
+      dbOS=podeVerTodas?todasOS:todasOS.filter(osAtribuidaAoUsuarioEquipe);
+      statusEquipeDados(''); renderKanban(); renderKPIs();
+    }, err => { console.error('[Equipe] Falha ao carregar O.S.', err); renderKanbanFalhaEquipe('Falha ao carregar O.S.'); });
+    db.collection('clientes').where('tenantId','==',J.tid).onSnapshot(snap=>{dbClientes=snap.docs.map(d=>({id:d.id,...d.data()}));popularSelects();});
+    db.collection('veiculos').where('tenantId','==',J.tid).onSnapshot(snap=>{dbVeiculos=snap.docs.map(d=>({id:d.id,...d.data()}));popularSelects();});
+  }
 
 // VERIFICA PERMISSÃO DE COMISSÃO DO GESTOR E MONTA EXTRATO
   db.collection('oficinas').doc(J.tid).onSnapshot(doc => {
@@ -1628,55 +1619,35 @@ document.addEventListener('DOMContentLoaded',()=>{
           .where('tenantId', '==', J.tid)
           .where('mecId', '==', J.fid)
           .onSnapshot(finSnap => {
-            let totalPendente = 0;
+            let totalRecebido = 0;
             let extratoHTML = '';
-            
-            // Organiza do mais recente para o mais antigo
             const docs = finSnap.docs.map(d => ({id: d.id, ...d.data()}))
-                                     .sort((a,b) => (b.venc || b.createdAt) > (a.venc || a.createdAt) ? 1 : -1);
+              .filter(fin => fin.isComissao === true)
+              .sort((a,b) => String(b.venc || b.createdAt || '').localeCompare(String(a.venc || a.createdAt || '')));
 
             docs.forEach(fin => {
-              // 1. Calcula o total a receber no card principal (só pendentes)
-              if (fin.isComissao && fin.status === 'Pendente') {
-                totalPendente += (fin.valor || 0);
-              }
-              
-              // 2. Monta as linhas da tabela de Extrato
-              const dataStr = fin.venc ? new Date(fin.venc).toLocaleDateString('pt-BR') : '-';
-              const valorStr = 'OCULTO';
-              
-              let tipoBadge = '';
-              let valorStyle = '';
-              
-              if (fin.isComissao) {
-                  tipoBadge = '<span class="pill pill-cyan">COMISSÃO</span>';
-                  valorStyle = 'color:var(--success)';
-              } else if (fin.tipo === 'Saída') {
-                  if ((fin.desc||'').includes('Vale') || (fin.desc||'').includes('Adiantamento')) {
-                      tipoBadge = '<span class="pill pill-warn">VALE/ADIANT.</span>';
-                      valorStyle = 'color:var(--danger)';
-                  } else {
-                      tipoBadge = '<span class="pill pill-gray">PAGAMENTO</span>';
-                      valorStyle = 'color:var(--text)';
-                  }
-              }
-              
-              const statusBadge = fin.status === 'Pago' ? '<span class="pill pill-green">PAGO/LIQUIDADO</span>' : '<span class="pill pill-warn">PENDENTE</span>';
-
-              extratoHTML += `
-                <tr>
-                  <td style="font-family:var(--fm);font-size:0.7rem;color:var(--muted)">${dataStr}</td>
-                  <td>${tipoBadge}</td>
-                  <td style="font-size:0.8rem">${fin.desc || '-'}</td>
-                  <td>${statusBadge}</td>
-                  <td style="font-family:var(--fm);font-weight:700;${valorStyle}">${valorStr}</td>
-                </tr>
-              `;
+              const statusNormalizado=String(fin.status||'').toLowerCase();
+              const pago=['pago','liquidado','baixado','parcial'].includes(statusNormalizado)||!!fin.pagoEm||!!fin.dataPgto;
+              const cancelado=['cancelado','cancelada','compensado'].includes(statusNormalizado);
+              if(cancelado) return;
+              if(pago) totalRecebido += Number(fin.valor || 0);
+              const dataBase=fin.dataPgto||fin.venc||fin.createdAt;
+              const dataStr = dataBase ? new Date(String(dataBase).length===10 ? dataBase+'T12:00:00' : dataBase).toLocaleDateString('pt-BR') : '-';
+              const statusBadge = pago ? '<span class="pill pill-green">RECEBIDO</span>' : '<span class="pill pill-warn">PENDENTE</span>';
+              const valorStr = pago ? ('R$ '+Number(fin.valor||0).toFixed(2).replace('.',',')) : 'VALOR OCULTO';
+              const osInfo = fin.placa ? ` · ${fin.placa}${fin.veiculo ? ' '+fin.veiculo : ''}` : '';
+              const servicos = (fin.alocacoesComissao||fin.itensComissaoPagos||[]).map(a=>a.servico).filter(Boolean).slice(0,3).join('; ');
+              extratoHTML += `<tr>
+                <td style="font-family:var(--fm);font-size:0.7rem;color:var(--muted)">${dataStr}</td>
+                <td><span class="pill pill-cyan">COMISSÃO</span></td>
+                <td style="font-size:0.8rem">${fin.desc || 'Comissão'}${osInfo}${servicos?`<br><small style="color:var(--muted)">${servicos}</small>`:''}</td>
+                <td>${statusBadge}</td>
+                <td style="font-family:var(--fm);font-weight:700;color:${pago?'var(--success)':'var(--muted)'}">${valorStr}</td>
+              </tr>`;
             });
-            
-            // Injeta o valor no Card
+
             const valEl = document.getElementById('kMinhaComissao');
-            if (valEl) valEl.innerText = 'OCULTO';
+            if (valEl) valEl.innerText = 'R$ '+totalRecebido.toFixed(2).replace('.',',');
             
             // Injeta as linhas no Modal
             const tbExtrato = document.getElementById('tbExtratoFunc');
@@ -1717,18 +1688,23 @@ document.addEventListener('DOMContentLoaded',()=>{
 // KPIs
 // ============================================================
 function osAtribuidaAoUsuarioEquipe(o) {
+  if (typeof window.equipePodeConsultarOSV21 === 'function') return window.equipePodeConsultarOSV21(o);
   const fid = String(J.fid || '').trim();
   if (!fid) return false;
-  if (String(o?.mecId || '') === fid) return true;
-  if ((Array.isArray(o?.mecIds) ? o.mecIds : []).some(id => String(id || '') === fid)) return true;
-  if ((Array.isArray(o?.mecanicos) ? o.mecanicos : []).some(m => String(m?.id || m?.mecId || '') === fid)) return true;
-  return (Array.isArray(o?.servicos) ? o.servicos : []).some(s =>
-    String(s?.mecId || s?.mecanicoId || s?.responsavelId || '') === fid
-  );
+  const servicos = Array.isArray(o?.servicos) ? o.servicos : [];
+  const temAtribuicao = servicos.some(s => (Array.isArray(s?.rateiosComissao) && s.rateiosComissao.length) || s?.mecId || s?.mecanicoId || s?.responsavelId);
+  if (temAtribuicao) return servicos.some(s => {
+    const rateios = Array.isArray(s?.rateiosComissao) ? s.rateiosComissao : [];
+    if (rateios.length) return rateios.some(r => String(r?.mecId || r?.id || '') === fid);
+    return String(s?.mecId || s?.mecanicoId || s?.responsavelId || '') === fid;
+  });
+  return String(o?.mecId || '') === fid || (Array.isArray(o?.mecIds) ? o.mecIds : []).some(id => String(id || '') === fid);
 }
 
 function renderKPIs(){
-  const minhas = dbOS.filter(o => (!o.mecId && !(o.mecIds || []).length) || osAtribuidaAoUsuarioEquipe(o));
+  const roleAtual=String(J.role||'').toLowerCase();
+  const podeVerTodas=['gerente','gestor','admin','superadmin','dono'].includes(roleAtual);
+  const minhas = podeVerTodas ? dbOS : dbOS.filter(osAtribuidaAoUsuarioEquipe);
   const ativas = minhas.filter(o => !['Entregue','Cancelado','entregue','cancelado'].includes(o.status));
   if($('kMeusOS')) $('kMeusOS').innerText = ativas.length;
   if($('kEmExec')) $('kEmExec').innerText = minhas.filter(o => o.status === 'Andamento' || o.status === 'EmServico').length;
@@ -1767,9 +1743,8 @@ function renderKanban(){
     // Se for gerente, vendedor ou admin, vê TODO o pátio.
     if (['gerente', 'vendedor', 'admin'].includes(String(J.role||'').toLowerCase())) return true;
     
-    // Visibilidade do kanban: mecanico ve todo o patio; KPI/comissao seguem filtrados por J.fid.
-    
-    return true;
+    // Mecânico visualiza somente O.S. em que está vinculado como responsável.
+    return osAtribuidaAoUsuarioEquipe(o);
   });
 
   minhasOS.forEach(o=>{
@@ -1861,6 +1836,9 @@ function prepOS(mode,id=null){
   if (av) av.style.display = 'none';
   if(mode==='edit'&&id){
     const os=dbOS.find(x=>x.id===id); if(!os) return;
+    const roleAtual=String(J.role||'').toLowerCase();
+    const podeVerTodas=['gerente','gestor','admin','superadmin','dono'].includes(roleAtual);
+    if(!podeVerTodas && !osAtribuidaAoUsuarioEquipe(os)) { toast('Esta O.S. não está vinculada ao seu usuário.','warn'); return; }
     window._equipeOSAtual = os;
     $('osId').value=os.id; $('osIdBadge').innerText='OS#'+os.id.slice(-5).toUpperCase();
     $('osTipo').value=os.tipoVeiculo||'carro';
@@ -1880,7 +1858,9 @@ function prepOS(mode,id=null){
     $('tlData').value=JSON.stringify(os.timeline||[]);
     renderTimeline();
     if(os.pecas) os.pecas.forEach(p=>renderPecaRow(p));
-    if(os.servicos) os.servicos.forEach(s=>renderServicoRow(s));
+    if(os.servicos) os.servicos.forEach((s,servicoIndex)=>{
+      if (podeVerTodas || window.equipeServicoPertenceAoUsuarioV22?.(s, os)) renderServicoRow(s, servicoIndex);
+    });
     aplicarMarcadoresAprovacaoEquipe(os);
   }
 }
@@ -1967,14 +1947,18 @@ function aplicarMarcadoresAprovacaoEquipe(os) {
   const mk = key => `<div class="aprovacao-item-badge" style="font-family:var(--fm);font-size:.56rem;letter-spacing:.7px;color:${keys.has(key) ? 'var(--success)' : 'var(--danger)'};padding:2px 4px;border:1px solid ${keys.has(key) ? 'rgba(0,255,136,.25)' : 'rgba(255,59,59,.25)'};border-radius:2px;white-space:nowrap;">${keys.has(key) ? 'APROVADO' : 'NÃO APROVADO'}</div>`;
   document.querySelectorAll('#containerServicos>div').forEach((row, idx) => {
     row.querySelector('.aprovacao-item-badge')?.remove();
-    row.insertAdjacentHTML('beforeend', mk('servico-' + idx));
+    const originalIndex = row.dataset.servicoIndex !== undefined && row.dataset.servicoIndex !== '' ? Number(row.dataset.servicoIndex) : idx;
+    row.insertAdjacentHTML('beforeend', mk('servico-' + originalIndex));
   });
   document.querySelectorAll('#containerPecas>div').forEach((row, idx) => {
     row.querySelector('.aprovacao-item-badge')?.remove();
     row.insertAdjacentHTML('beforeend', mk('peca-' + idx));
   });
   const cliente = (dbClientes || []).find(c => c.id === os?.clienteId);
-  const itens = U.buildBudgetItems?.(os, cliente) || [];
+  const todosItens = U.buildBudgetItems?.(os, cliente) || [];
+  const roleAtual = String(J.role || '').toLowerCase();
+  const podeVerTudo = ['gerente','gestor','admin','superadmin','dono'].includes(roleAtual);
+  const itens = podeVerTudo ? todosItens : todosItens.filter(it => it.tipo !== 'servico' || window.equipeServicoPertenceAoUsuarioV22?.((os.servicos || [])[it.index], os));
   const aprovados = itens.filter(it => keys.has(it.key));
   const pendentes = itens.filter(it => !keys.has(it.key));
   const moeda = U.moeda || (v => 'R$ ' + parseBR(v).toFixed(2).replace('.', ','));
@@ -2026,11 +2010,10 @@ function mecanicosEquipeDaOS(os) {
   (Array.isArray(os?.mecanicos) ? os.mecanicos : []).forEach(m => adicionar(m?.id || m?.mecId, m?.nome || m?.mecNome, m?.cargo));
   (Array.isArray(os?.mecIds) ? os.mecIds : []).forEach(id => adicionar(id, id, ''));
   adicionar(os?.mecId, os?.mecNome, '');
-  (Array.isArray(os?.servicos) ? os.servicos : []).forEach(s => adicionar(
-    s?.mecId || s?.mecanicoId || s?.responsavelId,
-    s?.mecNome || s?.mecanicoNome || s?.responsavelNome,
-    ''
-  ));
+  (Array.isArray(os?.servicos) ? os.servicos : []).forEach(s => {
+    adicionar(s?.mecId || s?.mecanicoId || s?.responsavelId, s?.mecNome || s?.mecanicoNome || s?.responsavelNome, '');
+    (Array.isArray(s?.rateiosComissao) ? s.rateiosComissao : []).forEach(r => adicionar(r?.mecId || r?.id, r?.mecNome || r?.nome, ''));
+  });
   adicionar(J.fid, J.nome, J.role);
   return Array.from(mapa.values());
 }
@@ -2043,8 +2026,9 @@ function opcoesMecanicoServicoEquipe(selectedId, os) {
 }
 
 // ADICIONAR SERVIÇOS (DINÂMICO POR CARGO)
-function adicionarServico(s=null){
+function adicionarServico(s=null, originalIndex=null){
   const div=document.createElement('div');
+  if (originalIndex !== null && originalIndex !== undefined) div.dataset.servicoIndex = String(originalIndex);
   const podeVerPreco = ['gerente', 'vendedor', 'admin'].includes(J.role);
   const podeAlterarResponsavel = ['gerente', 'gestor', 'admin', 'superadmin'].includes(String(J.role || '').toLowerCase());
   const mecIdServico = s?.mecId || s?.mecanicoId || s?.responsavelId || window._equipeOSAtual?.mecId || J.fid || '';
@@ -2067,7 +2051,7 @@ function adicionarServico(s=null){
   `;
   $('containerServicos').appendChild(div);
 }
-function renderServicoRow(s){ adicionarServico(s); }
+function renderServicoRow(s, originalIndex){ adicionarServico(s, originalIndex); }
 
 // ADICIONAR PEÇAS (DINÂMICO POR CARGO)
 function adicionarPeca(){
@@ -2131,39 +2115,76 @@ function parseBR(v) {
 // INTEGRAÇÃO DE DEEP DIFF E SALVAMENTO NA O.S.
 async function salvarOS(){
   if(!$v('osCliente')||!$v('osVeiculo')){toast('⚠ Cliente e veículo obrigatórios','warn');return;}
+  const osAtualPreservar = window._equipeOSAtual || {};
   
   const pecas=[];
-  document.querySelectorAll('#containerPecas>div').forEach(r=>{
+  document.querySelectorAll('#containerPecas>div').forEach((r,idx)=>{
     const sel=r.querySelector('.peca-sel');
     const opt=sel?.options[sel?.selectedIndex];
+    const anterior=(osAtualPreservar.pecas||[])[idx]||{};
     pecas.push({
-      estoqueId:sel?.value,
-      desc:opt?.dataset.d||opt?.text||'',
+      ...anterior,
+      estoqueId:sel?.value||anterior.estoqueId||'',
+      desc:opt?.dataset.d||opt?.text||anterior.desc||'',
       qtd:parseBR(r.querySelector('.peca-qtd')?.value||1),
-      venda:parseBR(r.querySelector('.peca-venda')?.value||0)
+      venda:parseBR(r.querySelector('.peca-venda')?.value||anterior.venda||0),
+      descIndividualPct: anterior.descIndividualPct ?? anterior.descontoIndividual ?? 0,
+      descontoIndividual: anterior.descontoIndividual ?? anterior.descIndividualPct ?? 0
     });
   });
 
-  const servicos=[];
-  document.querySelectorAll('#containerServicos>div').forEach(r=>{
+  const servicos=Array.isArray(osAtualPreservar.servicos) ? osAtualPreservar.servicos.map(s=>({...s})) : [];
+  document.querySelectorAll('#containerServicos>div').forEach((r,idx)=>{
     const desc=r.querySelector('.serv-desc')?.value||'';
     const valor=parseBR(r.querySelector('.serv-valor')?.value||0);
-    const mecId = r.querySelector('.serv-mec')?.value || '';
+    const originalIndexRaw=r.dataset.servicoIndex;
+    const originalIndex=originalIndexRaw!==undefined&&originalIndexRaw!==''?Number(originalIndexRaw):-1;
+    const anterior=originalIndex>=0?(servicos[originalIndex]||{}):{};
+    const mecId = r.querySelector('.serv-mec')?.value || anterior.mecId || '';
     const mec = mecanicosEquipeDaOS(window._equipeOSAtual || {}).find(m => String(m.id) === String(mecId));
-    if(desc) servicos.push({
+    if(!desc)return;
+    const atualizado={
+      ...anterior,
       desc,
       valor,
+      valorBruto: valor,
       mecId,
-      mecNome: mec?.nome || '',
+      mecNome: mec?.nome || anterior.mecNome || '',
       responsavelId: mecId,
-      responsavelNome: mec?.nome || ''
-    });
+      responsavelNome: mec?.nome || anterior.responsavelNome || '',
+      rateiosComissao: Array.isArray(anterior.rateiosComissao) ? anterior.rateiosComissao : [],
+      descontoIndividualTipo: anterior.descontoIndividualTipo || (anterior.descontoIndividualValor != null ? 'valor' : anterior.descontoIndividualTipo),
+      descontoIndividualValor: anterior.descontoIndividualValor ?? anterior.descIndividualValor ?? 0,
+      descIndividualValor: anterior.descIndividualValor ?? anterior.descontoIndividualValor ?? 0,
+      descIndividualPct: anterior.descIndividualPct ?? 0,
+      descontoIndividual: anterior.descontoIndividualValor ?? anterior.descontoIndividual ?? 0
+    };
+    if(originalIndex>=0)servicos[originalIndex]=atualizado;else servicos.push(atualizado);
   });
 
-  // O Total é recalculado secretamente para não perder a integridade dos dados no Firebase
+  // O total continua oculto para o mecânico, mas respeita os descontos gerais e individuais salvos pelo gestor.
   let t = parseBR($v('osMO'))||0;
-  pecas.forEach(p => t += (p.qtd * p.venda));
-  servicos.forEach(s => t += s.valor);
+  const clienteCalc=(dbClientes||[]).find(c=>String(c.id)===String($v('osCliente')||''));
+  const itensCalc=(window.JOS?.buildBudgetItems?.({...osAtualPreservar,pecas,servicos},clienteCalc)||[]);
+  t += itensCalc.reduce((soma,item)=>soma+parseBR(item.valorFinal||0),0);
+  itensCalc.forEach(item=>{
+    const descontos={
+      valorOriginal:item.valorOriginal??item.valorBruto??0,
+      valorBruto:item.valorBruto??item.valorOriginal??0,
+      valorFinal:item.valorFinal??0,
+      total:item.valorFinal??0,
+      descontoGeralValor:item.descontoGeralValor??0,
+      descontoIndividualTipo:'valor',
+      descontoIndividualValor:item.descontoIndividualValor??item.descIndividualValor??0,
+      descIndividualValor:item.descIndividualValor??item.descontoIndividualValor??0,
+      descontoValor:item.descontoValor??Math.max(0,parseBR(item.valorBruto||0)-parseBR(item.valorFinal||0)),
+      descPct:item.descPct??0,
+      descGeralPct:item.descGeralPct??0,
+      descIndividualPct:item.descIndividualPct??0
+    };
+    if(item.tipo==='servico'&&servicos[item.index]) Object.assign(servicos[item.index],descontos);
+    if(item.tipo==='peca'&&pecas[item.index]) Object.assign(pecas[item.index],descontos);
+  });
 
   const id = $v('osId');
   const osBaseEquipe = id ? (dbOS.find(x => x.id === id) || {}) : {};
@@ -2607,9 +2628,9 @@ async function _iaConsultarOS(prompt, modo) {
       if (!out.length) out.push('Diagnostico tecnico conforme relato', 'Inspecao visual e teste funcional do sistema informado');
       return Array.from(new Set(out)).slice(0, 6).map(s => '- ' + s).join('\n');
     }
-    const resp = typeof window.thiaResponderLocal === 'function'
-      ? window.thiaResponderLocal(prompt, { perfil:'equipe' })
-      : '';
+    const resp = typeof window.thiaResponderLocalAsync === 'function'
+      ? await window.thiaResponderLocalAsync(prompt, { perfil:'equipe' })
+      : (typeof window.thiaResponderLocal === 'function' ? window.thiaResponderLocal(prompt, { perfil:'equipe' }) : '');
     const local = strip(resp);
     if (local && !/^Preciso de mais contexto/i.test(local)) return local;
     return 'DIAGNOSTICO SUGERIDO: validar o relato, conferir historico da placa/modelo e executar testes dirigidos antes de trocar pecas.\n\nCausas provaveis:\n- Falha relacionada ao sistema informado no relato.\n- Componente com desgaste ou mau contato.\n- Defeito intermitente que precisa de teste funcional.\n\nComponentes a verificar:\n- Itens citados no relato.\n- Conectores, fixacoes, vazamentos e sinais de desgaste.\n\nAlerta de garantia: confira no historico da O.S. se a peca ja foi executada recentemente.';
@@ -2700,9 +2721,14 @@ function aplicarSugestaoIA() {
 </script>
 <script src="js/final-1010-regras-os.js"></script>
 <script src="js/theme.js"></script>
-<script src="js/hardening-comercial.js"></script>
-<script src="js/ia.js?v=15.15.0"></script>
-<script src="js/catalogos-ia.js?v=16.0.0"></script>
+<script src="js/hardening-comercial.js?v=26.13.0"></script>
+<script src="js/ia.js?v=26.13.0"></script>
+<script src="js/catalogos-ia.js?v=19.0.0"></script>
 <script src="js/uix-theme-fix.js"></script>
+<script src="js/equipe-comissoes-v21.js?v=26.1.0"></script>
+<script src="js/equipe-usabilidade-v262.js?v=26.2.0"></script>
+<script src="js/equipe-firestore-economico-v265.js?v=26.5.0"></script>
+<script src="js/thia-firestore-runtime-v2612.js?v=26.13.0"></script>
+<script src="js/equipe-firestore-profissional-v2612.js?v=26.12.0"></script>
 </body>
 </html>

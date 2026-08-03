@@ -154,6 +154,31 @@ function focarLinhaNovaOS(row, seletor) {
 }
 const escOS = value => (OSU().escapeHtml ? OSU().escapeHtml(value) : String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
 
+function setTextOS(el, value) {
+  if (!el) return false;
+  if (window.thiaRuntimeCore?.setText) return window.thiaRuntimeCore.setText(el, value);
+  const next = String(value ?? '');
+  if (el.textContent === next) return false;
+  el.textContent = next;
+  return true;
+}
+function setHTMLOS(el, value) {
+  if (!el) return false;
+  if (window.thiaRuntimeCore?.setHTML) return window.thiaRuntimeCore.setHTML(el, value);
+  const next = String(value ?? '');
+  if (el.innerHTML === next) return false;
+  el.innerHTML = next;
+  return true;
+}
+function setValueOS(el, value, preserveActive = true) {
+  if (!el || (preserveActive && document.activeElement === el)) return false;
+  if (window.thiaRuntimeCore?.setValue) return window.thiaRuntimeCore.setValue(el, value, preserveActive);
+  const next = String(value ?? '');
+  if (String(el.value ?? '') === next) return false;
+  el.value = next;
+  return true;
+}
+
 function normalizarNomeTerceirizadoOS(value) {
   return String(value || '')
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -1221,10 +1246,10 @@ function atualizarBoxDescontoLinhaOS(row, tipo, bruto, liquido, taxa) {
   const pctEl = box.querySelector(`.${tipo}-desc-pct`);
   const econEl = box.querySelector(`.${tipo}-desc-econ`);
   const liqEl = box.querySelector(`.${tipo}-desc-val`);
-  if (brutoEl) brutoEl.textContent = `Bruto: ${moedaOS(bruto)}`;
-  if (pctEl) pctEl.textContent = `Desconto: ${moedaOS(desconto)}`;
-  if (econEl) econEl.textContent = `Desc.: ${moedaOS(desconto)}`;
-  if (liqEl) liqEl.textContent = `Líquido: ${moedaOS(liquido)}`;
+  if (brutoEl) setTextOS(brutoEl, `Bruto: ${moedaOS(bruto)}`);
+  if (pctEl) setTextOS(pctEl, `Desconto: ${moedaOS(desconto)}`);
+  if (econEl) setTextOS(econEl, `Desc.: ${moedaOS(desconto)}`);
+  if (liqEl) setTextOS(liqEl, `Líquido: ${moedaOS(liquido)}`);
 }
 
 function atualizarMetaServicoLinhaOS(row) {
@@ -1398,7 +1423,10 @@ const STATUS_MAP_LEGACY = {
 
 window.escutarOS = function() {
   db.collection('ordens_servico').where('tenantId', '==', J.tid).onSnapshot(snap => {
-    J.os = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    J.os = window.thiaRuntimeCore?.dedupeOSForDisplay
+      ? window.thiaRuntimeCore.dedupeOSForDisplay(docs)
+      : (window.thiaRuntimeCore?.dedupeById ? window.thiaRuntimeCore.dedupeById(docs) : docs);
     if(typeof window.renderKanban === 'function') window.renderKanban(); 
     if(typeof window.renderDashboard === 'function') window.renderDashboard(); 
     if(typeof window.calcComissoes === 'function') window.calcComissoes();
@@ -1412,7 +1440,12 @@ window.renderKanban = function() {
   const cols = {}; const cnts = {};
   KANBAN_STATUSES.forEach(s => { cols[s] = []; cnts[s] = 0; });
 
-  (Array.isArray(J.os) ? J.os : []).filter(o => (o.status || '').toLowerCase() !== 'cancelado').forEach(o => {
+  const listaOSKanban = window.thiaRuntimeCore?.dedupeOSForDisplay
+    ? window.thiaRuntimeCore.dedupeOSForDisplay(Array.isArray(J.os) ? J.os : [])
+    : (window.thiaRuntimeCore?.dedupeById
+      ? window.thiaRuntimeCore.dedupeById(Array.isArray(J.os) ? J.os : [])
+      : (Array.isArray(J.os) ? J.os : []));
+  listaOSKanban.filter(o => (o.status || '').toLowerCase() !== 'cancelado').forEach(o => {
     const stRaw = o.status || 'Triagem';
     const st = STATUS_MAP_LEGACY[stRaw] || 'Triagem'; 
     
@@ -1490,7 +1523,7 @@ window.renderKanban = function() {
         ? `<button title="Excluir definitivamente esta O.S." onclick="event.stopPropagation();window.excluirOSDef('${os.id}')" style="background:transparent;border:1px solid var(--danger);color:var(--danger);font-family:var(--fm);font-size:0.6rem;padding:3px 7px;border-radius:3px;cursor:pointer;">🗑</button>`
         : '';
 
-      return `<div class="k-card" style="border-left-color:${cor}" onclick="window.prepOS('edit','${os.id}');abrirModal('modalOS')">
+      return `<div class="k-card" data-os-id="${esc(os.id)}" style="border-left-color:${cor}" onclick="window.thiaAbrirOS('${os.id}','edit')">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;gap:6px;">
             <div>
               ${prefixoFmt ? `<div style="font-family:var(--fm);font-size:.58rem;color:var(--warn);letter-spacing:.8px;font-weight:800;margin-bottom:2px;">PREFIXO ${prefixoFmt}</div>` : ''}
@@ -2686,7 +2719,7 @@ window.atualizarValorServicoPorHora = function(row) {
   window.calcOSTotal?.();
 };
 
-window.adicionarServicoOS = function() {
+window.adicionarServicoOS = function(options = {}) {
   const sel = document.createElement('div');
   const ehGov = typeof window._osClienteGovernamental === 'function' && window._osClienteGovernamental();
   const dadosGov = ehGov && typeof window._osDadosGovernamental === 'function' ? window._osDadosGovernamental() : null;
@@ -2719,7 +2752,8 @@ window.adicionarServicoOS = function() {
   window.garantirResponsavelLinhaServicoOS?.(sel, '');
   instalarTerceirizadoLinhaServicoOS(sel, { tipoExecucao: 'interna' });
   window.calcOSTotal?.();
-  focarLinhaNovaOS(sel, '.serv-desc');
+  if (options.focus !== false) focarLinhaNovaOS(sel, '.serv-desc');
+  return sel;
 };
 
 window.renderServicoOSRow = function(s) {
@@ -2787,9 +2821,10 @@ window.renderServicoOSRow = function(s) {
   atualizarMetaServicoLinhaOS(div);
 };
 
-window.adicionarPecaOS = function() {
+window.adicionarPecaOS = function(options = {}) {
   const ehGov = typeof window._osClienteGovernamental === 'function' && window._osClienteGovernamental();
   const existeFluxoAgrupado = !!document.querySelector('#containerPecasOS .cilia-peca-wrap');
+  if (existeFluxoAgrupado && options.auto === true) return null;
   if (existeFluxoAgrupado && typeof window.renderCiliaPecaOSRow === 'function') {
     const idx = document.querySelectorAll('#containerPecasOS [data-cilia-piece-index]').length;
     window.renderCiliaPecaOSRow({
@@ -2805,7 +2840,7 @@ window.adicionarPecaOS = function() {
       ciliaManual: true
     }, []);
     window.toast?.('Peca manual criada com grupo editavel e servicos vinculados.', 'ok');
-    return;
+    return document.querySelector('#containerPecasOS [data-cilia-piece-index]:last-of-type') || null;
   }
   const sel = document.createElement('div');
 
@@ -2851,7 +2886,8 @@ window.adicionarPecaOS = function() {
   if($('containerPecasOS')) $('containerPecasOS').appendChild(sel);
   instalarDescontoIndividualLinhaOS(sel, 'peca', 0);
   window.calcOSTotal();
-  focarLinhaNovaOS(sel, '.peca-busca-estoque, .peca-desc-livre, .peca-codigo');
+  if (options.focus !== false) focarLinhaNovaOS(sel, '.peca-busca-estoque, .peca-desc-livre, .peca-codigo');
+  return sel;
 };
 
 
@@ -3280,11 +3316,13 @@ function osAdicionarLinhaAutomatica(tipo) {
   const cont = document.getElementById(containerId);
   if (!cont || cont.dataset.autoRowLock === '1') return null;
   cont.dataset.autoRowLock = '1';
+  const antes = osRowsDiretas(containerId);
   try {
-    if (tipo === 'servico') window.adicionarServicoOS?.();
-    else window.adicionarPecaOS?.();
+    const criada = tipo === 'servico'
+      ? window.adicionarServicoOS?.({ focus:false, scroll:false, auto:true })
+      : window.adicionarPecaOS?.({ focus:false, scroll:false, auto:true });
     const rows = osRowsDiretas(containerId);
-    const nova = rows[rows.length - 1] || null;
+    const nova = rows.length > antes.length ? rows[rows.length - 1] : (criada || null);
     if (nova) nova.dataset.autoLinhaOS = '1';
     return nova;
   } finally {
@@ -3323,7 +3361,12 @@ window.inicializarAutoLinhasOS = function() {
   const pec = document.getElementById('containerPecasOS');
   if (serv && serv.dataset.autoRowsInit !== '1') {
     serv.dataset.autoRowsInit = '1';
-    const onEdit = () => setTimeout(() => osGarantirProximaLinha('servico'), 0);
+    let autoRowTimerServico = null;
+    const onEdit = ev => {
+      if (ev?.isComposing) return;
+      clearTimeout(autoRowTimerServico);
+      autoRowTimerServico = setTimeout(() => osGarantirProximaLinha('servico'), 90);
+    };
     serv.addEventListener('input', onEdit);
     serv.addEventListener('change', onEdit);
     serv.addEventListener('keydown', ev => {
@@ -3336,7 +3379,12 @@ window.inicializarAutoLinhasOS = function() {
   }
   if (pec && pec.dataset.autoRowsInit !== '1') {
     pec.dataset.autoRowsInit = '1';
-    const onEdit = () => setTimeout(() => osGarantirProximaLinha('peca'), 0);
+    let autoRowTimerPeca = null;
+    const onEdit = ev => {
+      if (ev?.isComposing) return;
+      clearTimeout(autoRowTimerPeca);
+      autoRowTimerPeca = setTimeout(() => osGarantirProximaLinha('peca'), 90);
+    };
     pec.addEventListener('input', onEdit);
     pec.addEventListener('change', onEdit);
     pec.addEventListener('keydown', ev => {
@@ -3361,9 +3409,9 @@ window.renderResumoSecoesOS = function(resumoSecoes) {
     const rows = Object.entries(resumoSecoes || {})
       .filter(([, item]) => item.horas || item.total)
       .sort((a, b) => b[1].total - a[1].total);
-    if (!rows.length) { el.innerHTML = ''; return; }
+    if (!rows.length) { setHTMLOS(el, ''); return; }
     const moedaLocal = v => 'R$ ' + numBR(v).toFixed(2).replace('.', ',');
-    el.innerHTML = rows.map(([secao, item]) => {
+    const html = rows.map(([secao, item]) => {
       const codigos = listaResumoOS(item.codigos, 8);
       const tipos = listaResumoOS(item.tiposVeiculo, 3);
       const sistemas = listaResumoOS(item.sistemas, 3);
@@ -3377,17 +3425,18 @@ window.renderResumoSecoesOS = function(resumoSecoes) {
         ${sistemas ? `<span style="display:block;color:var(--muted);">Sistema: ${escOS(sistemas)}</span>` : ''}
       </div>`;
     }).join('');
+    setHTMLOS(el, html);
 };
 
 function atualizarCamposValorCobradoLinhaOS(row, tipo, valorFinal) {
   if (!row) return;
   const seletor = tipo === 'servico' ? '.serv-valor-cobrado' : '.peca-valor-cobrado';
   const campo = row.querySelector(seletor);
-  if (campo && document.activeElement !== campo) campo.value = Math.max(0, numBR(valorFinal || 0)).toFixed(2).replace('.', ',');
+  if (campo) setValueOS(campo, Math.max(0, numBR(valorFinal || 0)).toFixed(2).replace('.', ','), true);
   if (tipo === 'servico') window.atualizarValorAutomaticoRateioServicoOS?.(row, valorFinal);
 }
 
-window.calcOSTotal = function() {
+function calcularOSTotalAgora() {
     let total = 0;
     let totalServicos = 0;
     let totalPecas = 0;
@@ -3425,8 +3474,8 @@ window.calcOSTotal = function() {
         // Atualiza badge de desconto em tempo real
         const descBox = row.querySelector('.serv-desc-val');
         const pctBox = row.querySelector('.serv-desc-pct');
-        if (pctBox) pctBox.textContent = '- ' + moedaOS(calc.descontoValor || Math.max(0, vBruto - vFinal));
-        if (descBox) descBox.textContent = 'R$ ' + vFinal.toFixed(2).replace('.', ',');
+        if (pctBox) setTextOS(pctBox, '- ' + moedaOS(calc.descontoValor || Math.max(0, vBruto - vFinal)));
+        if (descBox) setTextOS(descBox, 'R$ ' + vFinal.toFixed(2).replace('.', ','));
         atualizarCamposValorCobradoLinhaOS(row, 'servico', vFinal);
         atualizarBoxDescontoLinhaOS(row, 'serv', vBruto, vFinal, calc.descPct || 0);
         totalServicos += vFinal;
@@ -3467,8 +3516,8 @@ window.calcOSTotal = function() {
         const desc = String(calc.desc || '').trim();
         const descBox = row.querySelector('.serv-desc-val');
         const pctBox = row.querySelector('.serv-desc-pct');
-        if (pctBox) pctBox.textContent = '- ' + moedaOS(calc.descontoValor || Math.max(0, vBruto - vFinal));
-        if (descBox) descBox.textContent = 'R$ ' + vFinal.toFixed(2).replace('.', ',');
+        if (pctBox) setTextOS(pctBox, '- ' + moedaOS(calc.descontoValor || Math.max(0, vBruto - vFinal)));
+        if (descBox) setTextOS(descBox, 'R$ ' + vFinal.toFixed(2).replace('.', ','));
         atualizarCamposValorCobradoLinhaOS(row, 'servico', vFinal);
         atualizarBoxDescontoLinhaOS(row, 'serv', vBruto, vFinal, calc.descPct || 0);
         totalServicos += vFinal;
@@ -3511,8 +3560,8 @@ window.calcOSTotal = function() {
         // Atualiza badge de desconto em tempo real
         const descBox = row.querySelector('.peca-desc-val');
         const pctBox = row.querySelector('.peca-desc-pct') || row.querySelector('.peca-desc-box div:first-child');
-        if (pctBox) pctBox.textContent = '- ' + moedaOS(calcDesconto.descontoValor || Math.max(0, vBruto - vFinal));
-        if (descBox) descBox.textContent = 'R$ ' + vFinal.toFixed(2).replace('.', ',');
+        if (pctBox) setTextOS(pctBox, '- ' + moedaOS(calcDesconto.descontoValor || Math.max(0, vBruto - vFinal)));
+        if (descBox) setTextOS(descBox, 'R$ ' + vFinal.toFixed(2).replace('.', ','));
         atualizarCamposValorCobradoLinhaOS(row, 'peca', vFinal);
         atualizarBoxDescontoLinhaOS(row, 'peca', vBruto, vFinal, descEfetivo);
         totalPecas += vFinal;
@@ -3521,11 +3570,11 @@ window.calcOSTotal = function() {
     const guinchoOS = window.calcularDeslocamentoGuinchoOS?.() || { total: 0 };
     const totalGuincho = guinchoOS.ativo ? _numGuinchoOS(guinchoOS.total || 0) : 0;
     total = +(totalServicos + totalPecas + totalGuincho).toFixed(2);
-    if ($('osTotalVal')) $('osTotalVal').innerText = total.toFixed(2).replace('.', ',');
-    if ($('osTotalServicosVal')) $('osTotalServicosVal').innerText = totalServicos.toFixed(2).replace('.', ',');
-    if ($('osTotalPecasVal')) $('osTotalPecasVal').innerText = totalPecas.toFixed(2).replace('.', ',');
-    if ($('osTotalValMirror')) $('osTotalValMirror').innerText = total.toFixed(2).replace('.', ',');
-    if ($('osTotalHidden')) $('osTotalHidden').value = total;
+    setTextOS($('osTotalVal'), total.toFixed(2).replace('.', ','));
+    setTextOS($('osTotalServicosVal'), totalServicos.toFixed(2).replace('.', ','));
+    setTextOS($('osTotalPecasVal'), totalPecas.toFixed(2).replace('.', ','));
+    setTextOS($('osTotalValMirror'), total.toFixed(2).replace('.', ','));
+    setValueOS($('osTotalHidden'), total, false);
     atualizarResumoDescontosCompletoOS({
       descMO,
       descPeca,
@@ -3538,6 +3587,30 @@ window.calcOSTotal = function() {
     });
     window.renderResumoSecoesOS(resumoSecoesOS);
     window.atualizarCotacaoPecasOrcamentoAtualOS?.();
+    return { total, totalServicos, totalPecas, brutoServicos, brutoPecas };
+}
+
+let _calcOSTotalTimer = null;
+let _calcOSTotalFrame = null;
+window.calcOSTotalAgora = function() {
+  clearTimeout(_calcOSTotalTimer);
+  _calcOSTotalTimer = null;
+  if (_calcOSTotalFrame != null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(_calcOSTotalFrame);
+  _calcOSTotalFrame = null;
+  return calcularOSTotalAgora();
+};
+window.calcOSTotal = function(options) {
+  if (options === true || options?.imediato === true) return window.calcOSTotalAgora();
+  clearTimeout(_calcOSTotalTimer);
+  _calcOSTotalTimer = setTimeout(() => {
+    _calcOSTotalTimer = null;
+    const executar = () => {
+      _calcOSTotalFrame = null;
+      calcularOSTotalAgora();
+    };
+    if (typeof requestAnimationFrame === 'function') _calcOSTotalFrame = requestAnimationFrame(executar);
+    else executar();
+  }, 55);
 };
 
 window.verificarStatusOS = function() {
@@ -3664,6 +3737,14 @@ async function reconciliarComissoesOS(osId, payload, calculos) {
     ...existentes.map(fin => String(fin.mecId || '')).filter(Boolean)
   ]);
   const agora = new Date().toISOString();
+  const batch = db.batch();
+  let operacoes = 0;
+  const atualizar = (ref, dados) => { batch.update(ref, limparUndefinedFirestoreOS(dados)); operacoes += 1; };
+  const criar = dados => {
+    const ref = db.collection('financeiro').doc();
+    batch.set(ref, limparUndefinedFirestoreOS(dados));
+    operacoes += 1;
+  };
 
   for (const mecId of mecanicos) {
     const calc = alvos.get(mecId);
@@ -3677,10 +3758,8 @@ async function reconciliarComissoesOS(osId, payload, calculos) {
     if (Math.abs(saldoPendente) < 0.01 || !calc) {
       for (const pendente of pendentes) {
         const saldoManualDividido = pendente.origem === 'saldo_pagamento_comissao_detalhado' || pendente.categoria === 'comissao_os_servico_parcial';
-        // Pagamento extra/dividido criado manualmente pode pertencer a um segundo mecânico
-        // que não está como responsável principal da O.S.; não apagar esse saldo ao salvar a O.S.
         if (!calc && saldoManualDividido) continue;
-        await pendente.ref.update({
+        atualizar(pendente.ref, {
           status: 'Cancelado',
           canceladoEm: agora,
           motivoCancelamento: calc
@@ -3720,9 +3799,9 @@ async function reconciliarComissoesOS(osId, payload, calculos) {
       updatedAt: agora
     };
     if (pendentes.length) {
-      await pendentes[0].ref.update(dados);
+      atualizar(pendentes[0].ref, dados);
       for (const duplicada of pendentes.slice(1)) {
-        await duplicada.ref.update({
+        atualizar(duplicada.ref, {
           status: 'Cancelado',
           canceladoEm: agora,
           motivoCancelamento: 'Comissão duplicada reconciliada por mecânico e serviço',
@@ -3730,13 +3809,32 @@ async function reconciliarComissoesOS(osId, payload, calculos) {
         });
       }
     } else {
-      await db.collection('financeiro').add({ ...dados, createdAt: agora });
+      criar({ ...dados, createdAt: agora });
     }
   }
+  if (operacoes) await batch.commit();
 }
 
 window.salvarOS = async function() {
+  window.calcOSTotalAgora?.();
   const osId = $v('osId');
+  const osRefSalvar = osId ? db.collection('ordens_servico').doc(osId) : db.collection('ordens_servico').doc();
+  const targetOsId = osRefSalvar.id;
+  const batchSalvarOS = db.batch();
+  let operacoesBatchSalvarOS = 0;
+  const auditoriasFinanceiroDepoisCommitOS = [];
+  const queueFinanceiroAddOS = dados => {
+    if (operacoesBatchSalvarOS >= 450) throw new Error('A O.S. excedeu o limite seguro de operações financeiras em uma única gravação.');
+    const ref = db.collection('financeiro').doc();
+    batchSalvarOS.set(ref, limparUndefinedFirestoreOS({ ...dados, osId: dados?.osId || targetOsId }));
+    operacoesBatchSalvarOS += 1;
+    return ref;
+  };
+  const queueFinanceiroUpdateOS = (ref, dados) => {
+    if (operacoesBatchSalvarOS >= 450) throw new Error('A O.S. excedeu o limite seguro de operações financeiras em uma única gravação.');
+    batchSalvarOS.update(ref, limparUndefinedFirestoreOS(dados));
+    operacoesBatchSalvarOS += 1;
+  };
   const prismaInformadoOS = ($v('osPrisma') || '').trim();
   if ($('osPlaca') && !$v('osPlaca')) { window.toast('⚠ Preencha a Placa', 'warn'); return; }
   if ($('osCliente') && $('osVeiculo') && !$v('osCliente') && !$v('osVeiculo')) { window.toast('⚠ Selecione cliente e veículo', 'warn'); return; }
@@ -4553,7 +4651,7 @@ window.salvarOS = async function() {
                 continue;
               }
               if (financeiroOSCanceladoOS(finAntes)) continue;
-              await db.collection('financeiro').doc(docSnap.id).update({
+              queueFinanceiroUpdateOS(db.collection('financeiro').doc(docSnap.id), {
                 status: 'Cancelado',
                 canceladoPorReemissaoOS: true,
                 canceladoEm: new Date().toISOString(),
@@ -4561,7 +4659,15 @@ window.salvarOS = async function() {
                 dadosAntesCancelamento: finAntes
               });
               if (typeof window.thiaAudit === 'function') {
-                await window.thiaAudit('cancelou_financeiro_pendente_por_reemissao_os', 'financeiro', docSnap.id, finAntes, { status: 'Cancelado' }, 'Reemissão financeira da O.S.', { osId });
+                auditoriasFinanceiroDepoisCommitOS.push(() => window.thiaAudit(
+                  'cancelou_financeiro_pendente_por_reemissao_os',
+                  'financeiro',
+                  docSnap.id,
+                  finAntes,
+                  { status: 'Cancelado' },
+                  'Reemissão financeira da O.S.',
+                  { osId: targetOsId }
+                ));
               }
             }
           } catch(e) { console.warn('Reconciliação financeiro OS:', e); }
@@ -4595,11 +4701,11 @@ window.salvarOS = async function() {
             const parteCartao = formaPagamentoParcelaOperadoraOS(formaParte) || (formaNormParte.includes('credito') && !formaNormParte.includes('boleto') && !formaNormParte.includes('crediario'));
             const parteCreditoOficina = formaPagamentoParcelaClienteOS(formaParte);
             if (parteAVista) {
-              await db.collection('financeiro').add({
+              queueFinanceiroAddOS({
                 tenantId: J.tid, tipo: 'Entrada', status: 'Pago',
                 desc: `${descBaseFinanceiroOS} — parte ${parte.indice || ''} (${formaParte})`,
                 valor: valorParte, pgto: formaParte, venc: dataParte, dataPgto: dataParte,
-                osId: osId || null, clienteId: payload.clienteId || null,
+                osId: targetOsId, clienteId: payload.clienteId || null,
                 quitadoPeloCliente: true, origem: 'recebimento_os_combinado',
                 parteCombinada: parte, valorTotalOS: valorFinanceiro, valorJaLiquidadoOS, complementoFinanceiroOS,
                 createdAt: new Date().toISOString()
@@ -4607,11 +4713,11 @@ window.salvarOS = async function() {
             } else if (parteCartao) {
               const valorParcelaParte = valorParte / parcParte;
               for (let i = 0; i < parcParte; i++) {
-                await db.collection('financeiro').add({
+                queueFinanceiroAddOS({
                   tenantId: J.tid, tipo: 'Entrada', status: 'A Receber',
                   desc: `Recebimento operadora — ${descBaseFinanceiroOS} — ${formaParte} ${parcParte > 1 ? `(${i + 1}/${parcParte})` : ''}`,
                   valor: valorParcelaParte, pgto: formaParte, venc: somarDiasISOOS(dataParte, 30 * (i + 1)),
-                  osId: osId || null, clienteId: payload.clienteId || null,
+                  osId: targetOsId, clienteId: payload.clienteId || null,
                   quitadoPeloCliente: true, aReceberDe: 'Operadora de Cartão', origem: 'recebimento_os_combinado',
                   parteCombinada: parte, valorTotalOS: valorFinanceiro, valorJaLiquidadoOS, complementoFinanceiroOS,
                   createdAt: new Date().toISOString()
@@ -4620,22 +4726,22 @@ window.salvarOS = async function() {
             } else if (parteCreditoOficina) {
               const valorParcelaParte = valorParte / parcParte;
               for (let i = 0; i < parcParte; i++) {
-                await db.collection('financeiro').add({
+                queueFinanceiroAddOS({
                   tenantId: J.tid, tipo: 'Entrada', status: 'Pendente',
                   desc: `${descBaseFinanceiroOS} — ${formaParte} ${parcParte > 1 ? `(${i + 1}/${parcParte})` : ''}`,
                   valor: valorParcelaParte, pgto: formaParte, venc: somarMesesISOOS(dataParte, i),
-                  osId: osId || null, clienteId: payload.clienteId || null,
+                  osId: targetOsId, clienteId: payload.clienteId || null,
                   quitadoPeloCliente: false, aReceberDe: 'Cliente', origem: 'recebimento_os_combinado',
                   parteCombinada: parte, valorTotalOS: valorFinanceiro, valorJaLiquidadoOS, complementoFinanceiroOS,
                   createdAt: new Date().toISOString()
                 });
               }
             } else {
-              await db.collection('financeiro').add({
+              queueFinanceiroAddOS({
                 tenantId: J.tid, tipo: 'Entrada', status: 'Pendente',
                 desc: `${descBaseFinanceiroOS} — parte ${parte.indice || ''} (${formaParte})`,
                 valor: valorParte, pgto: formaParte, venc: dataParte,
-                osId: osId || null, clienteId: payload.clienteId || null,
+                osId: targetOsId, clienteId: payload.clienteId || null,
                 quitadoPeloCliente: false, origem: 'recebimento_os_combinado',
                 parteCombinada: parte, valorTotalOS: valorFinanceiro, valorJaLiquidadoOS, complementoFinanceiroOS,
                 createdAt: new Date().toISOString()
@@ -4646,7 +4752,7 @@ window.salvarOS = async function() {
           // ═══ CLIENTE PAGOU À VISTA (Dinheiro/PIX/Débito) ═══
           payload.pgtoQuitado = true;
           payload.pgtoResumoCliente = `${pgtoBase} à vista`;
-          await db.collection('financeiro').add({
+          queueFinanceiroAddOS({
             tenantId:  J.tid,
             tipo:      'Entrada',
             status:    'Pago',
@@ -4674,7 +4780,7 @@ window.salvarOS = async function() {
 
           for (let i = 0; i < parcelas; i++) {
             const vencParcela = somarDiasISOOS(payload.pgtoData, 30 * (i + 1));
-            await db.collection('financeiro').add({
+            queueFinanceiroAddOS({
               tenantId:   J.tid,
               tipo:       'Entrada',
               status:     'A Receber',
@@ -4703,7 +4809,7 @@ window.salvarOS = async function() {
 
           for (let i = 0; i < parcelas; i++) {
             const vencParcela = somarMesesISOOS(payload.pgtoData, i);
-            await db.collection('financeiro').add({
+            queueFinanceiroAddOS({
               tenantId:   J.tid,
               tipo:       'Entrada',
               status:     'Pendente',
@@ -4727,7 +4833,7 @@ window.salvarOS = async function() {
           // ═══ OUTRAS FORMAS / INDEFINIDO ═══
           payload.pgtoQuitado = false;
           payload.pgtoResumoCliente = `${pgtoBase} — verificar`;
-          await db.collection('financeiro').add({
+          queueFinanceiroAddOS({
             tenantId:  J.tid,
             tipo:      'Entrada',
             status:    'Pendente',
@@ -4750,34 +4856,46 @@ window.salvarOS = async function() {
   }
   // FIM bloco recebimento financeiro
 
-  const payloadFirestore = limparUndefinedFirestoreOS(payload);
-
-  let savedOsId = osId;
-if (osId) {
-    await db.collection('ordens_servico').doc(osId).update(payloadFirestore);
-    window.toast('✓ O.S. ATUALIZADA');
-    audit('OS', `Editou OS ${osId.slice(-6)}`);
-  } else {
+  if (!osId) {
     payload.createdAt = new Date().toISOString();
-    payload.pin = Math.floor(1000 + Math.random() * 9000).toString(); 
-    const ref = await db.collection('ordens_servico').add(limparUndefinedFirestoreOS(payload));
-    savedOsId = ref.id;
-    if (document.getElementById('osId')) document.getElementById('osId').value = savedOsId;
+    payload.pin = Math.floor(1000 + Math.random() * 9000).toString();
+  }
+  const payloadFirestore = limparUndefinedFirestoreOS(payload);
+  if (osId) batchSalvarOS.update(osRefSalvar, payloadFirestore);
+  else batchSalvarOS.set(osRefSalvar, payloadFirestore);
+  operacoesBatchSalvarOS += 1;
+
+  await batchSalvarOS.commit();
+  const savedOsId = targetOsId;
+  if (document.getElementById('osId')) document.getElementById('osId').value = savedOsId;
+
+  if (osId) {
+    window.toast('✓ O.S. ATUALIZADA');
+    audit('OS', `Editou OS ${savedOsId.slice(-6)}`);
+  } else {
     window.toast('✓ O.S. CRIADA');
     audit('OS', `Criou OS para ${payload.placa || payload.cliente || J.clientes.find(c => c.id === payload.clienteId)?.nome}`);
   }
 
-  await reconciliarComissoesOS(savedOsId, payload, comissoesOSCalculadas);
-
+  const tarefasPosGravacaoOS = [
+    reconciliarComissoesOS(savedOsId, payload, comissoesOSCalculadas)
+  ];
+  if (auditoriasFinanceiroDepoisCommitOS.length) {
+    tarefasPosGravacaoOS.push(Promise.allSettled(
+      auditoriasFinanceiroDepoisCommitOS.map(executar => Promise.resolve().then(executar))
+    ));
+  }
   if (auditoriaGeralOS.length) {
-    for (const acao of auditoriaGeralOS) {
-      await auditGeralOS(savedOsId, acao);
-    }
+    tarefasPosGravacaoOS.push(Promise.allSettled(
+      auditoriaGeralOS.map(acao => auditGeralOS(savedOsId, acao))
+    ));
   }
-
   if (_pecasReais.length > 0 || (oldOSParaAprovacao.pecasReais || []).length > 0) {
-    await window.baixarEstoquePecasReais?.(savedOsId, oldOSParaAprovacao.pecasReais || [], _pecasReais);
+    tarefasPosGravacaoOS.push(
+      Promise.resolve(window.baixarEstoquePecasReais?.(savedOsId, oldOSParaAprovacao.pecasReais || [], _pecasReais))
+    );
   }
+  await Promise.all(tarefasPosGravacaoOS);
 
   // CHECKLIST INTELIGENTE V15.11 — após salvar a O.S., atualiza o bloco do checklist
   // se o modal permanecer aberto em "Salvar e continuar". O update do Firestore preserva
@@ -5525,7 +5643,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
       tableWidth: larguraUtilPdf,
       styles: { fontSize: 6.7, cellPadding: 1.45, lineColor: [190, 198, 210], lineWidth: 0.12, overflow: 'linebreak' },
       headStyles: headStylesPadraoPDF,
-      columnStyles: { 0: { cellWidth: 14 }, 1: { cellWidth: 31 }, 2: { cellWidth: 49 }, 3: { halign: 'center', cellWidth: 11 }, 4: { halign: 'right', cellWidth: 17 }, 5: { halign: 'right', cellWidth: 23 }, 6: { halign: 'right', cellWidth: 21 }, 7: { halign: 'right', cellWidth: 24 } }
+      columnStyles: { 0: { cellWidth: 13 }, 1: { cellWidth: 29 }, 2: { cellWidth: 47 }, 3: { halign: 'center', cellWidth: 11 }, 4: { halign: 'right', cellWidth: 17 }, 5: { halign: 'right', cellWidth: 22 }, 6: { halign: 'right', cellWidth: 21 }, 7: { halign: 'right', cellWidth: 26 } }
     });
     y = doc.lastAutoTable.finalY + 6;
   }
@@ -5543,7 +5661,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
       tableWidth: larguraUtilPdf,
       styles: { fontSize: 7.2, cellPadding: 1.55, lineColor: [190, 198, 210], lineWidth: 0.12, overflow: 'linebreak' },
       headStyles: headStylesPadraoPDF,
-      columnStyles: { 0: { cellWidth: 28 }, 1: { cellWidth: 62 }, 2: { halign: 'center', cellWidth: 10 }, 3: { halign: 'right', cellWidth: 22 }, 4: { halign: 'right', cellWidth: 25 }, 5: { halign: 'right', cellWidth: 21 }, 6: { halign: 'right', cellWidth: 25 } }
+      columnStyles: { 0: { cellWidth: 26 }, 1: { cellWidth: 58 }, 2: { halign: 'center', cellWidth: 10 }, 3: { halign: 'right', cellWidth: 21 }, 4: { halign: 'right', cellWidth: 24 }, 5: { halign: 'right', cellWidth: 21 }, 6: { halign: 'right', cellWidth: 26 } }
     });
     y = doc.lastAutoTable.finalY + 6;
   }
@@ -6303,23 +6421,30 @@ window.baixarEstoquePecasReais = async function(osId, antigas, novas) {
     if (!p.estoqueId) return;
     novasPorEstoque[p.estoqueId] = (novasPorEstoque[p.estoqueId] || 0) + numBR(p.qtd || 0);
   });
-  for (const estoqueId of Object.keys(novasPorEstoque)) {
+
+  const batch = db.batch();
+  let operacoes = 0;
+  const agora = new Date().toISOString();
+  Object.keys(novasPorEstoque).forEach(estoqueId => {
     const delta = novasPorEstoque[estoqueId] - (antigasPorEstoque[estoqueId] || 0);
-    if (delta <= 0) continue;
+    if (delta <= 0) return;
     const item = (window.J?.estoque || []).find(x => x.id === estoqueId);
-    if (!item) continue;
-    await db.collection('estoqueItems').doc(estoqueId).update({
+    if (!item) return;
+    batch.update(db.collection('estoqueItems').doc(estoqueId), {
       qtd: Math.max(0, numBR(item.qtd || 0) - delta),
-      updatedAt: new Date().toISOString()
+      updatedAt: agora
     });
-    await db.collection('lixeira_auditoria').add({
+    const auditRef = db.collection('lixeira_auditoria').doc();
+    batch.set(auditRef, {
       tenantId: J.tid,
       modulo: 'ESTOQUE',
       acao: `Baixa por peca real instalada OS ${String(osId || '').slice(-6).toUpperCase()}: ${item.desc || estoqueId} (-${delta})`,
       usuario: J.nome || 'Gestor',
-      ts: new Date().toISOString()
-    }).catch(() => {});
-  }
+      ts: agora
+    });
+    operacoes += 2;
+  });
+  if (operacoes) await batch.commit();
 };
 
 function statusOptionsExecOS(tipo, atual) {
