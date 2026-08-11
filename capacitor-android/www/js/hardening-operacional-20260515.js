@@ -1178,20 +1178,22 @@
     p.className = 'op-card j-card';
     p.innerHTML = `
       <div class="j-card-header">
-        <div class="j-card-title">PACOTES DE BOLETOS / DUPLICATAS DE FORNECEDOR</div>
+        <div><div class="j-card-title">AGRUPAR BOLETOS / DUPLICATAS DO FORNECEDOR</div><div style="font-family:var(--fm);font-size:.58rem;color:var(--muted);margin-top:3px;line-height:1.4;">Use quando várias NFs/contas do mesmo fornecedor viram um ou mais boletos reais. 1) escolha o fornecedor; 2) liste os títulos; 3) marque o que pertence ao pacote; 4) informe os boletos recebidos. Nada é alterado antes da confirmação final.</div></div>
         <div class="j-collapse-tools"><button type="button" class="btn-ghost j-collapse-toggle" onclick="window.toggleJarvisCollapse(this)" title="Minimizar ou expandir pacotes">−</button></div>
       </div>
       <div class="j-card-body">
-        <div style="display:grid;grid-template-columns:minmax(180px,1fr) 140px 140px auto auto;gap:8px;align-items:end;margin-bottom:8px;">
-          <div class="form-group"><label class="j-label">Fornecedor</label><select class="j-select" id="pkgFornecedor"></select></div>
-          <div class="form-group"><label class="j-label">Inicio</label><input type="date" class="j-input" id="pkgInicio"></div>
-          <div class="form-group"><label class="j-label">Fim</label><input type="date" class="j-input" id="pkgFim"></div>
-          <button class="btn-outline" onclick="window.previewPacoteBoletosHardening()">LISTAR TITULOS</button>
-          <button class="btn-primary" onclick="window.prepararPacoteBoletosHardening()">GERAR BOLETOS</button>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;align-items:end;margin-bottom:8px;">
+          <div class="form-group"><label class="j-label">1. Fornecedor</label><select class="j-select" id="pkgFornecedor" onchange="window.reiniciarSelecaoPacoteBoletos?.()"></select></div>
+          <div class="form-group"><label class="j-label">Período inicial (opcional)</label><input type="date" class="j-input" id="pkgInicio" onchange="window.reiniciarSelecaoPacoteBoletos?.()"></div>
+          <div class="form-group"><label class="j-label">Período final (opcional)</label><input type="date" class="j-input" id="pkgFim" onchange="window.reiniciarSelecaoPacoteBoletos?.()"></div>
+          <button class="btn-outline" id="pkgBtnListar" onclick="window.previewPacoteBoletosHardening()" disabled>2. LISTAR NFs / CONTAS</button>
+          <button class="btn-primary" id="pkgBtnPreparar" onclick="window.prepararPacoteBoletosHardening()" disabled title="Liste os títulos e marque ao menos um antes de continuar">3. INFORMAR BOLETOS RECEBIDOS</button>
         </div>
+        <div id="pkgSelecaoResumo" style="font-family:var(--fm);font-size:.62rem;color:var(--muted);margin:-2px 0 8px;">Nenhum título selecionado.</div>
         <div id="pkgPreview" style="display:none;border:1px solid var(--border);background:var(--surf2);border-radius:4px;padding:10px;margin-bottom:8px;font-size:.72rem;"></div>
         <div id="pkgBoletosEditor" style="display:none;border:1px solid rgba(125,211,252,.35);background:rgba(125,211,252,.055);border-radius:4px;padding:10px;margin-bottom:8px;"></div>
-        <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Pacote</th><th>Fornecedor</th><th>Periodo</th><th>Titulos</th><th>Boletos reais</th><th>Total</th><th>Status</th><th>Acoes</th></tr></thead><tbody id="tbPacotesBoletos"></tbody></table></div>
+        <div style="font-family:var(--fm);font-size:.60rem;color:var(--muted);font-weight:800;letter-spacing:.8px;margin:12px 0 6px;">PACOTES JÁ GERADOS</div>
+        <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Pacote</th><th>Fornecedor</th><th>Período</th><th>Títulos</th><th>Boletos reais</th><th>Total</th><th>Status</th><th>Ações</th></tr></thead><tbody id="tbPacotesBoletos"></tbody></table></div>
       </div>`;
     sec.prepend(p);
     wrapToggleFinanceiroAgrupado();
@@ -1210,6 +1212,7 @@
       sel.innerHTML = '<option value="">Selecione um fornecedor</option>' + (J().fornecedores || []).map(f => `<option value="${esc(f.id)}">${esc(f.nome || f.razaoSocial || f.id)}</option>`).join('');
       if (old) sel.value = old;
     }
+    atualizarEstadoPacoteBoletos();
     const tb = byId('tbPacotesBoletos');
     if (!tb) return;
     tb.innerHTML = (J().pacotesBoletos || []).sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))).map(p => {
@@ -1219,6 +1222,61 @@
     }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">Nenhum pacote criado.</td></tr>';
   }
 
+  function numeroNFLancamentoPacote(f) {
+    const direto = f?.nfNumero || f?.numeroNota || f?.numeroNF || f?.nf || f?.notaFiscalNumero || '';
+    if (direto) return String(direto);
+    const txt = String(f?.desc || f?.descricao || f?.nota || '');
+    const m = txt.match(/\bNF\s*(?:N[º°o.]?\s*)?([0-9][0-9./-]{0,24})/i);
+    return m?.[1] || String(f?.notaFiscalId || f?.nfId || '').slice(-10) || '-';
+  }
+
+  function fornecedorIdLancamentoPacote(f) {
+    if (!f) return '';
+    if (f.fornecedorId) return String(f.fornecedorId);
+    if (f.fornecedor && typeof f.fornecedor !== 'object') {
+      const direto = (J().fornecedores || []).find(fr => String(fr.id) === String(f.fornecedor));
+      if (direto) return String(direto.id);
+    }
+    const vinc = String(f.vinculo || '');
+    if (vinc.startsWith('F_')) return vinc.slice(2);
+    const texto = norm([f.desc,f.nota,f.nfNumero,f.numeroNota,f.fornecedorNome,f.fornecedor].filter(Boolean).join(' '));
+    const achado = (J().fornecedores || []).find(fr => {
+      const nomes = [fr.nome,fr.razaoSocial,fr.razao,fr.fantasia,fr.nomeFantasia].map(norm).filter(Boolean);
+      return nomes.some(nome => nome.length >= 3 && texto.includes(nome));
+    });
+    return achado ? String(achado.id) : '';
+  }
+
+  W.reiniciarSelecaoPacoteBoletos = function () {
+    W._pkgBoletosSelIds = [];
+    const preview = byId('pkgPreview');
+    const editor = byId('pkgBoletosEditor');
+    if (preview) { preview.style.display = 'none'; preview.innerHTML = ''; }
+    if (editor) { editor.style.display = 'none'; editor.innerHTML = ''; }
+    atualizarEstadoPacoteBoletos();
+  };
+
+  function atualizarEstadoPacoteBoletos() {
+    const selecionados = titulosSelecionadosPacote();
+    const btn = byId('pkgBtnPreparar');
+    const btnListar = byId('pkgBtnListar');
+    const resumo = byId('pkgSelecaoResumo');
+    const total = selecionados.reduce((s,f)=>s+num(f.valor),0);
+    if (btnListar) {
+      const fornecedorSelecionado = !!(byId('pkgFornecedor')?.value || '');
+      btnListar.disabled = !fornecedorSelecionado;
+      btnListar.title = fornecedorSelecionado ? 'Listar NFs/contas pendentes deste fornecedor' : 'Selecione primeiro um fornecedor';
+    }
+    if (btn) {
+      btn.disabled = selecionados.length === 0;
+      btn.title = selecionados.length ? 'Continuar para informar os boletos reais recebidos' : 'Liste os títulos e marque ao menos um antes de continuar';
+    }
+    if (resumo) resumo.innerHTML = selecionados.length
+      ? `<b style="color:var(--cyan)">${selecionados.length} título(s) selecionado(s)</b> • ${moeda(total)}`
+      : 'Nenhum título selecionado.';
+  }
+  W.atualizarEstadoPacoteBoletos = atualizarEstadoPacoteBoletos;
+
   function titulosElegiveisPacote() {
     const fornecedorId = byId('pkgFornecedor')?.value || '';
     const ini = byId('pkgInicio')?.value || '0000-01-01';
@@ -1227,9 +1285,12 @@
       const status = norm(f.status);
       const venc = String(f.venc || f.vencimento || f.dataNF || f.createdAt || '').slice(0,10) || todayISO();
       const boleto = f.aguardaBoletoAgrupado || f.agrupamentoPeriodo || /(boleto|duplicata|nf|fornecedor|parcelado|agrupamento)/i.test([f.pgto,f.desc,f.categoria,f.origem].join(' '));
-      const forn = f.fornecedorId || String(f.vinculo || '').replace(/^F_/, '');
+      const forn = fornecedorIdLancamentoPacote(f);
       const fornOk = fornecedorId && String(forn) === String(fornecedorId);
-      return boleto && fornOk && venc >= ini && venc <= fim && !/pago|liquidado|cancelado|agrupado/.test(status) && !f.pacoteBoletoId && !f.boletoRealDoPacote;
+      // "Aguardando boleto agrupado" é justamente um título elegível.
+      // Antes o termo "agrupado" no status fazia o painel esconder esses lançamentos.
+      const encerrado = /pago|liquidado|cancelado/.test(status) || (/(^|\s)agrupado($|\s)/.test(status) && !/aguardando.*agrupado/.test(status));
+      return boleto && fornOk && venc >= ini && venc <= fim && !encerrado && !f.pacoteBoletoId && !f.boletoRealDoPacote;
     });
   }
 
@@ -1240,6 +1301,7 @@
 
   W.toggleSelecionarTitulosPacote = function (checked) {
     D.querySelectorAll('input[name="pkgTituloSel"]').forEach(i => { i.checked = !!checked; });
+    atualizarEstadoPacoteBoletos();
   };
 
   W.previewPacoteBoletosHardening = function () {
@@ -1247,11 +1309,15 @@
     if (!box) return;
     const fornecedorId = byId('pkgFornecedor')?.value || '';
     if (!fornecedorId) { toast('Selecione o fornecedor para agrupar boletos.', 'warn'); return; }
+    W._pkgBoletosSelIds = [];
+    const editor = byId('pkgBoletosEditor');
+    if (editor) { editor.style.display = 'none'; editor.innerHTML = ''; }
     const lista = titulosElegiveisPacote();
     box.style.display = 'block';
     const total = lista.reduce((s,f)=>s+num(f.valor),0);
     box.innerHTML = `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;"><b>${lista.length} titulo(s) elegivel(is) - ${moeda(total)}</b><label style="font-family:var(--fm);font-size:.68rem;color:var(--cyan);"><input type="checkbox" onchange="window.toggleSelecionarTitulosPacote(this.checked)"> selecionar todos</label></div>` +
-      (lista.length ? `<div class="op-table-wrap"><table class="op-table"><thead><tr><th></th><th>Descricao</th><th>Vencimento previsto</th><th>Valor</th><th>Status</th></tr></thead><tbody>${lista.map(f=>`<tr><td><input type="checkbox" name="pkgTituloSel" value="${esc(f.id)}"></td><td>${esc(f.desc || f.id)}<br><small>NF: ${esc(f.notaFiscalId || f.nfId || '-')}</small></td><td>${esc(f.venc || f.vencimento || '-')}</td><td>${moeda(f.valor || 0)}</td><td>${esc(f.status || '-')}</td></tr>`).join('')}</tbody></table></div>` : 'Nenhum titulo aguardando boleto agrupado nesse periodo para este fornecedor.');
+      (lista.length ? `<div class="op-table-wrap"><table class="op-table"><thead><tr><th></th><th>Descrição / NF</th><th>Vencimento previsto</th><th>Valor</th><th>Status</th></tr></thead><tbody>${lista.map(f=>`<tr><td><input type="checkbox" name="pkgTituloSel" value="${esc(f.id)}" onchange="window.atualizarEstadoPacoteBoletos?.()"></td><td>${esc(f.desc || f.id)}<br><small>NF: ${esc(numeroNFLancamentoPacote(f))}</small></td><td>${esc(f.venc || f.vencimento || '-')}</td><td>${moeda(f.valor || 0)}</td><td>${esc(f.status || '-')}</td></tr>`).join('')}</tbody></table></div>` : 'Nenhum título elegível para este fornecedor/período. Confira se as contas estão pendentes e vinculadas ao fornecedor.');
+    atualizarEstadoPacoteBoletos();
   };
 
   W.addLinhaBoletoPacote = function (valor) {
@@ -1264,7 +1330,7 @@
   W.prepararPacoteBoletosHardening = function () {
     const selecionados = titulosSelecionadosPacote();
     if (!selecionados.length) { toast('Selecione os titulos/NFs que vieram no agrupamento do fornecedor.', 'warn'); return; }
-    const fornecedores = Array.from(new Set(selecionados.map(f => f.fornecedorId || String(f.vinculo || '').replace(/^F_/, '') || ''))).filter(Boolean);
+    const fornecedores = Array.from(new Set(selecionados.map(f => fornecedorIdLancamentoPacote(f)))).filter(Boolean);
     if (fornecedores.length !== 1) { toast('O pacote deve conter titulos de um unico fornecedor.', 'warn'); return; }
     const total = selecionados.reduce((s,f)=>s+num(f.valor),0);
     const box = byId('pkgBoletosEditor');
@@ -1291,7 +1357,7 @@
     const ids = W._pkgBoletosSelIds || [];
     const titulos = (J().financeiro || []).filter(f => ids.includes(f.id));
     if (!titulos.length || !db()) { toast('Selecao do pacote expirou. Liste e selecione novamente.', 'warn'); return; }
-    const fornecedores = Array.from(new Set(titulos.map(f => f.fornecedorId || String(f.vinculo || '').replace(/^F_/, '') || ''))).filter(Boolean);
+    const fornecedores = Array.from(new Set(titulos.map(f => fornecedorIdLancamentoPacote(f)))).filter(Boolean);
     if (fornecedores.length !== 1) { toast('O pacote deve conter titulos de um unico fornecedor.', 'warn'); return; }
     const boletos = coletarBoletosPacote();
     if (!boletos.length || boletos.some(b => !b.vencimento || b.valor <= 0)) { toast('Informe vencimento e valor de todos os boletos reais.', 'warn'); return; }
@@ -1316,6 +1382,7 @@
     await batch.commit();
     toast(`Pacote ${numero} criado com ${titulos.length} titulo(s) e ${boletos.length} boleto(s) real(is).`, 'ok');
     const editor = byId('pkgBoletosEditor'); if (editor) editor.style.display = 'none';
+    W._pkgBoletosSelIds = [];
     W.previewPacoteBoletosHardening();
   };
 

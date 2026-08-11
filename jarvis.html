@@ -252,6 +252,19 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 #containerPecasReais .pr-busca-estoque:focus{border-color:var(--cyan)!important;box-shadow:0 0 0 2px rgba(0,212,255,.10);}
 #containerPecasOS .peca-sel,
 #containerPecasReais .pr-estoque{min-width:0;}
+#containerPecasReais>.real-item-row,#containerServicosReais>.real-service-row{width:100%;min-width:0;box-sizing:border-box;}
+#containerServicosReais .sr-busca-historico{grid-column:1/-1!important;width:100%;min-height:34px;}
+#containerServicosReais .sr-busca-historico:focus{border-color:var(--warn)!important;box-shadow:0 0 0 2px rgba(255,184,0,.10);}
+@media(max-width:1100px){
+  #blocoReais .reais-head{display:none!important;}
+  #containerPecasReais>.real-item-row,#containerServicosReais>.real-service-row{grid-template-columns:1fr 1fr!important;}
+  #containerPecasReais .pr-busca-estoque,#containerServicosReais .sr-busca-historico{grid-column:1/-1!important;}
+  #containerPecasReais>.real-item-row>button,#containerServicosReais>.real-service-row>button{width:100%!important;grid-column:1/-1;}
+}
+@media(max-width:620px){
+  #containerPecasReais>.real-item-row,#containerServicosReais>.real-service-row{grid-template-columns:1fr!important;}
+  #containerPecasReais>.real-item-row>* ,#containerServicosReais>.real-service-row>*{grid-column:1!important;width:100%!important;min-width:0!important;}
+}
 .os-totals-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0 4px;}
 .os-total-card{background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.18);border-radius:4px;padding:10px 12px;}
 .os-total-card small{display:block;font-family:var(--fm);font-size:.65rem;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);margin-bottom:5px;}
@@ -916,14 +929,14 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
             <select class="j-select" style="width:120px" id="filtroFinTipo" onchange="window.renderFinanceiro()"><option value="">Todos</option><option value="Entrada">Receitas</option><option value="Saída">Despesas</option></select>
             <select class="j-select" style="width:190px" id="filtroFinStatus" onchange="window.renderFinanceiro()"><option value="">Todos ativos</option><option value="Pago">Liquidado</option><option value="Pendente">Pendente</option><option value="Agrupado">Origens agrupadas</option><option value="Cancelado">Cancelados / Reemitidos</option></select>
             <input type="month" class="j-input" style="width:150px" id="filtroFinMes" onchange="window.renderFinanceiro()">
-            <input type="search" class="j-input" style="width:260px" id="filtroFinBusca" placeholder="Pesquisar NF, NFS-e, pedido, fornecedor, O.S...." oninput="window.renderFinanceiro()">
-            <button class="btn-warn" onclick="window.abrirAgruparBoletoSelecionados && window.abrirAgruparBoletoSelecionados()">📎 AGRUPAR NF EM BOLETO</button>
+            <input type="search" class="j-input" style="width:260px" id="filtroFinBusca" placeholder="Pesquisar NF, nota, fornecedor..." oninput="window.renderFinanceiro()">
+            <button class="btn-warn" onclick="window.abrirAgruparBoletoSelecionados && window.abrirAgruparBoletoSelecionados()">📎 AGRUPAR SELECIONADOS EM BOLETO</button>
             <button class="btn-primary" onclick="abrirModal('modalFin');window.prepFin()">+ LANÇAMENTO</button>
           </div>
         </div>
         <div class="j-card-body" style="padding:0;">
           <div class="fin-boleto-minibar">
-            <b>Agrupamento:</b> marque as NFs/contas pendentes na coluna Ações e clique em AGRUPAR NF EM BOLETO.
+            <b>Agrupamento direto pela lista:</b> marque as NFs/contas pendentes na coluna Ações e clique em AGRUPAR SELECIONADOS EM BOLETO. O quadro superior é usado quando o fornecedor enviou um pacote/duplicatas reais.
             <span id="finResumoSelecaoBoleto">Nenhuma selecionada</span>
             <button type="button" class="btn-outline" onclick="window.selecionarTodosFinanceiroBoletoVisiveis && window.selecionarTodosFinanceiroBoletoVisiveis(true)">Selecionar visíveis</button>
             <button type="button" class="btn-ghost" onclick="window.selecionarTodosFinanceiroBoletoVisiveis && window.selecionarTodosFinanceiroBoletoVisiveis(false)">Limpar seleção</button>
@@ -1182,7 +1195,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
       <div class="form-group">
         <label class="j-label">Cliente Proprietário</label>
         <div style="display:flex;gap:8px;">
-          <select class="j-select" id="osCliente" onchange="window.filtrarVeiculosOS()"></select>
+          <select class="j-select" id="osCliente" onchange="window.filtrarVeiculosOS();window.atualizarVisibilidadeReaisOS?.()"></select>
           <button class="btn-outline" onclick="abrirModal('modalCliente');prepCliente('add')" title="Novo cliente">+</button>
         </div>
       </div>
@@ -1367,22 +1380,32 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
       </div>
     </div>
 
-    <!-- ════ PEÇAS REALMENTE INSTALADAS (SOMENTE DONO DA OFICINA) ════ -->
+    <!-- ════ CUSTOS REAIS DA O.S. (SOMENTE DONO DA OFICINA) ════ -->
     <div id="blocoReais" style="display:none;background:rgba(255,59,59,0.04);border:1px solid rgba(255,59,59,0.25);border-radius:3px;padding:18px;margin-top:12px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
         <div>
-          <div style="font-family:var(--fm);font-size:0.7rem;color:var(--danger);letter-spacing:1.5px;font-weight:700;">🔒 PEÇAS REAIS INSTALADAS — ACESSO RESTRITO DONO</div>
-          <div style="font-family:var(--fm);font-size:0.6rem;color:var(--muted);margin-top:2px;">Visível apenas ao proprietário da oficina. Cliente vê somente as peças do orçamento acima.</div>
+          <div style="font-family:var(--fm);font-size:0.7rem;color:var(--danger);letter-spacing:1.5px;font-weight:700;">🔒 PEÇAS E SERVIÇOS REAIS — ACESSO RESTRITO DONO</div>
+          <div style="font-family:var(--fm);font-size:0.6rem;color:var(--muted);margin-top:2px;line-height:1.45;">Controle interno do que realmente foi instalado/comprado. Em cliente oficial, também registra serviços terceirizados reais sem alterar o orçamento público do cliente.</div>
         </div>
         <div style="display:flex;gap:7px;flex-wrap:wrap;">
-          <button type="button" onclick="window.imprimirRelatorioPecasReaisOS()" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,59,59,0.32);color:var(--danger);padding:6px 14px;border-radius:3px;font-family:var(--fm);font-size:0.72rem;font-weight:700;cursor:pointer;">🖨 RELATÓRIO PEÇAS REAIS</button>
-          <button type="button" onclick="window.adicionarPecaReal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.4);color:var(--danger);padding:6px 14px;border-radius:3px;font-family:var(--fm);font-size:0.72rem;font-weight:700;cursor:pointer;">+ PEÇA REAL</button>
+          <button type="button" onclick="window.imprimirRelatorioPecasReaisOS()" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,59,59,0.32);color:var(--danger);padding:6px 14px;border-radius:3px;font-family:var(--fm);font-size:0.72rem;font-weight:700;cursor:pointer;">🖨 RELATÓRIO REAL</button>
+          <button type="button" onclick="window.adicionarPecaReal({scroll:true,focus:true})" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.4);color:var(--danger);padding:6px 14px;border-radius:3px;font-family:var(--fm);font-size:0.72rem;font-weight:700;cursor:pointer;">+ PEÇA REAL</button>
+          <button type="button" id="btnAdicionarServicoReal" onclick="window.adicionarServicoReal({scroll:true,focus:true})" style="display:none;background:rgba(255,184,0,0.10);border:1px solid rgba(255,184,0,0.42);color:var(--warn);padding:6px 14px;border-radius:3px;font-family:var(--fm);font-size:0.72rem;font-weight:700;cursor:pointer;">+ SERVIÇO REAL</button>
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:110px 1fr 50px 130px 110px 130px 105px 105px 32px;gap:6px;margin-bottom:6px;font-family:var(--fm);font-size:0.6rem;color:var(--muted);text-transform:uppercase;font-weight:bold;">
+      <div style="font-family:var(--fm);font-size:.64rem;color:var(--danger);font-weight:800;letter-spacing:1px;margin:4px 0 7px;">PEÇAS REAIS INSTALADAS</div>
+      <div class="reais-head pecas-reais-head" style="display:grid;grid-template-columns:110px 1fr 50px 130px 110px 130px 105px 105px 32px;gap:6px;margin-bottom:6px;font-family:var(--fm);font-size:0.6rem;color:var(--muted);text-transform:uppercase;font-weight:bold;">
         <div>Cód. Real</div><div>Descrição Real</div><div>Qtd</div><div>Estoque</div><div>Fornecedor</div><div>Nota Fiscal</div><div>Data Compra</div><div>Vl. Compra</div><div></div>
       </div>
-      <div id="containerPecasReais" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;"></div>
+      <div id="containerPecasReais" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;"></div>
+      <div id="blocoServicosReais" style="display:none;border-top:1px solid rgba(255,184,0,.22);padding-top:12px;margin-top:8px;">
+        <div style="font-family:var(--fm);font-size:.64rem;color:var(--warn);font-weight:800;letter-spacing:1px;margin-bottom:3px;">SERVIÇOS TERCEIRIZADOS REAIS — CLIENTE OFICIAL</div>
+        <div style="font-family:var(--fm);font-size:.58rem;color:var(--muted);line-height:1.4;margin-bottom:7px;">Registre o serviço realmente contratado, prestador/fornecedor, documento e custo real. A busca sugere serviços já lançados e fornecedores cadastrados, sem gerar leituras extras no Firebase.</div>
+        <div class="reais-head servicos-reais-head" style="display:grid;grid-template-columns:minmax(260px,1.5fr) minmax(210px,1fr) 120px 110px 110px 32px;gap:6px;margin-bottom:6px;font-family:var(--fm);font-size:0.6rem;color:var(--muted);text-transform:uppercase;font-weight:bold;">
+          <div>Serviço realizado</div><div>Prestador / fornecedor</div><div>Nota / documento</div><div>Data</div><div>Custo real</div><div></div>
+        </div>
+        <div id="containerServicosReais" style="display:flex;flex-direction:column;gap:6px;margin-bottom:4px;"></div>
+      </div>
     </div>
 
     <!-- ════ BUSCA HISTÓRICO POR PLACA + SERVIÇO/PEÇA ════ -->
@@ -4158,7 +4181,7 @@ window.iaAnalisarDRE = function() { _jiaChamar('Analise o financeiro atual e apo
 window.iaAnalisarEstoque = function() { _jiaChamar('Quais pecas estao em estoque critico e precisam de reposicao?'); };
 </script>
 <script src="js/fiscal.js"></script>
-<script src="js/financeiro.js?v=26.15.0"></script>
+<script src="js/financeiro.js"></script>
 <script src="js/nfe-real-pro.js"></script>
 <script src="js/thia-runtime-core-v2613.js?v=26.13.0"></script>
 <script src="js/os-utils.js?v=22.4.1"></script>
@@ -4166,17 +4189,17 @@ window.iaAnalisarEstoque = function() { _jiaChamar('Quais pecas estao em estoque
 <script src="js/checklist-jarvis-bridge.js?v=26.13.0"></script>
 <script src="js/cotacoes.js"></script>
 <script src="js/assinatura-os.js"></script>
-<script src="js/ia.js?v=26.15.0"></script>
+<script src="js/ia.js?v=26.14.0"></script>
 <script src="js/catalogos-ia.js?v=19.0.0"></script>
 <script src="js/tabela-tempa.js"></script>
 <script src="js/exportar-pmsp.js?v=22.4.0"></script>
 
 <script src="js/importar-orcamento-os.js"></script>
-<script src="js/final-1010-regras-os.js?v=22.4.0"></script>
+<script src="js/final-1010-regras-os.js?v=26.15.0"></script>
 <script src="js/theme.js"></script>
 <script src="js/hardening-comercial.js?v=26.13.0"></script>
 <script src="js/uix-theme-fix.js"></script>
-<script src="js/hardening-operacional-20260515.js?v=26.13.0"></script>
+<script src="js/hardening-operacional-20260515.js?v=26.15.0"></script>
 <script src="js/operacional-cadastros-nf-fix-20260518.js"></script>
 <script src="js/mobile-estoque-fix.js"></script>
 

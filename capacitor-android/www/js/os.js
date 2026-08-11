@@ -94,16 +94,6 @@ function garantirEstilosOSV22() {
     .serv-terceirizado-campo>label{font-size:.58rem;color:var(--warn);font-weight:700;letter-spacing:.35px;white-space:nowrap}
     .serv-terceirizado-campo[hidden]{display:none!important}
     .serv-terceirizado-status{grid-column:1/-1;font-size:.56rem;color:var(--muted);line-height:1.35}
-    .serv-terceirizado-detalhes{grid-column:1/-1;display:grid;grid-template-columns:minmax(150px,1fr) minmax(125px,.7fr) minmax(135px,.8fr) minmax(145px,.9fr);gap:7px;align-items:end;min-width:0;padding-top:7px;border-top:1px dashed rgba(255,184,0,.20)}
-    .serv-terceirizado-detalhes[hidden]{display:none!important}
-    .serv-terceirizado-detalhes .serv-terceirizado-grupo{display:grid;gap:4px;min-width:0}
-    .serv-terceirizado-detalhes label{font-size:.55rem;color:var(--muted);font-weight:700;letter-spacing:.30px;line-height:1.2}
-    .serv-terceirizado-detalhes .j-input,.serv-terceirizado-detalhes .j-select{width:100%;min-width:0;max-width:100%;box-sizing:border-box}
-    .serv-terceirizado-financeiro{grid-column:1/-1;display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding-top:2px;font-size:.56rem;color:var(--muted)}
-    .serv-terceirizado-financeiro strong{color:var(--cyan)}
-    @media(max-width:980px){
-      .serv-terceirizado-detalhes{grid-template-columns:repeat(2,minmax(0,1fr))}
-    }
     @media(max-width:720px){
       .desconto-individual-os-wrap{grid-template-columns:1fr;gap:4px}
       .desconto-individual-os-wrap label{margin-top:3px}
@@ -113,7 +103,6 @@ function garantirEstilosOSV22() {
       .serv-terceirizado-wrap{grid-template-columns:1fr;gap:5px}
       .serv-terceirizado-wrap>label,.serv-terceirizado-campo>label{white-space:normal;margin-top:2px}
       .serv-terceirizado-campo{grid-template-columns:1fr;gap:4px}
-      .serv-terceirizado-detalhes{grid-template-columns:1fr;gap:6px}
       #containerServicosOS>div,#containerPecasOS>div{max-width:100%;min-width:0;overflow:hidden;box-sizing:border-box}
     }
   `;
@@ -280,85 +269,6 @@ function normalizarTipoExecucaoServicoOS(value, item) {
   return 'interna';
 }
 
-
-function gerarServicoUidTerceirizadoOS(valor) {
-  const existente = String(valor || '').trim().replace(/[^A-Za-z0-9_-]/g, '');
-  if (existente) return existente.slice(0, 64);
-  try {
-    const uuid = window.crypto?.randomUUID?.();
-    if (uuid) return `srv_${uuid.replace(/-/g, '').slice(0, 20)}`;
-  } catch (_) {}
-  return `srv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function idFinanceiroServicoTerceirizadoOS(osId, servicoUid) {
-  const oid = String(osId || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
-  const sid = gerarServicoUidTerceirizadoOS(servicoUid).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
-  return `ST_${oid}_${sid}`.slice(0, 190);
-}
-
-function financeiroServicoTerceirizadoOS(id) {
-  const alvo = String(id || '').trim();
-  if (!alvo) return null;
-  return (window.J?.financeiro || []).find(f => String(f?.id || '') === alvo) || null;
-}
-
-function valorCampoTerceirizadoOS(v) {
-  const n = Math.max(0, numBR(v || 0));
-  return n ? n.toFixed(2).replace('.', ',') : '';
-}
-
-function rotuloConferenciaTerceirizadoOS(v) {
-  const mapa = {
-    pedido_lancado: 'Pedido lançado',
-    aguardando_documento: 'Aguardando documento',
-    documento_recebido: 'Documento recebido',
-    conferido: 'Conferido'
-  };
-  return mapa[String(v || '').trim()] || 'Pedido lançado';
-}
-
-function atualizarStatusFinanceiroTerceirizadoOS(row) {
-  if (!row) return;
-  const box = row.querySelector('.serv-terceirizado-financeiro');
-  const status = row.querySelector('.serv-terceirizado-status');
-  const finId = String(row.dataset.terceirizadoFinanceiroId || '').trim();
-  const fin = financeiroServicoTerceirizadoOS(finId);
-  const pedido = String(row.querySelector('.serv-terceirizado-pedido')?.value || fin?.pedidoFornecedor || '').trim();
-  const documento = String(row.querySelector('.serv-terceirizado-doc-numero')?.value || fin?.documentoNumero || fin?.nfNumero || '').trim();
-  const conf = String(row.querySelector('.serv-terceirizado-conferencia')?.value || fin?.conferenciaDocumento || '').trim();
-  if (box) {
-    if (!finId) {
-      box.innerHTML = '<strong>FINANCEIRO:</strong> será criado/vinculado ao salvar a O.S. quando o serviço terceirizado estiver identificado.';
-    } else if (!fin) {
-      box.innerHTML = `<strong>FINANCEIRO:</strong> vínculo ${escOS(finId)}. O lançamento será conferido/sincronizado ao salvar a O.S.`;
-    } else {
-      const st = String(fin.status || 'Pendente');
-      const cor = financeiroOSLiquidadoOS(fin) ? 'var(--success)' : (financeiroOSCanceladoOS(fin) ? 'var(--danger)' : 'var(--warn)');
-      box.innerHTML = `<strong>FINANCEIRO:</strong> <span style="color:${cor}">${escOS(st)}</span> • ${moeda(numBR(fin.valor || 0))}${fin.venc ? ` • venc. ${escOS(window.dtBr ? window.dtBr(fin.venc) : fin.venc)}` : ''}`;
-    }
-  }
-  if (status && row.dataset.tipoExecucao === 'terceirizada') {
-    const nome = String(row.querySelector('.serv-terceirizado-nome')?.value || '').trim();
-    const fornecedor = localizarFornecedorTerceirizadoOS(nome, row.dataset.terceirizadoId || '');
-    const partes = [];
-    if (!nome) partes.push('Informe o prestador.');
-    else partes.push(fornecedor ? `Fornecedor cadastrado: ${fornecedor.nome}.` : 'Prestador digitado livremente.');
-    partes.push(pedido ? `Pedido ${pedido}.` : 'Pedido do fornecedor ainda não informado.');
-    if (documento) partes.push(`Documento ${documento}.`);
-    if (conf) partes.push(`Conferência: ${rotuloConferenciaTerceirizadoOS(conf)}.`);
-    status.textContent = partes.join(' ');
-    status.style.color = !nome || !pedido ? 'var(--warn)' : (fornecedor ? 'var(--success)' : 'var(--muted)');
-  }
-}
-window.atualizarStatusFinanceiroTerceirizadoOS = atualizarStatusFinanceiroTerceirizadoOS;
-
-window.atualizarCampoTerceirizadoOS = function(input) {
-  const row = linhaServicoTerceirizadoOS(input);
-  if (!row) return;
-  atualizarStatusFinanceiroTerceirizadoOS(row);
-};
-
 window.atualizarTerceirizadoServicoOS = function(input) {
   const row = linhaServicoTerceirizadoOS(input);
   if (!row) return;
@@ -372,7 +282,15 @@ window.atualizarTerceirizadoServicoOS = function(input) {
   row.dataset.terceirizadoId = fornecedor?.id || '';
   row.dataset.terceirizadoOrigem = nome ? (fornecedor ? 'fornecedor_cadastrado' : 'digitado') : '';
   row.dataset.terceirizadoNomeOriginal = nome;
-  atualizarStatusFinanceiroTerceirizadoOS(row);
+  const status = row.querySelector('.serv-terceirizado-status');
+  if (status) {
+    status.textContent = !nome
+      ? 'Selecione um fornecedor cadastrado ou digite livremente o nome do prestador.'
+      : (fornecedor
+          ? `Fornecedor cadastrado selecionado: ${fornecedor.nome}.`
+          : 'Prestador digitado livremente. Nenhum novo fornecedor será cadastrado automaticamente.');
+    status.style.color = fornecedor ? 'var(--success)' : 'var(--muted)';
+  }
 };
 
 window.alternarTipoExecucaoServicoOS = function(select) {
@@ -383,17 +301,14 @@ window.alternarTipoExecucaoServicoOS = function(select) {
   const campo = row.querySelector('.serv-terceirizado-campo');
   const input = row.querySelector('.serv-terceirizado-nome');
   const status = row.querySelector('.serv-terceirizado-status');
-  const detalhes = row.querySelector('.serv-terceirizado-detalhes');
   const terceirizada = tipoExecucao === 'terceirizada';
   if (campo) campo.hidden = !terceirizada;
   if (status) status.hidden = !terceirizada;
-  if (detalhes) detalhes.hidden = !terceirizada;
   if (input) {
     input.disabled = !terceirizada;
     if (terceirizada) {
       window.atualizarListaTerceirizadosOS?.();
       window.atualizarTerceirizadoServicoOS?.(input);
-      atualizarStatusFinanceiroTerceirizadoOS(row);
     }
   }
 };
@@ -401,18 +316,8 @@ window.alternarTipoExecucaoServicoOS = function(select) {
 function lerTerceirizadoLinhaServicoOS(row) {
   const select = row?.querySelector?.('.serv-tipo-execucao');
   const tipoExecucao = normalizarTipoExecucaoServicoOS(select?.value || row?.dataset?.tipoExecucao || 'interna');
-  const servicoUid = gerarServicoUidTerceirizadoOS(row?.dataset?.servicoUid || '');
-  if (row?.dataset) row.dataset.servicoUid = servicoUid;
-  const financeiroId = String(row?.dataset?.terceirizadoFinanceiroId || '').trim();
   if (tipoExecucao !== 'terceirizada') {
-    return {
-      tipoExecucao: 'interna',
-      terceirizadoId: '',
-      terceirizadoNome: '',
-      terceirizadoOrigem: '',
-      servicoUid,
-      terceirizadoFinanceiroId: financeiroId
-    };
+    return { tipoExecucao: 'interna', terceirizadoId: '', terceirizadoNome: '', terceirizadoOrigem: '' };
   }
   const nome = String(row?.querySelector?.('.serv-terceirizado-nome')?.value || row?.dataset?.terceirizadoNome || '').trim();
   let fornecedor = localizarFornecedorTerceirizadoOS(nome, '');
@@ -424,17 +329,7 @@ function lerTerceirizadoLinhaServicoOS(row) {
     tipoExecucao: 'terceirizada',
     terceirizadoId: nome ? (fornecedor?.id || '') : '',
     terceirizadoNome: nome,
-    terceirizadoOrigem: nome ? (fornecedor ? 'fornecedor_cadastrado' : 'digitado') : '',
-    servicoUid,
-    terceirizadoFinanceiroId: financeiroId,
-    terceirizadoPedido: String(row?.querySelector?.('.serv-terceirizado-pedido')?.value || '').trim(),
-    terceirizadoCusto: Math.max(0, numBR(row?.querySelector?.('.serv-terceirizado-custo')?.value || 0)),
-    terceirizadoDocumentoTipo: String(row?.querySelector?.('.serv-terceirizado-doc-tipo')?.value || 'NFS-e').trim(),
-    terceirizadoDocumentoNumero: String(row?.querySelector?.('.serv-terceirizado-doc-numero')?.value || '').trim(),
-    terceirizadoDocumentoEmissao: String(row?.querySelector?.('.serv-terceirizado-emissao')?.value || '').trim(),
-    terceirizadoVencimento: String(row?.querySelector?.('.serv-terceirizado-venc')?.value || '').trim(),
-    terceirizadoPagamento: String(row?.querySelector?.('.serv-terceirizado-pgto')?.value || 'Boleto').trim(),
-    terceirizadoConferencia: String(row?.querySelector?.('.serv-terceirizado-conferencia')?.value || 'pedido_lancado').trim()
+    terceirizadoOrigem: nome ? (fornecedor ? 'fornecedor_cadastrado' : 'digitado') : ''
   };
 }
 
@@ -449,32 +344,16 @@ function instalarTerceirizadoLinhaServicoOS(row, item) {
   const terceirizadoNome = String(
     origem.terceirizadoNome || origem.prestadorNome || origem.fornecedorServicoNome || fornecedor?.nome || ''
   ).trim();
-
-  const servicoUid = gerarServicoUidTerceirizadoOS(origem.servicoUid || origem.servicoTerceirizadoUid || row.dataset?.servicoUid || '');
-  const financeiroId = String(origem.terceirizadoFinanceiroId || origem.financeiroServicoTerceirizadoId || '').trim();
-  const fin = financeiroServicoTerceirizadoOS(financeiroId);
-  const pedido = String(fin?.pedidoFornecedor || origem.terceirizadoPedido || origem.pedidoFornecedor || '').trim();
-  const custo = Math.max(0, numBR(fin?.valor ?? origem.terceirizadoCusto ?? 0));
-  const documentoTipo = String(fin?.documentoTipo || origem.terceirizadoDocumentoTipo || origem.documentoTipo || 'NFS-e').trim() || 'NFS-e';
-  const documentoNumero = String(fin?.documentoNumero || fin?.nfNumero || origem.terceirizadoDocumentoNumero || origem.documentoNumero || '').trim();
-  const documentoEmissao = String(fin?.documentoEmissao || origem.terceirizadoDocumentoEmissao || origem.documentoEmissao || '').slice(0,10);
-  const vencimento = String(fin?.venc || origem.terceirizadoVencimento || origem.vencimentoFornecedor || '').slice(0,10);
-  const pagamento = String(fin?.pgto || origem.terceirizadoPagamento || origem.pagamentoFornecedor || 'Boleto').trim() || 'Boleto';
-  const conferencia = String(fin?.conferenciaDocumento || origem.terceirizadoConferencia || origem.conferenciaDocumento || (documentoNumero ? 'documento_recebido' : 'pedido_lancado')).trim();
-
   row.dataset.tipoExecucao = tipoExecucao;
   row.dataset.terceirizadoId = terceirizadoId || fornecedor?.id || '';
   row.dataset.terceirizadoNome = terceirizadoNome;
   row.dataset.terceirizadoNomeOriginal = terceirizadoNome;
   row.dataset.terceirizadoOrigem = String(origem.terceirizadoOrigem || (terceirizadoNome ? (fornecedor ? 'fornecedor_cadastrado' : 'digitado') : '')).trim();
-  row.dataset.servicoUid = servicoUid;
-  row.dataset.terceirizadoFinanceiroId = financeiroId;
-
   const wrap = document.createElement('div');
   wrap.className = 'serv-terceirizado-wrap';
   wrap.innerHTML = `
     <label>EXECUÇÃO DO SERVIÇO</label>
-    <select class="j-select serv-tipo-execucao" onchange="window.alternarTipoExecucaoServicoOS(this)" title="Define se este serviço é executado internamente ou por terceiro. O valor cobrado do cliente continua independente do custo do prestador.">
+    <select class="j-select serv-tipo-execucao" onchange="window.alternarTipoExecucaoServicoOS(this)" title="Define somente se este serviço é executado internamente ou por terceiro. Não altera cálculos, comissões ou financeiro.">
       <option value="interna" ${tipoExecucao === 'interna' ? 'selected' : ''}>INTERNA</option>
       <option value="terceirizada" ${tipoExecucao === 'terceirizada' ? 'selected' : ''}>TERCEIRIZADA</option>
     </select>
@@ -482,58 +361,12 @@ function instalarTerceirizadoLinhaServicoOS(row, item) {
       <label>TERCEIRIZADO / FORNECEDOR / PRESTADOR</label>
       <input type="text" class="j-input serv-terceirizado-nome" list="os-lista-terceirizados" value="${escOS(terceirizadoNome)}" placeholder="Selecione um cadastrado ou digite livremente" autocomplete="off" ${tipoExecucao === 'terceirizada' ? '' : 'disabled'} onfocus="window.atualizarListaTerceirizadosOS()" oninput="window.atualizarTerceirizadoServicoOS(this)" onchange="window.atualizarTerceirizadoServicoOS(this)">
     </div>
-    <div class="serv-terceirizado-detalhes" ${tipoExecucao === 'terceirizada' ? '' : 'hidden'}>
-      <div class="serv-terceirizado-grupo">
-        <label>Nº PEDIDO / O.S. DO FORNECEDOR</label>
-        <input type="text" class="j-input serv-terceirizado-pedido" value="${escOS(pedido)}" placeholder="Ex: 45897 / OS-1234" oninput="window.atualizarCampoTerceirizadoOS(this)">
-      </div>
-      <div class="serv-terceirizado-grupo">
-        <label>CUSTO DO TERCEIRO (R$)</label>
-        <input type="text" inputmode="decimal" class="j-input serv-terceirizado-custo" value="${escOS(valorCampoTerceirizadoOS(custo))}" placeholder="0,00" oninput="window.atualizarCampoTerceirizadoOS(this)" title="Custo pago ao prestador. Não altera o valor cobrado do cliente.">
-      </div>
-      <div class="serv-terceirizado-grupo">
-        <label>TIPO DO DOCUMENTO</label>
-        <select class="j-select serv-terceirizado-doc-tipo" onchange="window.atualizarCampoTerceirizadoOS(this)">
-          ${['NFS-e','Nota Fiscal de Serviço','Recibo','Pedido','Ordem de Serviço','Outro'].map(v => `<option value="${escOS(v)}" ${v === documentoTipo ? 'selected' : ''}>${escOS(v)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="serv-terceirizado-grupo">
-        <label>Nº DOCUMENTO / NFS-e</label>
-        <input type="text" class="j-input serv-terceirizado-doc-numero" value="${escOS(documentoNumero)}" placeholder="Quando recebido" oninput="window.atualizarCampoTerceirizadoOS(this)">
-      </div>
-      <div class="serv-terceirizado-grupo">
-        <label>EMISSÃO DO DOCUMENTO</label>
-        <input type="date" class="j-input serv-terceirizado-emissao" value="${escOS(documentoEmissao)}" onchange="window.atualizarCampoTerceirizadoOS(this)">
-      </div>
-      <div class="serv-terceirizado-grupo">
-        <label>VENCIMENTO / PAGAMENTO</label>
-        <input type="date" class="j-input serv-terceirizado-venc" value="${escOS(vencimento)}" onchange="window.atualizarCampoTerceirizadoOS(this)">
-      </div>
-      <div class="serv-terceirizado-grupo">
-        <label>FORMA DE PAGAMENTO</label>
-        <select class="j-select serv-terceirizado-pgto" onchange="window.atualizarCampoTerceirizadoOS(this)">
-          ${['Boleto','PIX','Transferência','Dinheiro','Cartão Débito','Cartão Crédito','A definir'].map(v => `<option value="${escOS(v)}" ${v === pagamento ? 'selected' : ''}>${escOS(v)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="serv-terceirizado-grupo">
-        <label>CONFERÊNCIA</label>
-        <select class="j-select serv-terceirizado-conferencia" onchange="window.atualizarCampoTerceirizadoOS(this)">
-          <option value="pedido_lancado" ${conferencia === 'pedido_lancado' ? 'selected' : ''}>Pedido lançado</option>
-          <option value="aguardando_documento" ${conferencia === 'aguardando_documento' ? 'selected' : ''}>Aguardando documento</option>
-          <option value="documento_recebido" ${conferencia === 'documento_recebido' ? 'selected' : ''}>Documento recebido</option>
-          <option value="conferido" ${conferencia === 'conferido' ? 'selected' : ''}>Conferido</option>
-        </select>
-      </div>
-      <div class="serv-terceirizado-financeiro"></div>
-    </div>
     <div class="serv-terceirizado-status" ${tipoExecucao === 'terceirizada' ? '' : 'hidden'}></div>
   `;
   row.appendChild(wrap);
   const input = wrap.querySelector('.serv-terceirizado-nome');
   if (tipoExecucao === 'terceirizada') window.atualizarTerceirizadoServicoOS?.(input);
-  atualizarStatusFinanceiroTerceirizadoOS(row);
 }
-
 window.instalarTerceirizadoLinhaServicoOS = instalarTerceirizadoLinhaServicoOS;
 
 function isFirestoreSentinelOS(value) {
@@ -962,7 +795,8 @@ function optionsPecasReaisEstoqueFiltradasOS(selecionado, termo) {
     const fornecedor = fornecedorPecaEstoqueOS(e);
     const nf = nfPecaEstoqueOS(e);
     const label = [codigo, desc, fornecedor ? `Forn: ${fornecedor}` : '', nf ? `NF: ${nf}` : '', `Saldo: ${numBR(e?.qtd || 0)}`].filter(Boolean).join(' | ');
-    return `<option value="${escOS(e?.id || '')}" data-codigo="${escOS(codigo)}" data-desc="${escOS(desc)}" data-custo="${custo}" ${String(e?.id || '') === String(selecionado) ? 'selected' : ''}>${escOS(label || 'Peca sem descricao')}</option>`;
+    const dataCompra = dataCompraPecaEstoqueOS(e);
+    return `<option value="${escOS(e?.id || '')}" data-codigo="${escOS(codigo)}" data-desc="${escOS(desc)}" data-custo="${custo}" data-fornecedor="${escOS(fornecedor)}" data-nf="${escOS(nf)}" data-data-compra="${escOS(dataCompra)}" ${String(e?.id || '') === String(selecionado) ? 'selected' : ''}>${escOS(label || 'Peca sem descricao')}</option>`;
   }).join('');
 }
 
@@ -1236,11 +1070,34 @@ function clienteGovernamentalAtualOS() {
   return cli?.tipoCliente === 'governo';
 }
 
+function clienteOficialAtualReaisOS() {
+  const cliId = document.getElementById('osCliente')?.value || '';
+  const cli = (window.J?.clientes || []).find(c => String(c.id) === String(cliId)) || {};
+  const tipo = String(cli.tipoCliente || cli.tipo || '').toLowerCase();
+  if (tipo === 'governo' || tipo === 'oficial' || cli.clienteOficial === true) return true;
+  const texto = [cli.nome, cli.razaoSocial, cli.nomeFantasia, cli.categoria, cli.segmento].filter(Boolean).join(' ').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+  return /OFICIAL|GOVERNO|PMSP|POLICIA|MILITAR|BPM|PREFEITURA|ESTADO|MUNICIP|SECRETARIA|ORGAO PUBLICO/.test(texto);
+}
+window.clienteOficialAtualReaisOS = clienteOficialAtualReaisOS;
+
+window.atualizarVisibilidadeReaisOS = function() {
+  const desbloqueado = window._pecasReaisDesbloqueadas === true || document.body?.dataset?.secret177 === 'on';
+  const oficial = clienteOficialAtualReaisOS();
+  const bloco = document.getElementById('blocoReais');
+  const blocoServ = document.getElementById('blocoServicosReais');
+  const btnServ = document.getElementById('btnAdicionarServicoReal');
+  if (bloco) bloco.style.display = desbloqueado ? 'block' : 'none';
+  if (blocoServ) blocoServ.style.display = desbloqueado && oficial ? 'block' : 'none';
+  if (btnServ) btnServ.style.display = desbloqueado && oficial ? '' : 'none';
+};
+
 window.atualizarVisibilidadeDescontosOS = function() {
   const bloco = document.getElementById('blocoDescontoOS');
-  if (!bloco) return;
-  const podeVer = roleDonoOficinaOS() || clienteGovernamentalAtualOS();
-  bloco.style.display = podeVer ? 'block' : 'none';
+  if (bloco) {
+    const podeVer = roleDonoOficinaOS() || clienteGovernamentalAtualOS();
+    bloco.style.display = podeVer ? 'block' : 'none';
+  }
+  window.atualizarVisibilidadeReaisOS?.();
 };
 
 
@@ -2409,6 +2266,7 @@ window.prepOS = function(mode, id = null) {
   if ($('containerServicosOS')) $('containerServicosOS').innerHTML = '';
   if ($('containerPecasOS')) $('containerPecasOS').innerHTML = '';
   if ($('containerPecasReais')) $('containerPecasReais').innerHTML = '';
+  if ($('containerServicosReais')) $('containerServicosReais').innerHTML = '';
   document.getElementById('resumoAprovacaoOS')?.remove();
   if ($('osTotalVal')) $('osTotalVal').innerText = '0,00';
   if ($('osTotalServicosVal')) $('osTotalServicosVal').innerText = '0,00';
@@ -2505,17 +2363,17 @@ window.prepOS = function(mode, id = null) {
     const _blocoDesc = document.getElementById('blocoDescontoOS');
     const _blocoReais = document.getElementById('blocoReais');
     if (_blocoDesc) window.atualizarVisibilidadeDescontosOS?.();
-    if (_blocoReais) {
-      // Somente dono (perfil admin) vê peças reais
-      const _isDono = ['admin','superadmin'].includes((window.J?.role||'').toLowerCase());
-      _blocoReais.style.display = (window._pecasReaisDesbloqueadas === true) ? 'block' : 'none';
-    }
-    // Carregar peças reais
+    if (_blocoReais) window.atualizarVisibilidadeReaisOS?.();
+    // Carregar peças e serviços reais sem alterar o orçamento do cliente.
     if ($('containerPecasReais')) {
       $('containerPecasReais').innerHTML = '';
-      (o.pecasReais || []).forEach(p => window.adicionarPecaRealRow(p));
-      window.atualizarResumoPecasReais177?.();
+      (o.pecasReais || []).forEach(p => window.adicionarPecaRealRow(p, { focus:false, scroll:false, carregando:true }));
     }
+    if ($('containerServicosReais')) {
+      $('containerServicosReais').innerHTML = '';
+      (o.servicosReais || o.servicosTerceirizadosReais || []).forEach(s => window.adicionarServicoRealRow?.(s, { focus:false, scroll:false, carregando:true }));
+    }
+    window.atualizarResumoPecasReais177?.();
     // LOTE C — Traz próxima revisão ao editar
     if ($('osProxRev')) $('osProxRev').value = o.proxRev || '';
     if ($('osProxKm'))  $('osProxKm').value  = o.proxKm  || '';
@@ -2841,17 +2699,7 @@ function dadosServicoLinhaOS(row) {
     tipoExecucao: terceirizado.tipoExecucao,
     terceirizadoId: terceirizado.terceirizadoId,
     terceirizadoNome: terceirizado.terceirizadoNome,
-    terceirizadoOrigem: terceirizado.terceirizadoOrigem,
-    servicoUid: terceirizado.servicoUid,
-    terceirizadoFinanceiroId: terceirizado.terceirizadoFinanceiroId,
-    terceirizadoPedido: terceirizado.terceirizadoPedido,
-    terceirizadoCusto: terceirizado.terceirizadoCusto,
-    terceirizadoDocumentoTipo: terceirizado.terceirizadoDocumentoTipo,
-    terceirizadoDocumentoNumero: terceirizado.terceirizadoDocumentoNumero,
-    terceirizadoDocumentoEmissao: terceirizado.terceirizadoDocumentoEmissao,
-    terceirizadoVencimento: terceirizado.terceirizadoVencimento,
-    terceirizadoPagamento: terceirizado.terceirizadoPagamento,
-    terceirizadoConferencia: terceirizado.terceirizadoConferencia
+    terceirizadoOrigem: terceirizado.terceirizadoOrigem
   };
 }
 
@@ -3533,6 +3381,34 @@ function osFocarProximaLinha(row, tipo) {
   }, 30);
 }
 
+function osPecaRealLinhaPreenchida(row) {
+  if (!row) return false;
+  return osCampoTemValor(row,'.pr-codigo') || osCampoTemValor(row,'.pr-desc') || osCampoTemValor(row,'.pr-fornec') || osCampoTemValor(row,'.pr-nf') || osCampoDecimalPositivo(row,'.pr-valor') || !!row.querySelector('.pr-estoque')?.value;
+}
+function osServicoRealLinhaPreenchida(row) {
+  if (!row) return false;
+  return osCampoTemValor(row,'.sr-desc') || osCampoTemValor(row,'.sr-fornec') || osCampoTemValor(row,'.sr-nf') || osCampoDecimalPositivo(row,'.sr-valor');
+}
+function osGarantirProximaLinhaReal(tipo) {
+  const id = tipo === 'peca' ? 'containerPecasReais' : 'containerServicosReais';
+  const ct = document.getElementById(id);
+  if (!ct || ct.dataset.autoRowLock === '1') return null;
+  const seletor = tipo === 'peca' ? '.real-item-row' : '.real-service-row';
+  const rows = Array.from(ct.children).filter(el => el.matches?.(seletor));
+  if (!rows.length) return null;
+  const ultima = rows[rows.length-1];
+  const preenchida = tipo === 'peca' ? osPecaRealLinhaPreenchida(ultima) : osServicoRealLinhaPreenchida(ultima);
+  if (!preenchida) return null;
+  ct.dataset.autoRowLock='1';
+  try {
+    return tipo === 'peca'
+      ? window.adicionarPecaRealRow?.({}, { focus:false,scroll:false,auto:true })
+      : (clienteOficialAtualReaisOS() ? window.adicionarServicoRealRow?.({}, { focus:false,scroll:false,auto:true }) : null);
+  } finally {
+    setTimeout(()=>{ if(ct) delete ct.dataset.autoRowLock; },100);
+  }
+}
+
 window.inicializarAutoLinhasOS = function() {
   const serv = document.getElementById('containerServicosOS');
   const pec = document.getElementById('containerPecasOS');
@@ -3571,6 +3447,32 @@ window.inicializarAutoLinhasOS = function() {
       ev.preventDefault();
       osFocarProximaLinha(alvo.closest('#containerPecasOS > div'), 'peca');
     });
+  }
+  const pecReal = document.getElementById('containerPecasReais');
+  if (pecReal && pecReal.dataset.autoRowsInit !== '1') {
+    pecReal.dataset.autoRowsInit = '1';
+    let timer = null;
+    const onEdit = ev => {
+      if (ev?.isComposing) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => osGarantirProximaLinhaReal('peca'), 100);
+      window.atualizarResumoPecasReais177?.();
+    };
+    pecReal.addEventListener('input', onEdit);
+    pecReal.addEventListener('change', onEdit);
+  }
+  const servReal = document.getElementById('containerServicosReais');
+  if (servReal && servReal.dataset.autoRowsInit !== '1') {
+    servReal.dataset.autoRowsInit = '1';
+    let timer = null;
+    const onEdit = ev => {
+      if (ev?.isComposing) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => osGarantirProximaLinhaReal('servico'), 100);
+      window.atualizarResumoPecasReais177?.();
+    };
+    servReal.addEventListener('input', onEdit);
+    servReal.addEventListener('change', onEdit);
   }
 };
 
@@ -4012,12 +3914,6 @@ window.salvarOS = async function() {
     batchSalvarOS.update(ref, limparUndefinedFirestoreOS(dados));
     operacoesBatchSalvarOS += 1;
   };
-  const queueFinanceiroSetOS = (ref, dados, merge = false) => {
-    if (operacoesBatchSalvarOS >= 450) throw new Error('A O.S. excedeu o limite seguro de operações financeiras em uma única gravação.');
-    if (merge) batchSalvarOS.set(ref, limparUndefinedFirestoreOS(dados), { merge: true });
-    else batchSalvarOS.set(ref, limparUndefinedFirestoreOS(dados));
-    operacoesBatchSalvarOS += 1;
-  };
   const prismaInformadoOS = ($v('osPrisma') || '').trim();
   if ($('osPlaca') && !$v('osPlaca')) { window.toast('⚠ Preencha a Placa', 'warn'); return; }
   if ($('osCliente') && $('osVeiculo') && !$v('osCliente') && !$v('osVeiculo')) { window.toast('⚠ Selecione cliente e veículo', 'warn'); return; }
@@ -4032,7 +3928,6 @@ window.salvarOS = async function() {
   });
 
   const servicos = []; 
-  const terceirosFinanceiroCapturaOS = [];
   let totalMaoObra = 0;
   let erroRateioOS = '';
 
@@ -4100,8 +3995,6 @@ window.salvarOS = async function() {
         terceirizadoId: calc.tipoExecucao === 'terceirizada' ? String(calc.terceirizadoId || '') : '',
         terceirizadoNome: calc.tipoExecucao === 'terceirizada' ? String(calc.terceirizadoNome || '') : '',
         terceirizadoOrigem: calc.tipoExecucao === 'terceirizada' ? String(calc.terceirizadoOrigem || '') : '',
-        servicoUid: gerarServicoUidTerceirizadoOS(calc.servicoUid || row.dataset?.servicoUid || ''),
-        terceirizadoFinanceiroId: String(calc.terceirizadoFinanceiroId || row.dataset?.terceirizadoFinanceiroId || ''),
         tempaManual: row.dataset?.tempaManual === '1',
         relacionadoCilia: row.dataset?.servRelacionado === '1',
         origemServico: row.dataset?.servRelacionado === '1'
@@ -4109,30 +4002,6 @@ window.salvarOS = async function() {
           : 'manual',
         ciliaPieceIndex: row.closest?.('.cilia-peca-wrap')?.dataset?.ciliaPieceIndex || row.dataset?.ciliaPieceIndex || ''
       });
-      const servicoSalvo = servicos[servicos.length - 1];
-      row.dataset.servicoUid = servicoSalvo.servicoUid;
-      if (servicoSalvo.tipoExecucao === 'terceirizada') {
-        if (!servicoSalvo.terceirizadoFinanceiroId) {
-          servicoSalvo.terceirizadoFinanceiroId = idFinanceiroServicoTerceirizadoOS(targetOsId, servicoSalvo.servicoUid);
-          row.dataset.terceirizadoFinanceiroId = servicoSalvo.terceirizadoFinanceiroId;
-        }
-        terceirosFinanceiroCapturaOS.push({
-          servico: servicoSalvo,
-          row,
-          financeiroId: servicoSalvo.terceirizadoFinanceiroId,
-          fornecedorId: servicoSalvo.terceirizadoId || '',
-          fornecedorNome: servicoSalvo.terceirizadoNome || '',
-          fornecedorOrigem: servicoSalvo.terceirizadoOrigem || '',
-          pedidoFornecedor: String(calc.terceirizadoPedido || '').trim(),
-          valor: Math.max(0, numBR(calc.terceirizadoCusto || 0)),
-          documentoTipo: String(calc.terceirizadoDocumentoTipo || 'NFS-e').trim(),
-          documentoNumero: String(calc.terceirizadoDocumentoNumero || '').trim(),
-          documentoEmissao: String(calc.terceirizadoDocumentoEmissao || '').trim(),
-          venc: String(calc.terceirizadoVencimento || '').trim(),
-          pgto: String(calc.terceirizadoPagamento || 'Boleto').trim(),
-          conferenciaDocumento: String(calc.terceirizadoConferencia || 'pedido_lancado').trim()
-        });
-      }
       totalMaoObra += valorFinal;
     }
   };
@@ -4141,129 +4010,6 @@ window.salvarOS = async function() {
   // CORREÇÃO 6: também lê serviços relacionados Cilia (dentro das peças)
   document.querySelectorAll('#containerPecasOS .cilia-serv-relac').forEach(_lerLinhaServico);
   if (erroRateioOS) { window.toast(erroRateioOS, 'warn'); return; }
-
-  // SERVIÇOS TERCEIRIZADOS — registro documental + conta a pagar.
-  // O custo do prestador fica SOMENTE em /financeiro, sem contaminar estoque e sem gravar custo interno na O.S.
-  const oldOSFinanceiroTerceiros = osId ? ((window.J?.os || []).find(x => String(x.id) === String(osId)) || {}) : {};
-  const oldServicosTerceiros = Array.isArray(oldOSFinanceiroTerceiros.servicos) ? oldOSFinanceiroTerceiros.servicos : [];
-  const idsTerceirosAtuais = new Set();
-
-  for (const captura of terceirosFinanceiroCapturaOS) {
-    const serv = captura.servico || {};
-    const finId = String(captura.financeiroId || '').trim();
-    if (!finId) continue;
-    idsTerceirosAtuais.add(finId);
-
-    if (!String(captura.fornecedorNome || '').trim()) {
-      // Preserva O.S. legada/incompleta sem travar o fluxo operacional.
-      // O painel da linha permanece avisando que falta identificar o prestador;
-      // o financeiro só é criado quando houver um prestador real informado.
-      continue;
-    }
-
-    const existente = financeiroServicoTerceirizadoOS(finId);
-    if (existente && financeiroOSLiquidadoOS(existente)) {
-      const valorExistente = +numBR(existente.valor || 0).toFixed(2);
-      const valorNovo = +numBR(captura.valor || 0).toFixed(2);
-      if (Math.abs(valorExistente - valorNovo) > 0.009) {
-        window.toast(`⚠ O custo de "${serv.desc || 'serviço terceirizado'}" já foi liquidado no Financeiro (${moeda(valorExistente)}). Para preservar a auditoria, não altere o custo pela O.S.; ajuste o lançamento financeiro.`, 'warn');
-        return;
-      }
-    }
-
-    const pedidoLabel = captura.pedidoFornecedor ? `Pedido ${captura.pedidoFornecedor}` : 'pedido ainda não informado';
-    const docLabel = captura.documentoNumero ? `${captura.documentoTipo || 'Documento'} ${captura.documentoNumero}` : '';
-    const placaTerceiro = ($v('osPlaca') || oldOSFinanceiroTerceiros.placa || '').toUpperCase();
-    const descricaoFinanceiro = [
-      `Serviço terceirizado — ${serv.desc || 'Serviço'}`,
-      pedidoLabel,
-      docLabel,
-      captura.fornecedorNome,
-      placaTerceiro ? `Placa ${placaTerceiro}` : ''
-    ].filter(Boolean).join(' • ');
-
-    const payloadFinanceiroTerceiro = {
-      tenantId: J.tid,
-      tipo: 'Saída',
-      desc: descricaoFinanceiro,
-      descricao: descricaoFinanceiro,
-      valor: +numBR(captura.valor || 0).toFixed(2),
-      pgto: captura.pgto || 'A definir',
-      venc: captura.venc || '',
-      nota: captura.documentoNumero || captura.pedidoFornecedor || '',
-      vinculo: captura.fornecedorId ? `F_${captura.fornecedorId}` : '',
-      categoria: 'servico_terceirizado',
-      origem: 'os_servico_terceirizado',
-      tipoDocumento: 'servico_terceirizado',
-      documentoTipo: captura.documentoTipo || '',
-      documentoNumero: captura.documentoNumero || '',
-      documentoEmissao: captura.documentoEmissao || '',
-      nfNumero: /nfs|nota fiscal/i.test(captura.documentoTipo || '') ? (captura.documentoNumero || '') : '',
-      pedidoFornecedor: captura.pedidoFornecedor || '',
-      conferenciaDocumento: captura.conferenciaDocumento || 'pedido_lancado',
-      fornecedorId: captura.fornecedorId || '',
-      fornecedorNome: captura.fornecedorNome || '',
-      fornecedorOrigem: captura.fornecedorOrigem || '',
-      osId: targetOsId,
-      osNumero: targetOsId.slice(-6).toUpperCase(),
-      placa: placaTerceiro,
-      servicoUid: serv.servicoUid || '',
-      servicoDescricao: serv.desc || '',
-      terceirizado: true,
-      updatedAt: new Date().toISOString()
-    };
-
-    const refFinTerceiro = db.collection('financeiro').doc(finId);
-    if (!existente) {
-      queueFinanceiroSetOS(refFinTerceiro, {
-        ...payloadFinanceiroTerceiro,
-        status: 'Pendente',
-        createdAt: new Date().toISOString()
-      }, false);
-      auditoriasFinanceiroDepoisCommitOS.push(() => audit('FINANCEIRO', `Registrou serviço terceirizado: ${serv.desc || 'Serviço'} • ${captura.fornecedorNome}${captura.pedidoFornecedor ? ` • Pedido ${captura.pedidoFornecedor}` : ''}`));
-    } else {
-      const atualizacao = { ...payloadFinanceiroTerceiro };
-      if (financeiroOSLiquidadoOS(existente)) {
-        // Documento já pago: pode enriquecer pedido/NFS-e/conferência, mas não reabre nem muda a quitação.
-        delete atualizacao.valor;
-        delete atualizacao.pgto;
-        delete atualizacao.venc;
-      } else if (financeiroOSCanceladoOS(existente) && existente.canceladoPorAlteracaoServicoTerceirizado === true) {
-        // Se o próprio usuário voltou o item para TERCEIRIZADO, reativa somente cancelamentos automáticos deste fluxo.
-        atualizacao.status = 'Pendente';
-        atualizacao.canceladoPorAlteracaoServicoTerceirizado = false;
-        atualizacao.motivoCancelamento = '';
-        atualizacao.canceladoEm = '';
-        atualizacao.reativadoEm = new Date().toISOString();
-      }
-      queueFinanceiroSetOS(refFinTerceiro, atualizacao, true);
-    }
-  }
-
-  // Se um serviço terceirizado foi removido ou voltou a ser INTERNO, não apagamos histórico.
-  // Conta ainda não liquidada é cancelada; conta já paga permanece paga e recebe marca de auditoria.
-  for (const antigo of oldServicosTerceiros) {
-    const antigoFinId = String(antigo?.terceirizadoFinanceiroId || antigo?.financeiroServicoTerceirizadoId || '').trim();
-    if (!antigoFinId || idsTerceirosAtuais.has(antigoFinId)) continue;
-    const finAntigo = financeiroServicoTerceirizadoOS(antigoFinId);
-    if (!finAntigo) continue;
-    const refAntigo = db.collection('financeiro').doc(antigoFinId);
-    if (financeiroOSLiquidadoOS(finAntigo)) {
-      queueFinanceiroSetOS(refAntigo, {
-        servicoTerceirizadoRemovidoDaOS: true,
-        servicoTerceirizadoRemovidoEm: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }, true);
-    } else if (!financeiroOSCanceladoOS(finAntigo)) {
-      queueFinanceiroSetOS(refAntigo, {
-        status: 'Cancelado',
-        canceladoPorAlteracaoServicoTerceirizado: true,
-        motivoCancelamento: 'Serviço terceirizado removido da O.S. ou alterado para execução interna.',
-        canceladoEm: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }, true);
-    }
-  }
 
   let mecanicoIdsOS = idsUnicosMecanicosOS([
     ...window.obterMecanicosSelecionadosOS(),
@@ -4521,6 +4267,35 @@ window.salvarOS = async function() {
   const _pecasReaisAutoOS = pecasReaisAutomaticasOS();
   _pecasReaisAutoOS.forEach(pr => _pecasReais.push(pr));
   if (document.getElementById('containerPecasReais') && (window._pecasReaisDesbloqueadas === true || _pecasReaisAutoOS.length)) payload.pecasReais = _pecasReais;
+
+  // Serviços terceirizados reais: controle interno exclusivo de cliente oficial.
+  // Não entram em payload.servicos, orçamento, comissão ou portal do cliente.
+  const _servicosReais = [];
+  document.querySelectorAll('#containerServicosReais > .real-service-row').forEach(row => {
+    let meta = {};
+    try { meta = JSON.parse(row.querySelector('.sr-meta')?.value || '{}') || {}; } catch (_) { meta = {}; }
+    const descricao = row.querySelector('.sr-desc')?.value?.trim() || '';
+    const fornecedor = row.querySelector('.sr-fornec')?.value?.trim() || '';
+    const fornecedorId = row.dataset?.fornecedorId || '';
+    const nf = row.querySelector('.sr-nf')?.value?.trim() || '';
+    const dataCompra = row.querySelector('.sr-data')?.value?.trim() || '';
+    const valorCompra = numBR(row.querySelector('.sr-valor')?.value || 0);
+    if (!descricao && !fornecedor && !nf && valorCompra <= 0) return;
+    _servicosReais.push(Object.assign({}, meta, {
+      tipo: 'servico_terceirizado_real', tipoExecucao: 'terceirizada', descricao, desc: descricao,
+      fornecedorId, fornecedor, fornecedorNome: fornecedor, nf, nfNumero: nf,
+      dataCompra, dataServico: dataCompra, valorCompra, custo: valorCompra, valorReal: valorCompra,
+      origem: meta.origem || 'os_servico_real_manual'
+    }));
+  });
+  if (osSegredo177AtivoOS() && clienteOficialAtualReaisOS()) {
+    payload.servicosReais = _servicosReais;
+  } else if (Array.isArray(_oldOSPreservar?.servicosReais) || Array.isArray(_oldOSPreservar?.servicosTerceirizadosReais)) {
+    // Preserva histórico caso a OS deixe de estar em contexto oficial ou a área restrita esteja fechada.
+    payload.servicosReais = Array.isArray(_oldOSPreservar?.servicosReais)
+      ? _oldOSPreservar.servicosReais
+      : _oldOSPreservar.servicosTerceirizadosReais;
+  }
   // LOTE C — Persistir próxima revisão (data e/ou KM) para o cliente ver
   if ($v('osProxRev')) payload.proxRev = $v('osProxRev');
   if ($v('osProxKm'))  payload.proxKm  = $v('osProxKm');
@@ -4804,12 +4579,6 @@ window.salvarOS = async function() {
               const newMecServico = newS.mecId || newS.mecanicoId || newS.responsavelId || payload.mecId || '';
               if (String(oldMecServico) !== String(newMecServico)) {
                   addAuditoriaCampo(`Alterou responsável do serviço "${newS.desc}" de "${snapshotMecanicoOS(oldMecServico).nome || '-'}" para "${snapshotMecanicoOS(newMecServico).nome || '-'}"`);
-              }
-              if (String(oldS.tipoExecucao || 'interna') !== String(newS.tipoExecucao || 'interna')) {
-                  addAuditoriaCampo(`Alterou execução do serviço "${newS.desc}" de "${oldS.tipoExecucao || 'interna'}" para "${newS.tipoExecucao || 'interna'}"`);
-              }
-              if (String(oldS.terceirizadoNome || '') !== String(newS.terceirizadoNome || '')) {
-                  addAuditoriaCampo(`Alterou prestador do serviço "${newS.desc}" de "${oldS.terceirizadoNome || '-'}" para "${newS.terceirizadoNome || '-'}"`);
               }
           }
       });
@@ -6213,21 +5982,52 @@ window.visualizarOrcamentoOS = function() {
 // ══════════════════════════════════════════════════════════════════════
 // PEÇAS REAIS INSTALADAS — linha editável
 // ══════════════════════════════════════════════════════════════════════
-window.adicionarPecaReal = function() {
-  window.adicionarPecaRealRow({});
+function focarItemRealOS(row, selector, options = {}) {
+  if (!row) return;
+  if (options.scroll !== false) {
+    try { row.scrollIntoView({ behavior:'smooth', block:'center' }); } catch (_) { try { row.scrollIntoView(); } catch(__){} }
+  }
+  if (options.focus === false) return;
+  setTimeout(() => {
+    const el = row.querySelector(selector) || row.querySelector('input,select,textarea');
+    try { el?.focus({ preventScroll:true }); } catch (_) { try { el?.focus(); } catch(__){} }
+  }, 140);
+}
+
+window.adicionarPecaReal = function(options = {}) {
+  const row = window.adicionarPecaRealRow({}, options);
+  focarItemRealOS(row, '.pr-busca-estoque,.pr-codigo,.pr-desc', options);
+  return row;
+};
+
+window.adicionarServicoReal = function(options = {}) {
+  if (!clienteOficialAtualReaisOS()) {
+    window.toast?.('Serviço real terceirizado fica disponível somente para cliente oficial.', 'warn');
+    return null;
+  }
+  const row = window.adicionarServicoRealRow?.({}, options);
+  focarItemRealOS(row, '.sr-busca-historico,.sr-desc', options);
+  return row;
 };
 
 window.totalizarPecasReais177 = function() {
-  const rows = Array.from(document.querySelectorAll('#containerPecasReais > div'));
-  return rows.reduce((acc, row) => {
+  const acc = { itens:0, qtd:0, total:0, servicos:0, totalServicos:0, totalGeral:0 };
+  Array.from(document.querySelectorAll('#containerPecasReais > .real-item-row')).forEach(row => {
     const temConteudo = !!(row.querySelector('.pr-codigo')?.value || row.querySelector('.pr-desc')?.value);
     const qtd = Math.max(0, numBR(row.querySelector('.pr-qtd')?.value || 0));
     const unit = Math.max(0, numBR(row.querySelector('.pr-valor')?.value || 0));
     if (temConteudo) acc.itens += 1;
-    acc.qtd += qtd;
-    acc.total += qtd * unit;
-    return acc;
-  }, { itens: 0, qtd: 0, total: 0 });
+    if (temConteudo) acc.qtd += qtd;
+    if (temConteudo) acc.total += qtd * unit;
+  });
+  Array.from(document.querySelectorAll('#containerServicosReais > .real-service-row')).forEach(row => {
+    const temConteudo = !!(row.querySelector('.sr-desc')?.value || row.querySelector('.sr-fornec')?.value || row.querySelector('.sr-nf')?.value || numBR(row.querySelector('.sr-valor')?.value || 0));
+    if (!temConteudo) return;
+    acc.servicos += 1;
+    acc.totalServicos += Math.max(0, numBR(row.querySelector('.sr-valor')?.value || 0));
+  });
+  acc.totalGeral = acc.total + acc.totalServicos;
+  return acc;
 };
 
 window.atualizarResumoPecasReais177 = function() {
@@ -6246,9 +6046,12 @@ window.atualizarResumoPecasReais177 = function() {
   const moedaLocal = typeof moedaOS === 'function' ? moedaOS : (v => 'R$ ' + numBR(v).toFixed(2).replace('.', ','));
   box.style.display = 'grid';
   box.innerHTML = `
-    <div style="border:1px solid rgba(255,59,59,.24);background:rgba(255,59,59,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Itens reais vinculados</small><br><b>${r.itens}</b></div>
-    <div style="border:1px solid rgba(255,59,59,.24);background:rgba(255,59,59,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Quantidade real</small><br><b>${r.qtd}</b></div>
-    <div style="border:1px solid rgba(255,59,59,.24);background:rgba(255,59,59,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Custo real total</small><br><b style="color:var(--danger);">${moedaLocal(r.total)}</b></div>`;
+    <div style="border:1px solid rgba(255,59,59,.24);background:rgba(255,59,59,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Peças reais</small><br><b>${r.itens}</b></div>
+    <div style="border:1px solid rgba(255,59,59,.24);background:rgba(255,59,59,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Qtd. peças</small><br><b>${r.qtd}</b></div>
+    <div style="border:1px solid rgba(255,184,0,.26);background:rgba(255,184,0,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Serviços terceirizados</small><br><b>${r.servicos}</b></div>
+    <div style="border:1px solid rgba(255,59,59,.24);background:rgba(255,59,59,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Custo peças</small><br><b style="color:var(--danger);">${moedaLocal(r.total)}</b></div>
+    <div style="border:1px solid rgba(255,184,0,.26);background:rgba(255,184,0,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Custo serviços</small><br><b style="color:var(--warn);">${moedaLocal(r.totalServicos)}</b></div>
+    <div style="border:1px solid rgba(0,212,255,.25);background:rgba(0,212,255,.05);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Custo real geral</small><br><b style="color:var(--cyan);">${moedaLocal(r.totalGeral)}</b></div>`;
 };
 
 function dataHoraRelatorioPecasReaisOS(value) {
@@ -6506,6 +6309,25 @@ function pecasReaisAtuaisParaRelatorioOS(osAtual) {
   }).filter(p => p.codigo || p.desc);
 }
 
+function servicosReaisAtuaisParaRelatorioOS(osAtual) {
+  const rows = Array.from(document.querySelectorAll('#containerServicosReais > .real-service-row'));
+  if (rows.length) {
+    return rows.map(row => ({
+      descricao: row.querySelector('.sr-desc')?.value?.trim() || '',
+      fornecedorId: row.dataset?.fornecedorId || '',
+      fornecedor: row.querySelector('.sr-fornec')?.value?.trim() || '',
+      nf: row.querySelector('.sr-nf')?.value?.trim() || '',
+      dataCompra: row.querySelector('.sr-data')?.value?.trim() || '',
+      valorCompra: numBR(row.querySelector('.sr-valor')?.value || 0)
+    })).filter(s => s.descricao || s.fornecedor || s.nf || s.valorCompra > 0);
+  }
+  return (Array.isArray(osAtual?.servicosReais) ? osAtual.servicosReais : (Array.isArray(osAtual?.servicosTerceirizadosReais) ? osAtual.servicosTerceirizadosReais : []))
+    .map(s => ({
+      descricao: s.descricao || s.desc || '', fornecedorId:s.fornecedorId || '', fornecedor:s.fornecedor || s.fornecedorNome || s.terceirizadoNome || '',
+      nf:s.nf || s.nfNumero || s.documento || '', dataCompra:s.dataCompra || s.dataServico || s.data || '', valorCompra:numBR(s.valorCompra || s.custo || s.valorReal || s.valor || 0)
+    })).filter(s => s.descricao || s.fornecedor || s.nf || s.valorCompra > 0);
+}
+
 window.imprimirRelatorioPecasReaisOS = async function() {
   const ativo177 = window._pecasReaisDesbloqueadas === true || document.body?.dataset?.secret177 === 'on';
   if (!ativo177) {
@@ -6533,9 +6355,10 @@ window.imprimirRelatorioPecasReaisOS = async function() {
   const cliente = (window.J?.clientes || []).find(c => String(c.id) === String(clienteId)) || {};
   const veiculo = (window.J?.veiculos || []).find(v => String(v.id) === String(veiculoId)) || osAtual.veiculoSnapshot || {};
   const pecasBase = pecasReaisAtuaisParaRelatorioOS(osAtual);
-  if (!pecasBase.length) {
+  const servicosReais = servicosReaisAtuaisParaRelatorioOS(osAtual);
+  if (!pecasBase.length && !servicosReais.length) {
     try { win.close?.(); } catch (_) {}
-    window.toast?.('Esta O.S. não possui peças reais registradas para imprimir.', 'warn');
+    window.toast?.('Esta O.S. não possui peças ou serviços reais registrados para imprimir.', 'warn');
     return;
   }
   const pecas = pecasBase.map(p => enriquecerPecaRelatorioEstoqueOS(p, osAtual));
@@ -6554,6 +6377,8 @@ window.imprimirRelatorioPecasReaisOS = async function() {
     if (mec?.nome || osAtual.mecNome) responsaveis.push(mec?.nome || osAtual.mecNome);
   }
   const total = pecas.reduce((s, p) => s + Math.max(0, numBR(p.qtd || 0)) * Math.max(0, numBR(p.valorCompra || 0)), 0);
+  const totalServicosReais = servicosReais.reduce((s, item) => s + Math.max(0, numBR(item.valorCompra || 0)), 0);
+  const totalRealGeral = total + totalServicosReais;
   const moedaLocal = typeof moedaOS === 'function' ? moedaOS : (v => 'R$ ' + numBR(v).toFixed(2).replace('.', ','));
   const linhas = pecas.map((p, index) => {
     const qtd = Math.max(0, numBR(p.qtd || 0));
@@ -6572,7 +6397,16 @@ window.imprimirRelatorioPecasReaisOS = async function() {
     </tr>`;
   }).join('');
 
-  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><title>Relatório Peças Reais ${escOS(placa || osId)}</title><style>
+  const linhasServicosReais = servicosReais.map((s, index) => `<tr>
+      <td data-label="#">${index + 1}</td>
+      <td data-label="Serviço terceirizado">${escOS(s.descricao || '-')}</td>
+      <td data-label="Prestador / fornecedor">${escOS(s.fornecedor || '-')}</td>
+      <td data-label="Nota / documento">${escOS(s.nf || '-')}</td>
+      <td data-label="Data">${dataRelatorioPecasReaisOS(s.dataCompra)}</td>
+      <td data-label="Custo real" class="num"><b>${moedaLocal(s.valorCompra || 0)}</b></td>
+    </tr>`).join('');
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><title>Relatório Real da O.S. ${escOS(placa || osId)}</title><style>
     @page{size:A4 landscape;margin:8mm}
     *{box-sizing:border-box}
     html,body{width:100%;max-width:100%;margin:0;padding:0;overflow-x:hidden}
@@ -6629,7 +6463,7 @@ window.imprimirRelatorioPecasReaisOS = async function() {
       .no-print{display:none}
       body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
     }
-  </style></head><body><main class="page"><div class="no-print"><button onclick="window.print()">IMPRIMIR / SALVAR PDF</button></div><header><div><h1>RELATÓRIO INTERNO DE PEÇAS REAIS INSTALADAS</h1><div class="restrito">ACESSO RESTRITO DO PROPRIETÁRIO — CÓDIGO *177</div></div><div class="oficina"><b>${escOS(nomeOficina)}</b><br>${escOS(enderecoOficina || 'Local da oficina não informado')}</div></header><section class="meta">
+  </style></head><body><main class="page"><div class="no-print"><button onclick="window.print()">IMPRIMIR / SALVAR PDF</button></div><header><div><h1>RELATÓRIO INTERNO DE PEÇAS E SERVIÇOS REAIS</h1><div class="restrito">ACESSO RESTRITO DO PROPRIETÁRIO — CÓDIGO *177</div></div><div class="oficina"><b>${escOS(nomeOficina)}</b><br>${escOS(enderecoOficina || 'Local da oficina não informado')}</div></header><section class="meta">
     <div class="box"><b>O.S.</b>#${escOS(String(osAtual.numero || osAtual.numeroOS || osId || 'NÃO SALVA').slice(-12).toUpperCase())}</div>
     <div class="box"><b>Status</b>${escOS(document.getElementById('osStatus')?.value || osAtual.status || '-')}</div>
     <div class="box"><b>Abertura da O.S.</b>${dataHoraRelatorioPecasReaisOS(osAtual.createdAt || osAtual.abertaEm || osAtual.dataAbertura || osAtual.data)}</div>
@@ -6639,7 +6473,11 @@ window.imprimirRelatorioPecasReaisOS = async function() {
     <div class="box"><b>KM da troca</b>${escOS(document.getElementById('osKm')?.value || osAtual.km || '-')}</div>
     <div class="box"><b>Responsável(is)</b>${escOS(responsaveis.join(', ') || 'Não informado')}</div>
     <div class="box wide"><b>Local da troca</b>${escOS([nomeOficina, enderecoOficina].filter(Boolean).join(' — '))}</div>
-  </section><div class="table-wrap"><table><colgroup><col style="width:3%"><col style="width:9%"><col style="width:20%"><col style="width:4%"><col style="width:12%"><col style="width:9%"><col style="width:8%"><col style="width:16%"><col style="width:9%"><col style="width:10%"></colgroup><thead><tr><th>#</th><th>Código real</th><th>Descrição real instalada</th><th>Qtd.</th><th>Onde comprou / fornecedor</th><th>Nota fiscal / rastreio</th><th>Data compra / entrada</th><th>Origem / estoque</th><th>Custo unit.</th><th>Custo total</th></tr></thead><tbody>${linhas}</tbody><tfoot><tr><td colspan="10" class="total-geral"><b>CUSTO REAL TOTAL DAS PEÇAS</b><b>${moedaLocal(total)}</b></td></tr></tfoot></table></div><div class="rodape"><span>Documento interno gerado pelo OFICIN-IA. Quando a peça vem do estoque, o rastreio fiscal é obtido do Kardex carregado.</span><span>Powered by thIAguinho Soluções Digitais</span></div></main></body></html>`;
+  </section>
+  ${pecas.length ? `<h2 style="font-size:12px;margin:10px 0 5px;">PEÇAS REAIS INSTALADAS</h2><div class="table-wrap"><table><colgroup><col style="width:3%"><col style="width:9%"><col style="width:20%"><col style="width:4%"><col style="width:12%"><col style="width:9%"><col style="width:8%"><col style="width:16%"><col style="width:9%"><col style="width:10%"></colgroup><thead><tr><th>#</th><th>Código real</th><th>Descrição real instalada</th><th>Qtd.</th><th>Onde comprou / fornecedor</th><th>Nota fiscal / rastreio</th><th>Data compra / entrada</th><th>Origem / estoque</th><th>Custo unit.</th><th>Custo total</th></tr></thead><tbody>${linhas}</tbody><tfoot><tr><td colspan="10" class="total-geral"><b>CUSTO REAL TOTAL DAS PEÇAS</b><b>${moedaLocal(total)}</b></td></tr></tfoot></table></div>` : ''}
+  ${servicosReais.length ? `<h2 style="font-size:12px;margin:12px 0 5px;">SERVIÇOS TERCEIRIZADOS REAIS</h2><div class="table-wrap"><table><colgroup><col style="width:4%"><col style="width:31%"><col style="width:23%"><col style="width:16%"><col style="width:12%"><col style="width:14%"></colgroup><thead><tr><th>#</th><th>Serviço terceirizado</th><th>Prestador / fornecedor</th><th>Nota / documento</th><th>Data</th><th>Custo real</th></tr></thead><tbody>${linhasServicosReais}</tbody><tfoot><tr><td colspan="6" class="total-geral"><b>CUSTO REAL TOTAL DOS SERVIÇOS</b><b>${moedaLocal(totalServicosReais)}</b></td></tr></tfoot></table></div>` : ''}
+  <div style="display:flex;justify-content:flex-end;margin-top:10px;"><div style="border:2px solid #111;padding:8px 12px;font-size:13px;display:flex;gap:24px;"><b>CUSTO REAL GERAL</b><b>${moedaLocal(totalRealGeral)}</b></div></div>
+  <div class="rodape"><span>Documento interno gerado pelo OFICIN-IA. Peças de estoque mantêm rastreio Kardex; serviços terceirizados são registros internos da O.S.</span><span>Powered by thIAguinho Soluções Digitais</span></div></main></body></html>`;
 
   win.document.open();
   win.document.write(html);
@@ -6714,6 +6552,7 @@ window.adicionarPecaRealRow = function(p) {
     estoqueId: estoqueReal
   });
   const div = document.createElement('div');
+  div.className = 'real-item-row';
   div.style.cssText = 'display:grid;grid-template-columns:110px 1fr 50px 130px 110px 130px 105px 105px 32px;gap:6px;align-items:center;background:rgba(255,59,59,0.05);padding:6px;border-radius:3px;border:1px solid rgba(255,59,59,0.2);';
   const estoqueOpts = optionsPecasReaisEstoqueFiltradasOS(estoqueReal, '');
   div.innerHTML = `
@@ -6733,6 +6572,7 @@ window.adicionarPecaRealRow = function(p) {
   div.addEventListener('change', e => { if (e.target?.matches?.('.pr-qtd,.pr-valor')) window.atualizarResumoPecasReais177?.(); });
   ct.appendChild(div);
   window.atualizarResumoPecasReais177?.();
+  return div;
 };
 
 window.selecionarPecaRealEstoque = function(sel) {
@@ -6742,9 +6582,128 @@ window.selecionarPecaRealEstoque = function(sel) {
   const codigo = opt.dataset.codigo || '';
   const desc = opt.dataset.desc || '';
   const custo = numBR(opt.dataset.custo || 0);
+  const fornecedor = opt.dataset.fornecedor || '';
+  const nf = opt.dataset.nf || '';
+  const dataCompra = opt.dataset.dataCompra || '';
   if (codigo && !row.querySelector('.pr-codigo')?.value) row.querySelector('.pr-codigo').value = codigo;
   if (desc && !row.querySelector('.pr-desc')?.value) row.querySelector('.pr-desc').value = desc;
+  if (fornecedor && !row.querySelector('.pr-fornec')?.value) row.querySelector('.pr-fornec').value = fornecedor;
+  if (nf && !row.querySelector('.pr-nf')?.value) row.querySelector('.pr-nf').value = nf;
+  if (dataCompra && row.querySelector('.pr-datacompra')) row.querySelector('.pr-datacompra').value = String(dataCompra).slice(0,10);
   if (custo && numBR(row.querySelector('.pr-valor')?.value || 0) <= 0) row.querySelector('.pr-valor').value = custo.toFixed(2).replace('.', ',');
+  window.atualizarResumoPecasReais177?.();
+  setTimeout(() => osGarantirProximaLinhaReal('peca'), 0);
+};
+
+function normalizarBuscaServicoRealOS(v) {
+  return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+}
+
+function historicoServicosReaisOS(termo) {
+  const q = normalizarBuscaServicoRealOS(termo);
+  const termos = q.split(/\s+/).filter(Boolean);
+  const out = [];
+  const seen = new Set();
+  const add = (item, origem) => {
+    const descricao = String(item?.descricao || item?.desc || '').trim();
+    const fornecedor = String(item?.fornecedor || item?.fornecedorNome || item?.terceirizadoNome || '').trim();
+    if (!descricao && !fornecedor) return;
+    const alvo = normalizarBuscaServicoRealOS([descricao, fornecedor, item?.nf, item?.nfNumero].filter(Boolean).join(' '));
+    if (termos.length && !termos.every(t => alvo.includes(t))) return;
+    const key = normalizarBuscaServicoRealOS(descricao) + '|' + normalizarBuscaServicoRealOS(fornecedor);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ descricao, fornecedor, fornecedorId:item?.fornecedorId || item?.terceirizadoId || '', origem });
+  };
+  (window.J?.os || []).forEach(os => {
+    (os.servicosReais || os.servicosTerceirizadosReais || []).forEach(s => add(s, 'servico_real'));
+    (os.servicos || []).filter(s => normalizarTipoExecucaoServicoOS(s?.tipoExecucao || s?.execucaoTipo, s) === 'terceirizada').forEach(s => add(s, 'servico_os'));
+  });
+  return out.slice(0,60);
+}
+
+function optionsHistoricoServicoRealOS(termo) {
+  const q = String(termo || '').trim();
+  // Não percorre todo o histórico ao criar uma linha vazia.
+  // A pesquisa é feita somente depois que o usuário começa a digitar e usa apenas J.os já carregado.
+  if (!q) return '<option value="">Digite acima para pesquisar no histórico local</option>';
+  const lista = historicoServicosReaisOS(q);
+  return '<option value="">Digitar manualmente</option>' + lista.map((s, idx) => `<option value="${idx}" data-desc="${escOS(s.descricao)}" data-fornecedor="${escOS(s.fornecedor)}" data-fornecedor-id="${escOS(s.fornecedorId)}">${escOS([s.descricao, s.fornecedor ? 'Prestador: '+s.fornecedor : ''].filter(Boolean).join(' | '))}</option>`).join('');
+}
+
+window.filtrarServicoRealHistoricoOS = function(input) {
+  const row = input?.closest?.('.real-service-row');
+  const sel = row?.querySelector?.('.sr-historico');
+  if (!row || !sel) return;
+  clearTimeout(row._srBuscaTimer);
+  row._srBuscaTimer = setTimeout(() => {
+    sel.innerHTML = optionsHistoricoServicoRealOS(input.value || '');
+  }, 110);
+};
+
+window.selecionarPrimeiroServicoRealOS = function(input, ev) {
+  if (ev && ev.key !== 'Enter') return;
+  ev?.preventDefault?.();
+  const row = input?.closest?.('.real-service-row');
+  const sel = row?.querySelector?.('.sr-historico');
+  if (!row || !sel) return;
+  clearTimeout(row._srBuscaTimer);
+  sel.innerHTML = optionsHistoricoServicoRealOS(input.value || '');
+  const opt = Array.from(sel.options).find(o => o.value !== '');
+  if (!opt) { row.querySelector('.sr-desc')?.focus?.(); return; }
+  sel.value = opt.value;
+  window.selecionarServicoRealHistoricoOS?.(sel);
+};
+
+window.selecionarServicoRealHistoricoOS = function(sel) {
+  const row = sel?.closest?.('.real-service-row');
+  const opt = sel?.options?.[sel.selectedIndex];
+  if (!row || !opt || sel.value === '') return;
+  const desc = opt.dataset.desc || '';
+  const fornecedor = opt.dataset.fornecedor || '';
+  if (desc) row.querySelector('.sr-desc').value = desc;
+  if (fornecedor) row.querySelector('.sr-fornec').value = fornecedor;
+  row.dataset.fornecedorId = opt.dataset.fornecedorId || localizarFornecedorTerceirizadoOS(fornecedor)?.id || '';
+  window.atualizarResumoPecasReais177?.();
+  setTimeout(() => osGarantirProximaLinhaReal('servico'), 0);
+};
+
+window.atualizarFornecedorServicoRealOS = function(input) {
+  const row = input?.closest?.('.real-service-row');
+  if (!row) return;
+  const nome = String(input.value || '').trim();
+  const fornecedor = localizarFornecedorTerceirizadoOS(nome);
+  row.dataset.fornecedorId = fornecedor?.id || '';
+};
+
+window.adicionarServicoRealRow = function(s = {}, options = {}) {
+  const ct = document.getElementById('containerServicosReais');
+  if (!ct) return null;
+  const hoje = dataLocalISOOS();
+  const descricao = s.descricao || s.desc || '';
+  const fornecedor = s.fornecedor || s.fornecedorNome || s.terceirizadoNome || '';
+  const fornecedorId = s.fornecedorId || s.terceirizadoId || localizarFornecedorTerceirizadoOS(fornecedor)?.id || '';
+  const nf = s.nf || s.nfNumero || s.documento || '';
+  const data = String(s.dataCompra || s.dataServico || s.data || hoje).slice(0,10);
+  const valor = numBR(s.valorCompra || s.custo || s.valorReal || s.valor || 0);
+  const meta = Object.assign({}, s, { descricao, desc:descricao, fornecedor, fornecedorNome:fornecedor, fornecedorId, nf, nfNumero:nf, dataCompra:data, valorCompra:valor });
+  const row = document.createElement('div');
+  row.className = 'real-service-row';
+  row.dataset.fornecedorId = fornecedorId;
+  row.style.cssText = 'display:grid;grid-template-columns:minmax(260px,1.5fr) minmax(210px,1fr) 120px 110px 110px 32px;gap:6px;align-items:center;background:rgba(255,184,0,.045);padding:6px;border-radius:3px;border:1px solid rgba(255,184,0,.22);';
+  row.innerHTML = `
+    <input type="hidden" class="sr-meta" value="${_escVal(JSON.stringify(meta))}">
+    <input type="search" class="j-input sr-busca-historico" value="${_escVal(descricao || fornecedor)}" placeholder="Buscar serviço terceirizado já lançado ou fornecedor..." oninput="window.filtrarServicoRealHistoricoOS(this)" onkeydown="window.selecionarPrimeiroServicoRealOS(this,event)" autocomplete="off" style="grid-column:1/-1;font-family:var(--fm);font-size:.72rem;background:rgba(255,184,0,.04);border:1px solid rgba(255,184,0,.22);">
+    <select class="j-select sr-historico" onchange="window.selecionarServicoRealHistoricoOS(this)" title="Sugestões locais do histórico já carregado" style="grid-column:1/-1;">${optionsHistoricoServicoRealOS('')}</select>
+    <input type="text" class="j-input sr-desc" value="${_escVal(descricao)}" placeholder="Descrição do serviço realizado">
+    <input type="text" class="j-input sr-fornec" list="os-lista-terceirizados" value="${_escVal(fornecedor)}" placeholder="Prestador / fornecedor" onfocus="window.atualizarListaTerceirizadosOS?.()" oninput="window.atualizarFornecedorServicoRealOS(this)" onchange="window.atualizarFornecedorServicoRealOS(this)">
+    <input type="text" class="j-input sr-nf" value="${_escVal(nf)}" placeholder="NF / recibo">
+    <input type="date" class="j-input sr-data" value="${_escVal(data)}">
+    <input type="text" inputmode="decimal" class="j-input sr-valor" value="${valor ? valor.toFixed(2).replace('.', ',') : '0,00'}" placeholder="R$ custo">
+    <button type="button" onclick="this.parentElement.remove();window.atualizarResumoPecasReais177?.()" style="background:rgba(255,59,59,.1);border:1px solid rgba(255,59,59,.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">x</button>`;
+  ct.appendChild(row);
+  window.atualizarResumoPecasReais177?.();
+  return row;
 };
 
 window.baixarEstoquePecasReais = async function(osId, antigas, novas) {

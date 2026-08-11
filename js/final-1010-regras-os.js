@@ -83,6 +83,7 @@
             window._pecasReaisDesbloqueadas=true;
             if (document.body) document.body.dataset.secret177='on';
             const b=$('blocoReais'); if(b) b.style.display='block';
+            try { window.atualizarVisibilidadeReaisOS?.(); } catch (_) {}
             try { window.renderTimelineOS?.(); } catch (_) {}
             try { window.renderAuditoria?.(); } catch (_) {}
             try {
