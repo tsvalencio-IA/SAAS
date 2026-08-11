@@ -916,7 +916,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
             <select class="j-select" style="width:120px" id="filtroFinTipo" onchange="window.renderFinanceiro()"><option value="">Todos</option><option value="Entrada">Receitas</option><option value="Saída">Despesas</option></select>
             <select class="j-select" style="width:190px" id="filtroFinStatus" onchange="window.renderFinanceiro()"><option value="">Todos ativos</option><option value="Pago">Liquidado</option><option value="Pendente">Pendente</option><option value="Agrupado">Origens agrupadas</option><option value="Cancelado">Cancelados / Reemitidos</option></select>
             <input type="month" class="j-input" style="width:150px" id="filtroFinMes" onchange="window.renderFinanceiro()">
-            <input type="search" class="j-input" style="width:260px" id="filtroFinBusca" placeholder="Pesquisar NF, nota, fornecedor..." oninput="window.renderFinanceiro()">
+            <input type="search" class="j-input" style="width:260px" id="filtroFinBusca" placeholder="Pesquisar NF, NFS-e, pedido, fornecedor, O.S...." oninput="window.renderFinanceiro()">
             <button class="btn-warn" onclick="window.abrirAgruparBoletoSelecionados && window.abrirAgruparBoletoSelecionados()">📎 AGRUPAR NF EM BOLETO</button>
             <button class="btn-primary" onclick="abrirModal('modalFin');window.prepFin()">+ LANÇAMENTO</button>
           </div>
@@ -4158,15 +4158,15 @@ window.iaAnalisarDRE = function() { _jiaChamar('Analise o financeiro atual e apo
 window.iaAnalisarEstoque = function() { _jiaChamar('Quais pecas estao em estoque critico e precisam de reposicao?'); };
 </script>
 <script src="js/fiscal.js"></script>
-<script src="js/financeiro.js"></script>
+<script src="js/financeiro.js?v=26.15.0"></script>
 <script src="js/nfe-real-pro.js"></script>
 <script src="js/thia-runtime-core-v2613.js?v=26.13.0"></script>
 <script src="js/os-utils.js?v=22.4.1"></script>
-<script src="js/os.js?v=26.13.0"></script>
+<script src="js/os.js?v=26.15.0"></script>
 <script src="js/checklist-jarvis-bridge.js?v=26.13.0"></script>
 <script src="js/cotacoes.js"></script>
 <script src="js/assinatura-os.js"></script>
-<script src="js/ia.js?v=26.13.0"></script>
+<script src="js/ia.js?v=26.15.0"></script>
 <script src="js/catalogos-ia.js?v=19.0.0"></script>
 <script src="js/tabela-tempa.js"></script>
 <script src="js/exportar-pmsp.js?v=22.4.0"></script>
@@ -4490,9 +4490,9 @@ window.iaAnalisarEstoque = function() { _jiaChamar('Quais pecas estao em estoque
 <script src="js/comissoes-os-v21.js?v=24.0.0"></script>
 <script src="js/thia-firestore-runtime-v2612.js?v=26.13.0"></script>
 <script src="js/performance-v23.js?v=26.13.0"></script>
-<script src="js/jarvis-financeiro-v263.js?v=26.3.0"></script>
+<script src="js/jarvis-financeiro-v263.js?v=26.15.0"></script>
 <script src="js/fornecedores-hotfix-v264.js?v=26.4.0"></script>
-<script src="js/firestore-economico-v265.js?v=26.13.0"></script>
+<script src="js/firestore-economico-v265.js?v=26.14.0"></script>
 <script src="js/jarvis-fiscal-ia-temparia-v266.js?v=26.13.0"></script>
 <script src="js/jarvis-responsive-cards-v267.js?v=26.13.0"></script>
 <script src="js/jarvis-fiscal-cards-v268.js?v=26.13.0"></script>

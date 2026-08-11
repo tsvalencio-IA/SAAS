@@ -41,6 +41,7 @@
     gasto_interno: 'Gastos internos',
     manutencao_interna: 'Manutenção interna',
     fornecedor: 'Fornecedores / peças',
+    servico_terceirizado: 'Serviços terceirizados',
     imposto: 'Impostos / taxas',
     estrutura: 'Aluguel / estrutura',
     receita: 'Receitas',
@@ -62,6 +63,7 @@
     if (cat.includes('gasto_interno') || cat.includes('despesa_interna') || f.isGastoInterno === true || /gasto interno|despesa interna/.test(text)) return 'gasto_interno';
     if (cat.includes('imposto') || cat.includes('taxa') || /imposto|tributo|taxa bancaria|taxa de cartao/.test(text)) return 'imposto';
     if (cat.includes('aluguel') || cat.includes('estrutura') || /aluguel|condominio|energia eletrica|conta de agua|internet da oficina/.test(text)) return 'estrutura';
+    if (cat.includes('servico_terceirizado') || norm(f.origem) === 'os_servico_terceirizado' || f.terceirizado === true) return 'servico_terceirizado';
     if (String(f.vinculo || '').startsWith('F_') || f.fornecedorId || cat.includes('fornecedor') || cat.includes('nota_fiscal') || f.nfNumero || f.chaveNFe) return 'fornecedor';
     if (String(f.tipo || '').toLowerCase() === 'entrada') return 'receita';
     return 'outros';
@@ -148,6 +150,7 @@
         <option value="outros">Outros</option>
         <option value="receita">Receita operacional</option>
         <option value="fornecedor">Fornecedor / peças / NF</option>
+        <option value="servico_terceirizado">Serviço terceirizado / NFS-e</option>
         <option value="comissao">Comissão</option>
         <option value="salario">Salário</option>
         <option value="vale">Vale / adiantamento</option>
@@ -252,6 +255,7 @@
         <option value="gasto_interno">Gastos internos</option>
         <option value="manutencao_interna">Manutenção interna</option>
         <option value="fornecedor">Fornecedores / peças</option>
+        <option value="servico_terceirizado">Serviços terceirizados</option>
         <option value="imposto">Impostos / taxas</option>
         <option value="estrutura">Aluguel / estrutura</option>
         <option value="receita">Receitas</option>
@@ -276,7 +280,7 @@
       toolbar.className = 'fin-v263-toolbar';
       toolbar.innerHTML = `
         <div class="fin-v263-quick" id="finQuickV263">
-          ${['todos','comissao','salario','vale','gasto_interno','fornecedor','receita'].map(k=>`<button type="button" class="fin-v263-chip" data-fin-cat="${k}" onclick="window.setFiltroFinanceiroV263('${k}')">${CATEGORY_LABELS[k]}</button>`).join('')}
+          ${['todos','comissao','salario','vale','gasto_interno','fornecedor','servico_terceirizado','receita'].map(k=>`<button type="button" class="fin-v263-chip" data-fin-cat="${k}" onclick="window.setFiltroFinanceiroV263('${k}')">${CATEGORY_LABELS[k]}</button>`).join('')}
         </div>
         <div class="fin-v263-lote">
           <strong id="finLoteResumoV263">Nenhum lançamento selecionado</strong>

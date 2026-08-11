@@ -1,4 +1,4 @@
-const CACHE='oficin-ia-v26-13-0-fluxo-estavel-20260803';
+const CACHE='oficin-ia-v26-15-0-servicos-terceirizados-20260811';
 const ASSETS=[
   './checklist.html','./js/checklist.js','./js/config.js','./data/checklist-model.json',
   './checklist.webmanifest','./assets/icons/checklist-192.png','./assets/icons/checklist-512.png'

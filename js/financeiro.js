@@ -149,7 +149,9 @@ window.renderFinanceiro = function() {
             const fornecedorNome = financeiroFornecedorNomeFin(fornecedorId);
             const textoBusca = financeiroNormalizarTextoFin([
                 f.desc, f.nota, f.nfNumero, f.numeroNota, f.chaveNFe, f.chave, f.fornecedor,
-                fornecedorId, fornecedorNome, f.pgto, f.venc, f.status, f.valor
+                fornecedorId, fornecedorNome, f.pgto, f.venc, f.status, f.valor,
+                f.pedidoFornecedor, f.documentoNumero, f.documentoTipo, f.servicoDescricao,
+                f.osId, f.osNumero, f.placa, f.categoria, f.origem, f.conferenciaDocumento
             ].join(' '));
             return textoBusca.includes(buscaLivre);
         });
@@ -209,6 +211,17 @@ window.renderFinanceiro = function() {
         }
         if (financeiroOrigemAgrupadaFin(f)) {
             vinculoNome += `<br><small style="color:var(--muted)">Origem agrupada no boleto ${f.boletoNumero || f.agrupadoNoBoletoId || ''}</small>`;
+        }
+
+        if (f.categoria === 'servico_terceirizado' || f.origem === 'os_servico_terceirizado') {
+            const infoTerceiro = [
+                f.pedidoFornecedor ? `Pedido ${f.pedidoFornecedor}` : 'Pedido não informado',
+                f.documentoNumero ? `${f.documentoTipo || 'Documento'} ${f.documentoNumero}` : 'Documento pendente',
+                f.osNumero ? `OS ${f.osNumero}` : (f.osId ? `OS ${String(f.osId).slice(-6).toUpperCase()}` : ''),
+                f.placa ? `Placa ${f.placa}` : '',
+                f.conferenciaDocumento ? String(f.conferenciaDocumento).replace(/_/g,' ') : ''
+            ].filter(Boolean).join(' • ');
+            vinculoNome += `<br><small style="color:var(--warn)">Serviço terceirizado • ${infoTerceiro}</small>`;
         }
 
         return `<tr style="${atrasado ? 'background:rgba(255,59,59,0.05);' : ''}">

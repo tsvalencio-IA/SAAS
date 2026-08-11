@@ -83,7 +83,8 @@
       'id','tipo','status','desc','descricao','observacao','obs','fornecedor','fornecedorNome',
       'cliente','clienteNome','numero','numeroNF','nf','nota','documento','osId','osNumero',
       'placa','veiculo','mecId','mecNome','responsavel','funcionario','colaborador','vinculo',
-      'forma','pgto','categoria','subcategoria'
+      'forma','pgto','categoria','subcategoria','pedidoFornecedor','documentoNumero','documentoTipo',
+      'servicoDescricao','conferenciaDocumento','origem'
     ]);
   }
 
@@ -208,8 +209,235 @@
     return `- NF ${esc(n.numero || n.numeroNF || n.nf || '-')} | ${esc(n.fornecedorSnapshot?.nome || n.fornecedorNome || n.fornecedor || '-')} | ${esc(dataBR(n.dataNF || n.emissao || n.createdAt))} | ${moeda(n.totalNF || n.totalItens || n.valor || 0)}`;
   }
 
+  function primeiroDiaMesISO(dt) {
+    const d = dt instanceof Date ? dt : new Date(dt);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+  }
+
+  function ultimoDiaMesISO(dt) {
+    const d = dt instanceof Date ? dt : new Date(dt);
+    const fim = new Date(d.getFullYear(), d.getMonth() + 1, 0, 12, 0, 0);
+    return `${fim.getFullYear()}-${String(fim.getMonth() + 1).padStart(2, '0')}-${String(fim.getDate()).padStart(2, '0')}`;
+  }
+
+  function extrairPeriodoNaturalIA(texto) {
+    const explicito = extrairPeriodoPergunta(texto);
+    if (explicito) return Object.assign({ origem: 'data_explicita' }, explicito);
+    const q = norm(texto);
+    const agora = new Date();
+    const hoje = hojeISO();
+    if (/\bhoje\b/.test(q)) return { inicio: hoje, fim: hoje, origem: 'hoje' };
+    if (/\bontem\b/.test(q)) {
+      const d = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() - 1, 12, 0, 0);
+      const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      return { inicio: iso, fim: iso, origem: 'ontem' };
+    }
+    if (/\b(?:este|esse|nesse|neste)\s+mes\b|\bmes\s+atual\b/.test(q)) {
+      return { inicio: primeiroDiaMesISO(agora), fim: ultimoDiaMesISO(agora), origem: 'mes_atual' };
+    }
+    if (/\bmes\s+passado\b|\bultimo\s+mes\b/.test(q)) {
+      const d = new Date(agora.getFullYear(), agora.getMonth() - 1, 1, 12, 0, 0);
+      return { inicio: primeiroDiaMesISO(d), fim: ultimoDiaMesISO(d), origem: 'mes_passado' };
+    }
+    if (/\b(?:este|esse|neste|nesse)\s+ano\b|\bano\s+atual\b/.test(q)) {
+      return { inicio: `${agora.getFullYear()}-01-01`, fim: `${agora.getFullYear()}-12-31`, origem: 'ano_atual' };
+    }
+    const meses = { janeiro:1, fevereiro:2, marco:3, abril:4, maio:5, junho:6, julho:7, agosto:8, setembro:9, outubro:10, novembro:11, dezembro:12 };
+    for (const [nome, mes] of Object.entries(meses)) {
+      if (!new RegExp(`\\b${nome}\\b`).test(q)) continue;
+      const anoMatch = q.match(new RegExp(`\\b${nome}\\s+(?:de\\s+)?(20\\d{2})\\b`));
+      const ano = Number(anoMatch?.[1] || agora.getFullYear());
+      const d = new Date(ano, mes - 1, 1, 12, 0, 0);
+      return { inicio: primeiroDiaMesISO(d), fim: ultimoDiaMesISO(d), origem: 'mes_nomeado' };
+    }
+    return null;
+  }
+
+  function fornecedorTextoIA(f) {
+    return textoLivre(f, ['id','nome','razaoSocial','fantasia','nomeFantasia','apelido','cnpj','cpf','documento','email','telefone','wpp']);
+  }
+
+  function aliasesFornecedorIA(f) {
+    return uniq([f?.nome, f?.razaoSocial, f?.fantasia, f?.nomeFantasia, f?.apelido])
+      .map(v => norm(v).trim()).filter(v => v.length >= 3);
+  }
+
+  function fornecedorPorPerguntaIA(ctx, texto) {
+    const lista = Array.isArray(ctx?.fornecedores) ? ctx.fornecedores : [];
+    const q = norm(texto).replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!lista.length || !q) return null;
+    const tokensQ = new Set(q.split(/\s+/).filter(t => t.length >= 3));
+    const pontuados = lista.map(f => {
+      let score = 0;
+      aliasesFornecedorIA(f).forEach(alias => {
+        if (q.includes(alias)) score = Math.max(score, 5000 + alias.length);
+        const toks = alias.split(/\s+/).filter(t => t.length >= 3);
+        const comuns = toks.filter(t => tokensQ.has(t)).length;
+        if (comuns) score = Math.max(score, comuns * 250 + alias.length);
+      });
+      const doc = String(f?.cnpj || f?.cpf || f?.documento || '').replace(/\D/g, '');
+      if (doc && q.replace(/\D/g, '').includes(doc)) score = Math.max(score, 6000 + doc.length);
+      return { f, score };
+    }).filter(x => x.score >= 250).sort((a,b) => b.score - a.score);
+    if (!pontuados.length) return null;
+    // Em empate real, nao escolhe fornecedor por adivinhacao.
+    if (pontuados.length > 1 && pontuados[1].score === pontuados[0].score) return null;
+    return pontuados[0].f;
+  }
+
+  function fornecedorIdFinanceiroIA(f, ctx) {
+    if (!f) return '';
+    if (f.fornecedorId) return String(f.fornecedorId);
+    if (String(f.vinculo || '').startsWith('F_')) return String(f.vinculo).slice(2);
+    const candidato = String(f.fornecedor || '').trim();
+    if (candidato && (ctx.fornecedores || []).some(fr => String(fr.id) === candidato)) return candidato;
+    const hay = norm(textoFinanceiro(f));
+    const achado = (ctx.fornecedores || []).find(fr => aliasesFornecedorIA(fr).some(alias => alias && hay.includes(alias)));
+    return achado ? String(achado.id) : '';
+  }
+
+  function financeiroDoFornecedorIA(f, fornecedor, ctx) {
+    if (!fornecedor) return false;
+    const fid = String(fornecedor.id || '').trim();
+    if (fid && fornecedorIdFinanceiroIA(f, ctx) === fid) return true;
+    const hay = norm(textoFinanceiro(f));
+    return aliasesFornecedorIA(fornecedor).some(alias => alias && hay.includes(alias));
+  }
+
+  function financeiroEhSaidaIA(f) {
+    const tipo = tipoFinanceiro(f);
+    if (/entrada|receb/.test(tipo)) return false;
+    return /saida|saída|despesa|pagar|compra|nf|boleto/.test(tipo) || !/entrada|receb/.test(tipo);
+  }
+
+  function financeiroEhBoletoIA(f) {
+    if (!f) return false;
+    if (f.boletoAgrupado === true || f.boletoRealDoPacote === true || f.tipoDocumento === 'boleto_agrupado') return true;
+    return /boleto|duplicata/.test(norm([f.pgto,f.forma,f.formaPagamento,f.tipoDocumento,f.desc,f.descricao].join(' ')));
+  }
+
+  function dataPagamentoFinanceiroIA(f) {
+    return f?.dataPgto || f?.pagoEm || f?.dataPagamento || f?.dataBaixa || f?.baixadoEm || f?.pagamentoEm || f?.liquidadoEm || '';
+  }
+
+  function periodoRotuloIA(periodo) {
+    if (!periodo) return '';
+    if (periodo.inicio === periodo.fim) return ` em ${dataBR(periodo.inicio)}`;
+    return ` de ${dataBR(periodo.inicio)} a ${dataBR(periodo.fim)}`;
+  }
+
+  function financeiroEhServicoTerceirizadoIA(f) {
+    return !!f && (
+      norm(f.categoria || '') === 'servico_terceirizado' ||
+      norm(f.origem || '') === 'os_servico_terceirizado' ||
+      f.terceirizado === true
+    );
+  }
+
+  function responderServicosTerceirizadosFinanceiro(texto, q, ctx, opts) {
+    const intencaoExplicita = /terceiriz|prestador|nfs(?:-?e)?|nota\s+fiscal\s+de\s+servico|nota\s+de\s+servico|pedido\s+(?:do|da|de)?\s*fornecedor|pedido\s+(?:n|numero|nº|#)|retifica/.test(q);
+    if (!intencaoExplicita) return null;
+    if (!podeFinanceiro(opts)) return 'Seu perfil nao tem permissao para consultar custos e documentos de servicos terceirizados.';
+
+    let lista = (ctx.financeiro || []).filter(f => !isCanceladoStatus(f.status) && financeiroEhServicoTerceirizadoIA(f));
+    const fornecedor = fornecedorPorPerguntaIA(ctx, texto);
+    if (fornecedor) lista = lista.filter(f => financeiroDoFornecedorIA(f, fornecedor, ctx));
+
+    const pedidoMatch = norm(texto).match(/\bpedido\s*(?:(?:numero|n|nº|#)\s*)?([a-z0-9._/-]{2,})\b/);
+    if (pedidoMatch && !/^(do|da|de|fornecedor)$/.test(pedidoMatch[1])) {
+      const pedido = pedidoMatch[1];
+      lista = lista.filter(f => norm(f.pedidoFornecedor || '').includes(pedido));
+    }
+
+    const periodo = extrairPeriodoNaturalIA(texto);
+    if (periodo) {
+      lista = lista.filter(f => periodoContem(periodo, f.documentoEmissao || f.venc || f.createdAt || f.updatedAt));
+    }
+
+    const termos = norm(texto).split(/\s+/).filter(t => t.length >= 4 && !/^(servico|servicos|terceirizado|terceirizada|terceirizados|terceirizadas|prestador|prestadores|fornecedor|fornecedores|pedido|pedidos|numero|nota|fiscal|documento|documentos|nfs|nfse|quanto|valor|custo|custos|pago|pagos|pendente|pendentes|conferido|conferidos|do|da|dos|das|para|com|sem|este|essa|esse|mes|hoje)$/.test(t));
+    const termosBusca = termos.filter(t => !/^\d+$/.test(t));
+    if (!fornecedor && termosBusca.length) {
+      const candidatos = lista.filter(f => {
+        const hay = norm(textoFinanceiro(f));
+        return termosBusca.every(t => hay.includes(t));
+      });
+      if (candidatos.length) lista = candidatos;
+    }
+
+    if (!lista.length) {
+      return 'Nao encontrei servico terceirizado/documento de prestador que corresponda exatamente aos filtros informados.';
+    }
+
+    lista.sort((a,b) => String(b.documentoEmissao || b.updatedAt || b.createdAt || '').localeCompare(String(a.documentoEmissao || a.updatedAt || a.createdAt || '')));
+    const linhas = lista.slice(0,30).map(f => {
+      const forn = f.fornecedorNome || fornecedor?.nome || '-';
+      const serv = f.servicoDescricao || f.desc || 'Servico terceirizado';
+      const ped = f.pedidoFornecedor ? `Pedido ${esc(f.pedidoFornecedor)}` : 'Pedido nao informado';
+      const doc = f.documentoNumero ? `${esc(f.documentoTipo || 'Documento')} ${esc(f.documentoNumero)}` : 'Documento pendente';
+      const conf = f.conferenciaDocumento ? ` | conferencia: ${esc(String(f.conferenciaDocumento).replace(/_/g,' '))}` : '';
+      return `- ${esc(forn)} | ${esc(serv)} | ${ped} | ${doc} | ${moeda(f.valor || 0)} | ${esc(f.status || 'Pendente')}${conf}`;
+    }).join('<br>');
+    const total = lista.reduce((s,f)=>s+num(f.valor||0),0);
+    const aberto = lista.filter(f=>isPendenteStatus(f.status)).reduce((s,f)=>s+num(f.valor||0),0);
+    const pago = lista.filter(f=>isPagoStatus(f.status)).reduce((s,f)=>s+num(f.valor||0),0);
+    const nomeFornecedor = fornecedor ? ` de ${esc(fornecedor.nome || fornecedor.razaoSocial || fornecedor.id)}` : '';
+    return `<strong>Servicos terceirizados${nomeFornecedor}${periodoRotuloIA(periodo)} (${lista.length}):</strong><br>${linhas}<br><br><strong>Total registrado:</strong> ${moeda(total)} | em aberto ${moeda(aberto)} | pago ${moeda(pago)}.`;
+  }
+
+  function responderFinanceiroFornecedorPreciso(texto, q, ctx, opts) {
+    const falaFinanceiroFornecedor = /fornecedor|fornec|boleto|boletos|duplicata|gastei|gasto|gastos|paguei|pago|pagamento|comprei|compras|despesa|quanto.*(?:gastei|paguei)/.test(q);
+    if (!falaFinanceiroFornecedor) return null;
+    const fornecedor = fornecedorPorPerguntaIA(ctx, texto);
+    if (!fornecedor) return null;
+    if (!podeFinanceiro(opts)) return 'Seu perfil nao tem permissao para consultar valores financeiros de fornecedores.';
+
+    const periodo = extrairPeriodoNaturalIA(texto);
+    const baseFornecedor = (ctx.financeiro || []).filter(f => !isCanceladoStatus(f.status) && financeiroEhSaidaIA(f) && financeiroDoFornecedorIA(f, fornecedor, ctx));
+    const nome = fornecedor.nome || fornecedor.razaoSocial || fornecedor.fantasia || fornecedor.id || 'fornecedor';
+    const querGasto = /quanto.*(?:gastei|paguei)|\bgastei\b|\bpaguei\b|\bgasto\b|\bgastos\b|total.*pago/.test(q);
+    const querBoletos = /\bboletos?\b|duplicata/.test(q);
+
+    if (querGasto) {
+      const pagasTodas = baseFornecedor.filter(f => isPagoStatus(f.status));
+      const semDataPagamento = periodo ? pagasTodas.filter(f => !dataISO(dataPagamentoFinanceiroIA(f))) : [];
+      let pagas = pagasTodas;
+      if (periodo) pagas = pagas.filter(f => periodoContem(periodo, dataPagamentoFinanceiroIA(f)));
+      const totalPago = pagas.reduce((s, f) => s + num(f.valor || f.total || 0), 0);
+      let pendentes = baseFornecedor.filter(f => isPendenteStatus(f.status));
+      if (periodo) pendentes = pendentes.filter(f => periodoContem(periodo, f.venc || f.vencimento || f.createdAt));
+      const totalPendente = pendentes.reduce((s, f) => s + num(f.valor || f.total || 0), 0);
+      const detalhe = pagas.slice(0, 20).map(formatarLinhaFinanceiro).join('<br>');
+      const avisoSemData = semDataPagamento.length ? `<br><small>${semDataPagamento.length} lan&ccedil;amento(s) marcado(s) como pago n&atilde;o possuem data de pagamento registrada e, por fidelidade, n&atilde;o foram atribu&iacute;dos a este per&iacute;odo.</small>` : '';
+      return `<strong>Total pago a ${esc(nome)}${periodoRotuloIA(periodo)}:</strong> ${moeda(totalPago)}.<br>${pagas.length} pagamento(s) confirmado(s).${periodo ? `<br>Pendente com vencimento no mesmo per&iacute;odo: ${moeda(totalPendente)} (${pendentes.length}).` : `<br>Pendente atualmente: ${moeda(totalPendente)} (${pendentes.length}).`}${avisoSemData}${detalhe ? `<br><br><strong>Pagamentos considerados:</strong><br>${detalhe}` : ''}`;
+    }
+
+    if (querBoletos) {
+      let lista = baseFornecedor.filter(financeiroEhBoletoIA);
+      if (periodo) lista = lista.filter(f => periodoContem(periodo, f.venc || f.vencimento || f.data || f.createdAt));
+      const querPagos = /\bpagos?\b|\bpagas?\b|liquidad|quitad/.test(q) && !/pendente|aberto|a pagar/.test(q);
+      const querPendentes = /pendente|pendentes|aberto|abertos|a pagar|vencid|vencendo/.test(q);
+      if (querPagos) lista = lista.filter(f => isPagoStatus(f.status));
+      else if (querPendentes) lista = lista.filter(f => isPendenteStatus(f.status));
+      if (/vencid|atrasad/.test(q)) {
+        const hoje = hojeISO();
+        lista = lista.filter(f => {
+          const venc = dataISO(f.venc || f.vencimento || '');
+          return venc && venc < hoje && isPendenteStatus(f.status);
+        });
+      }
+      lista.sort((a,b) => dataISO(a.venc || a.vencimento || '').localeCompare(dataISO(b.venc || b.vencimento || '')));
+      if (!lista.length) return `N&atilde;o encontrei boleto de <strong>${esc(nome)}</strong>${periodoRotuloIA(periodo)} com os filtros pedidos.`;
+      const total = lista.reduce((s,f)=>s+num(f.valor||f.total||0),0);
+      const pend = lista.filter(f=>isPendenteStatus(f.status));
+      const pagos = lista.filter(f=>isPagoStatus(f.status));
+      return `<strong>Boletos de ${esc(nome)}${periodoRotuloIA(periodo)} (${lista.length}):</strong><br>${lista.slice(0,30).map(formatarLinhaFinanceiro).join('<br>')}<br><br><strong>Total listado:</strong> ${moeda(total)} | em aberto ${moeda(pend.reduce((s,f)=>s+num(f.valor||f.total||0),0))} | pago ${moeda(pagos.reduce((s,f)=>s+num(f.valor||f.total||0),0))}.`;
+    }
+
+    return null;
+  }
+
   function responderNotasDetalhadas(texto, q, ctx) {
-    if (!/nota fiscal|\bnf\b|xml|fornecedor/.test(q)) return null;
+    if (!/(?:nota\s+fiscal|\bnf\b|xml|\bnotas?\b)/.test(q)) return null;
     if (!ctx.notas.length) return 'Nao ha notas fiscais carregadas nesta sessao.';
     const numeroNF = extrairNumeroNF(texto);
     const stop = /^(nota|fiscal|nf|xml|fornecedor|fornecedores|da|de|do|das|dos|a|o|e|com)$/;
@@ -301,7 +529,7 @@
         const hay = norm(textoFinanceiro(f));
         return termos.every(t => hay.includes(t));
       });
-      if (filtrada.length) lista = filtrada;
+      lista = filtrada;
     }
 
     if (analiseFinanceira) {
@@ -338,8 +566,14 @@
     if (/\b(o\.?s\.?|os|ordem|ordens|veiculo|veiculos|patio|pátio)\b/.test(q) && /(patio|pátio|entreg|fechad|finaliz|concluid|receb|pagamento|sem receb|sem pagar|abert|abertas|andamento|orcamento|orçamento|triagem|pronto)/.test(q)) {
       return null;
     }
+    const servicosLancados = responderServicosLancadosFuncionarioPeriodo(texto, q, ctx, opts);
+    if (servicosLancados) return servicosLancados;
     const atendimentos = responderAtendimentosFuncionarioPeriodo(texto, q, ctx, opts);
     if (atendimentos) return atendimentos;
+    const servicosTerceirizados = responderServicosTerceirizadosFinanceiro(texto, q, ctx, opts);
+    if (servicosTerceirizados) return servicosTerceirizados;
+    const financeiroFornecedor = responderFinanceiroFornecedorPreciso(texto, q, ctx, opts);
+    if (financeiroFornecedor) return financeiroFornecedor;
     const notas = responderNotasDetalhadas(texto, q, ctx);
     if (notas) return notas;
     const comissoes = responderComissoesDetalhadas(texto, q, ctx, opts);
@@ -408,6 +642,7 @@
       estoque: Array.isArray(J.estoque) ? J.estoque : (Array.isArray(W.dbEstoque) ? W.dbEstoque : estoqueEquipe),
       financeiro: Array.isArray(J.financeiro) ? J.financeiro : [],
       equipe: Array.isArray(J.equipe) ? J.equipe : [],
+      fornecedores: Array.isArray(J.fornecedores) ? J.fornecedores : [],
       notas: Array.isArray(J.notasFiscaisEntrada) ? J.notasFiscaisEntrada : [],
       vinculos: Array.isArray(J.nfItensVinculos) ? J.nfItensVinculos : [],
       pacotes: Array.isArray(J.pacotesBoletos) ? J.pacotesBoletos : []
@@ -739,13 +974,61 @@
     });
   }
 
+  function dataLancamentoServicoIA(os, item) {
+    const direta = item?.lancadoEm || item?.atribuidoEm || item?.createdAt || item?.updatedAt || item?.dataLancamento || '';
+    if (dataISO(direta)) return { data: direta, fonte: 'servico' };
+    const desc = norm(item?.desc || item?.descricao || item?.nome || '').trim();
+    if (desc && Array.isArray(os?.timeline)) {
+      const tokens = desc.split(/\s+/).filter(t => t.length >= 4).slice(0, 3);
+      const evento = os.timeline.find(ev => {
+        const hay = norm([ev?.acao,ev?.msg,ev?.mensagem,ev?.descricao,ev?.detalhe,ev?.texto].join(' '));
+        if (!/(servic|atrib|mecanic|lanc|adicion)/.test(hay)) return false;
+        return tokens.length > 0 && tokens.every(t => hay.includes(t));
+      });
+      const dt = evento?.dt || evento?.data || evento?.createdAt || evento?.ts || '';
+      if (dataISO(dt)) return { data: dt, fonte: 'timeline' };
+    }
+    const dataOS = os?.data || os?.dataEntrada || os?.entrada || os?.createdAt || '';
+    return dataISO(dataOS) ? { data: dataOS, fonte: 'data_os' } : { data: '', fonte: 'sem_data' };
+  }
+
+  function responderServicosLancadosFuncionarioPeriodo(texto, q, ctx, opts) {
+    const falaLancamento = /(?:servico|servicos).*(?:lancad|atribuid|designad|em nome)|(?:lancad|atribuid|designad).*(?:servico|servicos)|em nome do mecanico/.test(q);
+    if (!falaLancamento) return null;
+    const func = funcionarioDaPerguntaOperacional(ctx, texto, q);
+    if (!func) return 'Informe o nome do mec&acirc;nico para localizar os servi&ccedil;os atribu&iacute;dos.';
+    const periodo = extrairPeriodoNaturalIA(texto);
+    const resultados = [];
+    (ctx.os || []).forEach(os => {
+      const servicos = Array.isArray(os?.servicos) ? os.servicos : [];
+      servicos.forEach((s, index) => {
+        if (!itemPertenceFuncionario(s, func, os)) return;
+        const evidencia = dataLancamentoServicoIA(os, s);
+        if (periodo && !periodoContem(periodo, evidencia.data)) return;
+        resultados.push({ os, item:s, index, evidencia });
+      });
+    });
+    resultados.sort((a,b) => dataISO(a.evidencia.data).localeCompare(dataISO(b.evidencia.data)) || String(a.os?.id||'').localeCompare(String(b.os?.id||'')));
+    const nome = func.nome || func.usuario || func.id || 'mec&acirc;nico';
+    if (!resultados.length) return `N&atilde;o encontrei servi&ccedil;o atribu&iacute;do a <strong>${esc(nome)}</strong>${periodoRotuloIA(periodo)}. A busca n&atilde;o exige que a O.S. esteja finalizada.`;
+    const linhas = resultados.slice(0, 50).map(({os,item,evidencia}) => {
+      const placa = placaOS(ctx, os) || os?.placa || '-';
+      const status = os?.status || '-';
+      const valor = podeFinanceiro(opts) ? ` | ${moeda(item?.valorFinal ?? item?.total ?? item?.valorBruto ?? item?.valor ?? 0)}` : '';
+      const fonte = evidencia.fonte === 'data_os' ? ' | data da O.S. (registro legado sem data individual do servi&ccedil;o)' : '';
+      return `- ${esc(dataBR(evidencia.data) || '-')} | O.S. ${esc(String(os?.numero || os?.id || '-').slice(-10))} | ${esc(placa)} | ${esc(item?.desc || item?.descricao || item?.nome || 'Servi&ccedil;o')} | status ${esc(status)}${valor}${fonte}`;
+    });
+    const legados = resultados.filter(r => r.evidencia.fonte === 'data_os').length;
+    return `<strong>Servi&ccedil;os atribu&iacute;dos a ${esc(nome)}${periodoRotuloIA(periodo)} (${resultados.length}):</strong><br>${linhas.join('<br>')}<br><br><small>Foram inclu&iacute;das O.S. abertas, em triagem, or&ccedil;amento, aprovadas, em servi&ccedil;o, prontas ou entregues. ${legados ? `${legados} item(ns) legado(s) n&atilde;o possuem data individual de lan&ccedil;amento; nesses casos foi usada e identificada a data da O.S., sem inventar uma data de servi&ccedil;o.` : 'As datas individuais dispon&iacute;veis foram preservadas.'}</small>`;
+  }
+
   function modoRelatorioFuncionario(q) {
     if (/\b(detalhado|detalhada|detalhes|completo|completa|analitico|analitica|listar tudo|todos os servicos)\b/.test(q)) return 'detalhado';
     return 'resumo';
   }
 
   function responderAtendimentosFuncionarioPeriodo(texto, q, ctx, opts) {
-    const periodo = extrairPeriodoPergunta(texto);
+    const periodo = extrairPeriodoNaturalIA(texto);
     if (!periodo) return null;
     const citaCargo = /\b(mecanico|funcionario|colaborador|responsavel)\b/.test(q);
     const perguntaAtendimentoComNome = /\batendimentos?\b/.test(q) && /\b(fez|atendeu|realizou|executou|trabalhou)\b/.test(q);
@@ -1637,13 +1920,21 @@
       return `<strong>Equipe carregada:</strong><br>${ctx.equipe.slice(0, 30).map(f => `- ${esc(f.nome || f.usuario || f.id)} | ${esc(f.cargo || 'equipe')}`).join('<br>')}`;
     }
 
-    if (/nota fiscal|\bnf\b|xml|fornecedor/.test(q)) {
+    if (/nota fiscal|\bnf\b|xml|\bnotas?\b/.test(q)) {
       if (!ctx.notas.length) {
         const catalogosFornecedor = respostaCatalogos(texto);
         if (catalogosFornecedor) return aplicarComportamento(catalogosFornecedor);
         return 'Nao ha notas fiscais carregadas nesta sessao.';
       }
       return `<strong>Notas fiscais carregadas:</strong><br>${ctx.notas.slice(0, 20).map(n => `- NF ${esc(n.numero || '-')} | ${esc(n.fornecedorSnapshot?.nome || n.fornecedorNome || '-')} | ${esc(n.dataNF || '-')} | ${moeda(n.totalNF || n.totalItens || 0)}`).join('<br>')}`;
+    }
+
+    if (/fornecedor|fornecedores/.test(q)) {
+      const fornecedor = fornecedorPorPerguntaIA(ctx, texto);
+      if (fornecedor) {
+        return `<strong>Fornecedor localizado:</strong> ${esc(fornecedor.nome || fornecedor.razaoSocial || fornecedor.fantasia || fornecedor.id)}${fornecedor.cnpj ? `<br>CNPJ: ${esc(fornecedor.cnpj)}` : ''}${fornecedor.telefone || fornecedor.wpp ? `<br>Contato: ${esc(fornecedor.telefone || fornecedor.wpp)}` : ''}${fornecedor.email ? `<br>E-mail: ${esc(fornecedor.email)}` : ''}`;
+      }
+      return 'Informe o nome do fornecedor e o que deseja consultar: boletos, pagamentos, notas fiscais, compras ou estoque.';
     }
 
     const catalogos = respostaCatalogos(texto);
@@ -1655,7 +1946,7 @@
     }
 
     if (/ajuda|o que voce|o que consegue|comando/.test(q)) {
-      return 'Posso responder internamente sobre O.S. por placa, historico de defeitos, problemas resolvidos, estoque, equipe, notas fiscais, pecas vinculadas e, para perfis autorizados, financeiro. Se a pergunta ficar aberta, vou pedir placa, modelo, periodo ou entidade.';
+      return 'Posso responder internamente sobre O.S. por placa, historico de defeitos, problemas resolvidos, estoque, equipe, notas fiscais, pecas vinculadas, boletos e gastos por fornecedor e servicos atribuidos a mecanicos por periodo. Para valores financeiros, respeito as permissoes do perfil. Se a pergunta ficar aberta, vou pedir placa, fornecedor, mecanico, periodo ou entidade em vez de adivinhar.';
     }
 
     return 'Preciso de mais contexto para responder com dado verdadeiro. Informe placa, modelo, cliente, periodo ou modulo. Exemplo: "historico da placa ETR7E65", "estoque critico" ou "defeitos recorrentes do Siena".';

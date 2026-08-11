@@ -94,6 +94,16 @@ function garantirEstilosOSV22() {
     .serv-terceirizado-campo>label{font-size:.58rem;color:var(--warn);font-weight:700;letter-spacing:.35px;white-space:nowrap}
     .serv-terceirizado-campo[hidden]{display:none!important}
     .serv-terceirizado-status{grid-column:1/-1;font-size:.56rem;color:var(--muted);line-height:1.35}
+    .serv-terceirizado-detalhes{grid-column:1/-1;display:grid;grid-template-columns:minmax(150px,1fr) minmax(125px,.7fr) minmax(135px,.8fr) minmax(145px,.9fr);gap:7px;align-items:end;min-width:0;padding-top:7px;border-top:1px dashed rgba(255,184,0,.20)}
+    .serv-terceirizado-detalhes[hidden]{display:none!important}
+    .serv-terceirizado-detalhes .serv-terceirizado-grupo{display:grid;gap:4px;min-width:0}
+    .serv-terceirizado-detalhes label{font-size:.55rem;color:var(--muted);font-weight:700;letter-spacing:.30px;line-height:1.2}
+    .serv-terceirizado-detalhes .j-input,.serv-terceirizado-detalhes .j-select{width:100%;min-width:0;max-width:100%;box-sizing:border-box}
+    .serv-terceirizado-financeiro{grid-column:1/-1;display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding-top:2px;font-size:.56rem;color:var(--muted)}
+    .serv-terceirizado-financeiro strong{color:var(--cyan)}
+    @media(max-width:980px){
+      .serv-terceirizado-detalhes{grid-template-columns:repeat(2,minmax(0,1fr))}
+    }
     @media(max-width:720px){
       .desconto-individual-os-wrap{grid-template-columns:1fr;gap:4px}
       .desconto-individual-os-wrap label{margin-top:3px}
@@ -103,6 +113,7 @@ function garantirEstilosOSV22() {
       .serv-terceirizado-wrap{grid-template-columns:1fr;gap:5px}
       .serv-terceirizado-wrap>label,.serv-terceirizado-campo>label{white-space:normal;margin-top:2px}
       .serv-terceirizado-campo{grid-template-columns:1fr;gap:4px}
+      .serv-terceirizado-detalhes{grid-template-columns:1fr;gap:6px}
       #containerServicosOS>div,#containerPecasOS>div{max-width:100%;min-width:0;overflow:hidden;box-sizing:border-box}
     }
   `;
@@ -269,6 +280,85 @@ function normalizarTipoExecucaoServicoOS(value, item) {
   return 'interna';
 }
 
+
+function gerarServicoUidTerceirizadoOS(valor) {
+  const existente = String(valor || '').trim().replace(/[^A-Za-z0-9_-]/g, '');
+  if (existente) return existente.slice(0, 64);
+  try {
+    const uuid = window.crypto?.randomUUID?.();
+    if (uuid) return `srv_${uuid.replace(/-/g, '').slice(0, 20)}`;
+  } catch (_) {}
+  return `srv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function idFinanceiroServicoTerceirizadoOS(osId, servicoUid) {
+  const oid = String(osId || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
+  const sid = gerarServicoUidTerceirizadoOS(servicoUid).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  return `ST_${oid}_${sid}`.slice(0, 190);
+}
+
+function financeiroServicoTerceirizadoOS(id) {
+  const alvo = String(id || '').trim();
+  if (!alvo) return null;
+  return (window.J?.financeiro || []).find(f => String(f?.id || '') === alvo) || null;
+}
+
+function valorCampoTerceirizadoOS(v) {
+  const n = Math.max(0, numBR(v || 0));
+  return n ? n.toFixed(2).replace('.', ',') : '';
+}
+
+function rotuloConferenciaTerceirizadoOS(v) {
+  const mapa = {
+    pedido_lancado: 'Pedido lançado',
+    aguardando_documento: 'Aguardando documento',
+    documento_recebido: 'Documento recebido',
+    conferido: 'Conferido'
+  };
+  return mapa[String(v || '').trim()] || 'Pedido lançado';
+}
+
+function atualizarStatusFinanceiroTerceirizadoOS(row) {
+  if (!row) return;
+  const box = row.querySelector('.serv-terceirizado-financeiro');
+  const status = row.querySelector('.serv-terceirizado-status');
+  const finId = String(row.dataset.terceirizadoFinanceiroId || '').trim();
+  const fin = financeiroServicoTerceirizadoOS(finId);
+  const pedido = String(row.querySelector('.serv-terceirizado-pedido')?.value || fin?.pedidoFornecedor || '').trim();
+  const documento = String(row.querySelector('.serv-terceirizado-doc-numero')?.value || fin?.documentoNumero || fin?.nfNumero || '').trim();
+  const conf = String(row.querySelector('.serv-terceirizado-conferencia')?.value || fin?.conferenciaDocumento || '').trim();
+  if (box) {
+    if (!finId) {
+      box.innerHTML = '<strong>FINANCEIRO:</strong> será criado/vinculado ao salvar a O.S. quando o serviço terceirizado estiver identificado.';
+    } else if (!fin) {
+      box.innerHTML = `<strong>FINANCEIRO:</strong> vínculo ${escOS(finId)}. O lançamento será conferido/sincronizado ao salvar a O.S.`;
+    } else {
+      const st = String(fin.status || 'Pendente');
+      const cor = financeiroOSLiquidadoOS(fin) ? 'var(--success)' : (financeiroOSCanceladoOS(fin) ? 'var(--danger)' : 'var(--warn)');
+      box.innerHTML = `<strong>FINANCEIRO:</strong> <span style="color:${cor}">${escOS(st)}</span> • ${moeda(numBR(fin.valor || 0))}${fin.venc ? ` • venc. ${escOS(window.dtBr ? window.dtBr(fin.venc) : fin.venc)}` : ''}`;
+    }
+  }
+  if (status && row.dataset.tipoExecucao === 'terceirizada') {
+    const nome = String(row.querySelector('.serv-terceirizado-nome')?.value || '').trim();
+    const fornecedor = localizarFornecedorTerceirizadoOS(nome, row.dataset.terceirizadoId || '');
+    const partes = [];
+    if (!nome) partes.push('Informe o prestador.');
+    else partes.push(fornecedor ? `Fornecedor cadastrado: ${fornecedor.nome}.` : 'Prestador digitado livremente.');
+    partes.push(pedido ? `Pedido ${pedido}.` : 'Pedido do fornecedor ainda não informado.');
+    if (documento) partes.push(`Documento ${documento}.`);
+    if (conf) partes.push(`Conferência: ${rotuloConferenciaTerceirizadoOS(conf)}.`);
+    status.textContent = partes.join(' ');
+    status.style.color = !nome || !pedido ? 'var(--warn)' : (fornecedor ? 'var(--success)' : 'var(--muted)');
+  }
+}
+window.atualizarStatusFinanceiroTerceirizadoOS = atualizarStatusFinanceiroTerceirizadoOS;
+
+window.atualizarCampoTerceirizadoOS = function(input) {
+  const row = linhaServicoTerceirizadoOS(input);
+  if (!row) return;
+  atualizarStatusFinanceiroTerceirizadoOS(row);
+};
+
 window.atualizarTerceirizadoServicoOS = function(input) {
   const row = linhaServicoTerceirizadoOS(input);
   if (!row) return;
@@ -282,15 +372,7 @@ window.atualizarTerceirizadoServicoOS = function(input) {
   row.dataset.terceirizadoId = fornecedor?.id || '';
   row.dataset.terceirizadoOrigem = nome ? (fornecedor ? 'fornecedor_cadastrado' : 'digitado') : '';
   row.dataset.terceirizadoNomeOriginal = nome;
-  const status = row.querySelector('.serv-terceirizado-status');
-  if (status) {
-    status.textContent = !nome
-      ? 'Selecione um fornecedor cadastrado ou digite livremente o nome do prestador.'
-      : (fornecedor
-          ? `Fornecedor cadastrado selecionado: ${fornecedor.nome}.`
-          : 'Prestador digitado livremente. Nenhum novo fornecedor será cadastrado automaticamente.');
-    status.style.color = fornecedor ? 'var(--success)' : 'var(--muted)';
-  }
+  atualizarStatusFinanceiroTerceirizadoOS(row);
 };
 
 window.alternarTipoExecucaoServicoOS = function(select) {
@@ -301,14 +383,17 @@ window.alternarTipoExecucaoServicoOS = function(select) {
   const campo = row.querySelector('.serv-terceirizado-campo');
   const input = row.querySelector('.serv-terceirizado-nome');
   const status = row.querySelector('.serv-terceirizado-status');
+  const detalhes = row.querySelector('.serv-terceirizado-detalhes');
   const terceirizada = tipoExecucao === 'terceirizada';
   if (campo) campo.hidden = !terceirizada;
   if (status) status.hidden = !terceirizada;
+  if (detalhes) detalhes.hidden = !terceirizada;
   if (input) {
     input.disabled = !terceirizada;
     if (terceirizada) {
       window.atualizarListaTerceirizadosOS?.();
       window.atualizarTerceirizadoServicoOS?.(input);
+      atualizarStatusFinanceiroTerceirizadoOS(row);
     }
   }
 };
@@ -316,8 +401,18 @@ window.alternarTipoExecucaoServicoOS = function(select) {
 function lerTerceirizadoLinhaServicoOS(row) {
   const select = row?.querySelector?.('.serv-tipo-execucao');
   const tipoExecucao = normalizarTipoExecucaoServicoOS(select?.value || row?.dataset?.tipoExecucao || 'interna');
+  const servicoUid = gerarServicoUidTerceirizadoOS(row?.dataset?.servicoUid || '');
+  if (row?.dataset) row.dataset.servicoUid = servicoUid;
+  const financeiroId = String(row?.dataset?.terceirizadoFinanceiroId || '').trim();
   if (tipoExecucao !== 'terceirizada') {
-    return { tipoExecucao: 'interna', terceirizadoId: '', terceirizadoNome: '', terceirizadoOrigem: '' };
+    return {
+      tipoExecucao: 'interna',
+      terceirizadoId: '',
+      terceirizadoNome: '',
+      terceirizadoOrigem: '',
+      servicoUid,
+      terceirizadoFinanceiroId: financeiroId
+    };
   }
   const nome = String(row?.querySelector?.('.serv-terceirizado-nome')?.value || row?.dataset?.terceirizadoNome || '').trim();
   let fornecedor = localizarFornecedorTerceirizadoOS(nome, '');
@@ -329,7 +424,17 @@ function lerTerceirizadoLinhaServicoOS(row) {
     tipoExecucao: 'terceirizada',
     terceirizadoId: nome ? (fornecedor?.id || '') : '',
     terceirizadoNome: nome,
-    terceirizadoOrigem: nome ? (fornecedor ? 'fornecedor_cadastrado' : 'digitado') : ''
+    terceirizadoOrigem: nome ? (fornecedor ? 'fornecedor_cadastrado' : 'digitado') : '',
+    servicoUid,
+    terceirizadoFinanceiroId: financeiroId,
+    terceirizadoPedido: String(row?.querySelector?.('.serv-terceirizado-pedido')?.value || '').trim(),
+    terceirizadoCusto: Math.max(0, numBR(row?.querySelector?.('.serv-terceirizado-custo')?.value || 0)),
+    terceirizadoDocumentoTipo: String(row?.querySelector?.('.serv-terceirizado-doc-tipo')?.value || 'NFS-e').trim(),
+    terceirizadoDocumentoNumero: String(row?.querySelector?.('.serv-terceirizado-doc-numero')?.value || '').trim(),
+    terceirizadoDocumentoEmissao: String(row?.querySelector?.('.serv-terceirizado-emissao')?.value || '').trim(),
+    terceirizadoVencimento: String(row?.querySelector?.('.serv-terceirizado-venc')?.value || '').trim(),
+    terceirizadoPagamento: String(row?.querySelector?.('.serv-terceirizado-pgto')?.value || 'Boleto').trim(),
+    terceirizadoConferencia: String(row?.querySelector?.('.serv-terceirizado-conferencia')?.value || 'pedido_lancado').trim()
   };
 }
 
@@ -344,16 +449,32 @@ function instalarTerceirizadoLinhaServicoOS(row, item) {
   const terceirizadoNome = String(
     origem.terceirizadoNome || origem.prestadorNome || origem.fornecedorServicoNome || fornecedor?.nome || ''
   ).trim();
+
+  const servicoUid = gerarServicoUidTerceirizadoOS(origem.servicoUid || origem.servicoTerceirizadoUid || row.dataset?.servicoUid || '');
+  const financeiroId = String(origem.terceirizadoFinanceiroId || origem.financeiroServicoTerceirizadoId || '').trim();
+  const fin = financeiroServicoTerceirizadoOS(financeiroId);
+  const pedido = String(fin?.pedidoFornecedor || origem.terceirizadoPedido || origem.pedidoFornecedor || '').trim();
+  const custo = Math.max(0, numBR(fin?.valor ?? origem.terceirizadoCusto ?? 0));
+  const documentoTipo = String(fin?.documentoTipo || origem.terceirizadoDocumentoTipo || origem.documentoTipo || 'NFS-e').trim() || 'NFS-e';
+  const documentoNumero = String(fin?.documentoNumero || fin?.nfNumero || origem.terceirizadoDocumentoNumero || origem.documentoNumero || '').trim();
+  const documentoEmissao = String(fin?.documentoEmissao || origem.terceirizadoDocumentoEmissao || origem.documentoEmissao || '').slice(0,10);
+  const vencimento = String(fin?.venc || origem.terceirizadoVencimento || origem.vencimentoFornecedor || '').slice(0,10);
+  const pagamento = String(fin?.pgto || origem.terceirizadoPagamento || origem.pagamentoFornecedor || 'Boleto').trim() || 'Boleto';
+  const conferencia = String(fin?.conferenciaDocumento || origem.terceirizadoConferencia || origem.conferenciaDocumento || (documentoNumero ? 'documento_recebido' : 'pedido_lancado')).trim();
+
   row.dataset.tipoExecucao = tipoExecucao;
   row.dataset.terceirizadoId = terceirizadoId || fornecedor?.id || '';
   row.dataset.terceirizadoNome = terceirizadoNome;
   row.dataset.terceirizadoNomeOriginal = terceirizadoNome;
   row.dataset.terceirizadoOrigem = String(origem.terceirizadoOrigem || (terceirizadoNome ? (fornecedor ? 'fornecedor_cadastrado' : 'digitado') : '')).trim();
+  row.dataset.servicoUid = servicoUid;
+  row.dataset.terceirizadoFinanceiroId = financeiroId;
+
   const wrap = document.createElement('div');
   wrap.className = 'serv-terceirizado-wrap';
   wrap.innerHTML = `
     <label>EXECUÇÃO DO SERVIÇO</label>
-    <select class="j-select serv-tipo-execucao" onchange="window.alternarTipoExecucaoServicoOS(this)" title="Define somente se este serviço é executado internamente ou por terceiro. Não altera cálculos, comissões ou financeiro.">
+    <select class="j-select serv-tipo-execucao" onchange="window.alternarTipoExecucaoServicoOS(this)" title="Define se este serviço é executado internamente ou por terceiro. O valor cobrado do cliente continua independente do custo do prestador.">
       <option value="interna" ${tipoExecucao === 'interna' ? 'selected' : ''}>INTERNA</option>
       <option value="terceirizada" ${tipoExecucao === 'terceirizada' ? 'selected' : ''}>TERCEIRIZADA</option>
     </select>
@@ -361,12 +482,58 @@ function instalarTerceirizadoLinhaServicoOS(row, item) {
       <label>TERCEIRIZADO / FORNECEDOR / PRESTADOR</label>
       <input type="text" class="j-input serv-terceirizado-nome" list="os-lista-terceirizados" value="${escOS(terceirizadoNome)}" placeholder="Selecione um cadastrado ou digite livremente" autocomplete="off" ${tipoExecucao === 'terceirizada' ? '' : 'disabled'} onfocus="window.atualizarListaTerceirizadosOS()" oninput="window.atualizarTerceirizadoServicoOS(this)" onchange="window.atualizarTerceirizadoServicoOS(this)">
     </div>
+    <div class="serv-terceirizado-detalhes" ${tipoExecucao === 'terceirizada' ? '' : 'hidden'}>
+      <div class="serv-terceirizado-grupo">
+        <label>Nº PEDIDO / O.S. DO FORNECEDOR</label>
+        <input type="text" class="j-input serv-terceirizado-pedido" value="${escOS(pedido)}" placeholder="Ex: 45897 / OS-1234" oninput="window.atualizarCampoTerceirizadoOS(this)">
+      </div>
+      <div class="serv-terceirizado-grupo">
+        <label>CUSTO DO TERCEIRO (R$)</label>
+        <input type="text" inputmode="decimal" class="j-input serv-terceirizado-custo" value="${escOS(valorCampoTerceirizadoOS(custo))}" placeholder="0,00" oninput="window.atualizarCampoTerceirizadoOS(this)" title="Custo pago ao prestador. Não altera o valor cobrado do cliente.">
+      </div>
+      <div class="serv-terceirizado-grupo">
+        <label>TIPO DO DOCUMENTO</label>
+        <select class="j-select serv-terceirizado-doc-tipo" onchange="window.atualizarCampoTerceirizadoOS(this)">
+          ${['NFS-e','Nota Fiscal de Serviço','Recibo','Pedido','Ordem de Serviço','Outro'].map(v => `<option value="${escOS(v)}" ${v === documentoTipo ? 'selected' : ''}>${escOS(v)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="serv-terceirizado-grupo">
+        <label>Nº DOCUMENTO / NFS-e</label>
+        <input type="text" class="j-input serv-terceirizado-doc-numero" value="${escOS(documentoNumero)}" placeholder="Quando recebido" oninput="window.atualizarCampoTerceirizadoOS(this)">
+      </div>
+      <div class="serv-terceirizado-grupo">
+        <label>EMISSÃO DO DOCUMENTO</label>
+        <input type="date" class="j-input serv-terceirizado-emissao" value="${escOS(documentoEmissao)}" onchange="window.atualizarCampoTerceirizadoOS(this)">
+      </div>
+      <div class="serv-terceirizado-grupo">
+        <label>VENCIMENTO / PAGAMENTO</label>
+        <input type="date" class="j-input serv-terceirizado-venc" value="${escOS(vencimento)}" onchange="window.atualizarCampoTerceirizadoOS(this)">
+      </div>
+      <div class="serv-terceirizado-grupo">
+        <label>FORMA DE PAGAMENTO</label>
+        <select class="j-select serv-terceirizado-pgto" onchange="window.atualizarCampoTerceirizadoOS(this)">
+          ${['Boleto','PIX','Transferência','Dinheiro','Cartão Débito','Cartão Crédito','A definir'].map(v => `<option value="${escOS(v)}" ${v === pagamento ? 'selected' : ''}>${escOS(v)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="serv-terceirizado-grupo">
+        <label>CONFERÊNCIA</label>
+        <select class="j-select serv-terceirizado-conferencia" onchange="window.atualizarCampoTerceirizadoOS(this)">
+          <option value="pedido_lancado" ${conferencia === 'pedido_lancado' ? 'selected' : ''}>Pedido lançado</option>
+          <option value="aguardando_documento" ${conferencia === 'aguardando_documento' ? 'selected' : ''}>Aguardando documento</option>
+          <option value="documento_recebido" ${conferencia === 'documento_recebido' ? 'selected' : ''}>Documento recebido</option>
+          <option value="conferido" ${conferencia === 'conferido' ? 'selected' : ''}>Conferido</option>
+        </select>
+      </div>
+      <div class="serv-terceirizado-financeiro"></div>
+    </div>
     <div class="serv-terceirizado-status" ${tipoExecucao === 'terceirizada' ? '' : 'hidden'}></div>
   `;
   row.appendChild(wrap);
   const input = wrap.querySelector('.serv-terceirizado-nome');
   if (tipoExecucao === 'terceirizada') window.atualizarTerceirizadoServicoOS?.(input);
+  atualizarStatusFinanceiroTerceirizadoOS(row);
 }
+
 window.instalarTerceirizadoLinhaServicoOS = instalarTerceirizadoLinhaServicoOS;
 
 function isFirestoreSentinelOS(value) {
@@ -2674,7 +2841,17 @@ function dadosServicoLinhaOS(row) {
     tipoExecucao: terceirizado.tipoExecucao,
     terceirizadoId: terceirizado.terceirizadoId,
     terceirizadoNome: terceirizado.terceirizadoNome,
-    terceirizadoOrigem: terceirizado.terceirizadoOrigem
+    terceirizadoOrigem: terceirizado.terceirizadoOrigem,
+    servicoUid: terceirizado.servicoUid,
+    terceirizadoFinanceiroId: terceirizado.terceirizadoFinanceiroId,
+    terceirizadoPedido: terceirizado.terceirizadoPedido,
+    terceirizadoCusto: terceirizado.terceirizadoCusto,
+    terceirizadoDocumentoTipo: terceirizado.terceirizadoDocumentoTipo,
+    terceirizadoDocumentoNumero: terceirizado.terceirizadoDocumentoNumero,
+    terceirizadoDocumentoEmissao: terceirizado.terceirizadoDocumentoEmissao,
+    terceirizadoVencimento: terceirizado.terceirizadoVencimento,
+    terceirizadoPagamento: terceirizado.terceirizadoPagamento,
+    terceirizadoConferencia: terceirizado.terceirizadoConferencia
   };
 }
 
@@ -3835,6 +4012,12 @@ window.salvarOS = async function() {
     batchSalvarOS.update(ref, limparUndefinedFirestoreOS(dados));
     operacoesBatchSalvarOS += 1;
   };
+  const queueFinanceiroSetOS = (ref, dados, merge = false) => {
+    if (operacoesBatchSalvarOS >= 450) throw new Error('A O.S. excedeu o limite seguro de operações financeiras em uma única gravação.');
+    if (merge) batchSalvarOS.set(ref, limparUndefinedFirestoreOS(dados), { merge: true });
+    else batchSalvarOS.set(ref, limparUndefinedFirestoreOS(dados));
+    operacoesBatchSalvarOS += 1;
+  };
   const prismaInformadoOS = ($v('osPrisma') || '').trim();
   if ($('osPlaca') && !$v('osPlaca')) { window.toast('⚠ Preencha a Placa', 'warn'); return; }
   if ($('osCliente') && $('osVeiculo') && !$v('osCliente') && !$v('osVeiculo')) { window.toast('⚠ Selecione cliente e veículo', 'warn'); return; }
@@ -3849,6 +4032,7 @@ window.salvarOS = async function() {
   });
 
   const servicos = []; 
+  const terceirosFinanceiroCapturaOS = [];
   let totalMaoObra = 0;
   let erroRateioOS = '';
 
@@ -3916,6 +4100,8 @@ window.salvarOS = async function() {
         terceirizadoId: calc.tipoExecucao === 'terceirizada' ? String(calc.terceirizadoId || '') : '',
         terceirizadoNome: calc.tipoExecucao === 'terceirizada' ? String(calc.terceirizadoNome || '') : '',
         terceirizadoOrigem: calc.tipoExecucao === 'terceirizada' ? String(calc.terceirizadoOrigem || '') : '',
+        servicoUid: gerarServicoUidTerceirizadoOS(calc.servicoUid || row.dataset?.servicoUid || ''),
+        terceirizadoFinanceiroId: String(calc.terceirizadoFinanceiroId || row.dataset?.terceirizadoFinanceiroId || ''),
         tempaManual: row.dataset?.tempaManual === '1',
         relacionadoCilia: row.dataset?.servRelacionado === '1',
         origemServico: row.dataset?.servRelacionado === '1'
@@ -3923,6 +4109,30 @@ window.salvarOS = async function() {
           : 'manual',
         ciliaPieceIndex: row.closest?.('.cilia-peca-wrap')?.dataset?.ciliaPieceIndex || row.dataset?.ciliaPieceIndex || ''
       });
+      const servicoSalvo = servicos[servicos.length - 1];
+      row.dataset.servicoUid = servicoSalvo.servicoUid;
+      if (servicoSalvo.tipoExecucao === 'terceirizada') {
+        if (!servicoSalvo.terceirizadoFinanceiroId) {
+          servicoSalvo.terceirizadoFinanceiroId = idFinanceiroServicoTerceirizadoOS(targetOsId, servicoSalvo.servicoUid);
+          row.dataset.terceirizadoFinanceiroId = servicoSalvo.terceirizadoFinanceiroId;
+        }
+        terceirosFinanceiroCapturaOS.push({
+          servico: servicoSalvo,
+          row,
+          financeiroId: servicoSalvo.terceirizadoFinanceiroId,
+          fornecedorId: servicoSalvo.terceirizadoId || '',
+          fornecedorNome: servicoSalvo.terceirizadoNome || '',
+          fornecedorOrigem: servicoSalvo.terceirizadoOrigem || '',
+          pedidoFornecedor: String(calc.terceirizadoPedido || '').trim(),
+          valor: Math.max(0, numBR(calc.terceirizadoCusto || 0)),
+          documentoTipo: String(calc.terceirizadoDocumentoTipo || 'NFS-e').trim(),
+          documentoNumero: String(calc.terceirizadoDocumentoNumero || '').trim(),
+          documentoEmissao: String(calc.terceirizadoDocumentoEmissao || '').trim(),
+          venc: String(calc.terceirizadoVencimento || '').trim(),
+          pgto: String(calc.terceirizadoPagamento || 'Boleto').trim(),
+          conferenciaDocumento: String(calc.terceirizadoConferencia || 'pedido_lancado').trim()
+        });
+      }
       totalMaoObra += valorFinal;
     }
   };
@@ -3931,6 +4141,129 @@ window.salvarOS = async function() {
   // CORREÇÃO 6: também lê serviços relacionados Cilia (dentro das peças)
   document.querySelectorAll('#containerPecasOS .cilia-serv-relac').forEach(_lerLinhaServico);
   if (erroRateioOS) { window.toast(erroRateioOS, 'warn'); return; }
+
+  // SERVIÇOS TERCEIRIZADOS — registro documental + conta a pagar.
+  // O custo do prestador fica SOMENTE em /financeiro, sem contaminar estoque e sem gravar custo interno na O.S.
+  const oldOSFinanceiroTerceiros = osId ? ((window.J?.os || []).find(x => String(x.id) === String(osId)) || {}) : {};
+  const oldServicosTerceiros = Array.isArray(oldOSFinanceiroTerceiros.servicos) ? oldOSFinanceiroTerceiros.servicos : [];
+  const idsTerceirosAtuais = new Set();
+
+  for (const captura of terceirosFinanceiroCapturaOS) {
+    const serv = captura.servico || {};
+    const finId = String(captura.financeiroId || '').trim();
+    if (!finId) continue;
+    idsTerceirosAtuais.add(finId);
+
+    if (!String(captura.fornecedorNome || '').trim()) {
+      // Preserva O.S. legada/incompleta sem travar o fluxo operacional.
+      // O painel da linha permanece avisando que falta identificar o prestador;
+      // o financeiro só é criado quando houver um prestador real informado.
+      continue;
+    }
+
+    const existente = financeiroServicoTerceirizadoOS(finId);
+    if (existente && financeiroOSLiquidadoOS(existente)) {
+      const valorExistente = +numBR(existente.valor || 0).toFixed(2);
+      const valorNovo = +numBR(captura.valor || 0).toFixed(2);
+      if (Math.abs(valorExistente - valorNovo) > 0.009) {
+        window.toast(`⚠ O custo de "${serv.desc || 'serviço terceirizado'}" já foi liquidado no Financeiro (${moeda(valorExistente)}). Para preservar a auditoria, não altere o custo pela O.S.; ajuste o lançamento financeiro.`, 'warn');
+        return;
+      }
+    }
+
+    const pedidoLabel = captura.pedidoFornecedor ? `Pedido ${captura.pedidoFornecedor}` : 'pedido ainda não informado';
+    const docLabel = captura.documentoNumero ? `${captura.documentoTipo || 'Documento'} ${captura.documentoNumero}` : '';
+    const placaTerceiro = ($v('osPlaca') || oldOSFinanceiroTerceiros.placa || '').toUpperCase();
+    const descricaoFinanceiro = [
+      `Serviço terceirizado — ${serv.desc || 'Serviço'}`,
+      pedidoLabel,
+      docLabel,
+      captura.fornecedorNome,
+      placaTerceiro ? `Placa ${placaTerceiro}` : ''
+    ].filter(Boolean).join(' • ');
+
+    const payloadFinanceiroTerceiro = {
+      tenantId: J.tid,
+      tipo: 'Saída',
+      desc: descricaoFinanceiro,
+      descricao: descricaoFinanceiro,
+      valor: +numBR(captura.valor || 0).toFixed(2),
+      pgto: captura.pgto || 'A definir',
+      venc: captura.venc || '',
+      nota: captura.documentoNumero || captura.pedidoFornecedor || '',
+      vinculo: captura.fornecedorId ? `F_${captura.fornecedorId}` : '',
+      categoria: 'servico_terceirizado',
+      origem: 'os_servico_terceirizado',
+      tipoDocumento: 'servico_terceirizado',
+      documentoTipo: captura.documentoTipo || '',
+      documentoNumero: captura.documentoNumero || '',
+      documentoEmissao: captura.documentoEmissao || '',
+      nfNumero: /nfs|nota fiscal/i.test(captura.documentoTipo || '') ? (captura.documentoNumero || '') : '',
+      pedidoFornecedor: captura.pedidoFornecedor || '',
+      conferenciaDocumento: captura.conferenciaDocumento || 'pedido_lancado',
+      fornecedorId: captura.fornecedorId || '',
+      fornecedorNome: captura.fornecedorNome || '',
+      fornecedorOrigem: captura.fornecedorOrigem || '',
+      osId: targetOsId,
+      osNumero: targetOsId.slice(-6).toUpperCase(),
+      placa: placaTerceiro,
+      servicoUid: serv.servicoUid || '',
+      servicoDescricao: serv.desc || '',
+      terceirizado: true,
+      updatedAt: new Date().toISOString()
+    };
+
+    const refFinTerceiro = db.collection('financeiro').doc(finId);
+    if (!existente) {
+      queueFinanceiroSetOS(refFinTerceiro, {
+        ...payloadFinanceiroTerceiro,
+        status: 'Pendente',
+        createdAt: new Date().toISOString()
+      }, false);
+      auditoriasFinanceiroDepoisCommitOS.push(() => audit('FINANCEIRO', `Registrou serviço terceirizado: ${serv.desc || 'Serviço'} • ${captura.fornecedorNome}${captura.pedidoFornecedor ? ` • Pedido ${captura.pedidoFornecedor}` : ''}`));
+    } else {
+      const atualizacao = { ...payloadFinanceiroTerceiro };
+      if (financeiroOSLiquidadoOS(existente)) {
+        // Documento já pago: pode enriquecer pedido/NFS-e/conferência, mas não reabre nem muda a quitação.
+        delete atualizacao.valor;
+        delete atualizacao.pgto;
+        delete atualizacao.venc;
+      } else if (financeiroOSCanceladoOS(existente) && existente.canceladoPorAlteracaoServicoTerceirizado === true) {
+        // Se o próprio usuário voltou o item para TERCEIRIZADO, reativa somente cancelamentos automáticos deste fluxo.
+        atualizacao.status = 'Pendente';
+        atualizacao.canceladoPorAlteracaoServicoTerceirizado = false;
+        atualizacao.motivoCancelamento = '';
+        atualizacao.canceladoEm = '';
+        atualizacao.reativadoEm = new Date().toISOString();
+      }
+      queueFinanceiroSetOS(refFinTerceiro, atualizacao, true);
+    }
+  }
+
+  // Se um serviço terceirizado foi removido ou voltou a ser INTERNO, não apagamos histórico.
+  // Conta ainda não liquidada é cancelada; conta já paga permanece paga e recebe marca de auditoria.
+  for (const antigo of oldServicosTerceiros) {
+    const antigoFinId = String(antigo?.terceirizadoFinanceiroId || antigo?.financeiroServicoTerceirizadoId || '').trim();
+    if (!antigoFinId || idsTerceirosAtuais.has(antigoFinId)) continue;
+    const finAntigo = financeiroServicoTerceirizadoOS(antigoFinId);
+    if (!finAntigo) continue;
+    const refAntigo = db.collection('financeiro').doc(antigoFinId);
+    if (financeiroOSLiquidadoOS(finAntigo)) {
+      queueFinanceiroSetOS(refAntigo, {
+        servicoTerceirizadoRemovidoDaOS: true,
+        servicoTerceirizadoRemovidoEm: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }, true);
+    } else if (!financeiroOSCanceladoOS(finAntigo)) {
+      queueFinanceiroSetOS(refAntigo, {
+        status: 'Cancelado',
+        canceladoPorAlteracaoServicoTerceirizado: true,
+        motivoCancelamento: 'Serviço terceirizado removido da O.S. ou alterado para execução interna.',
+        canceladoEm: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }, true);
+    }
+  }
 
   let mecanicoIdsOS = idsUnicosMecanicosOS([
     ...window.obterMecanicosSelecionadosOS(),
@@ -4471,6 +4804,12 @@ window.salvarOS = async function() {
               const newMecServico = newS.mecId || newS.mecanicoId || newS.responsavelId || payload.mecId || '';
               if (String(oldMecServico) !== String(newMecServico)) {
                   addAuditoriaCampo(`Alterou responsável do serviço "${newS.desc}" de "${snapshotMecanicoOS(oldMecServico).nome || '-'}" para "${snapshotMecanicoOS(newMecServico).nome || '-'}"`);
+              }
+              if (String(oldS.tipoExecucao || 'interna') !== String(newS.tipoExecucao || 'interna')) {
+                  addAuditoriaCampo(`Alterou execução do serviço "${newS.desc}" de "${oldS.tipoExecucao || 'interna'}" para "${newS.tipoExecucao || 'interna'}"`);
+              }
+              if (String(oldS.terceirizadoNome || '') !== String(newS.terceirizadoNome || '')) {
+                  addAuditoriaCampo(`Alterou prestador do serviço "${newS.desc}" de "${oldS.terceirizadoNome || '-'}" para "${newS.terceirizadoNome || '-'}"`);
               }
           }
       });
