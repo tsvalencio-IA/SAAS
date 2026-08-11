@@ -1229,7 +1229,12 @@
       (o.servicos || []).forEach(sv => {
         const terceirizado = String(sv.tipoExecucao || sv.execucaoTipo || '').toLowerCase() === 'terceirizada' || sv.terceirizado === true || sv.servicoTerceirizado === true || !!(sv.terceirizadoNome || sv.prestadorNome || sv.fornecedorServicoNome);
         if (!terceirizado) return;
-        linhas.push({ origem:'os', data:dataTerceiroFinanceiro(sv.dataServico || sv.dataLancamento || sv.createdAt) || baseData, os:o, v, cliente, descricao:sv.descricao || sv.desc || '', fornecedor:sv.terceirizadoNome || sv.prestadorNome || sv.fornecedorServicoNome || '', documento:sv.pedidoFornecedor || sv.numeroPedidoFornecedor || sv.pedido || sv.nf || sv.nfNumero || '', valor:num(sv.valorCobrado || sv.valor || sv.preco || 0) });
+        const pedidoTerceiro = sv.terceirizadoPedidoFornecedor || sv.pedidoFornecedor || sv.numeroPedidoFornecedor || sv.pedidoTerceirizado || '';
+        const documentoTerceiro = sv.terceirizadoDocumento || sv.nfServicoTerceirizado || sv.documentoServicoTerceirizado || '';
+        const docExibicao = [pedidoTerceiro ? `Pedido ${pedidoTerceiro}` : '', documentoTerceiro ? `NF/Doc ${documentoTerceiro}` : ''].filter(Boolean).join(' · ');
+        const custoTerceiroInformado = sv.terceirizadoValor ?? sv.custoTerceirizado ?? sv.valorServicoTerceirizado ?? sv.valorFornecedorTerceirizado;
+        const valorEhCustoTerceiro = custoTerceiroInformado != null && String(custoTerceiroInformado) !== '';
+        linhas.push({ origem:'os', data:dataTerceiroFinanceiro(sv.terceirizadoData || sv.dataServicoTerceirizado || sv.dataLancamentoTerceirizado || sv.dataServico || sv.dataLancamento || sv.createdAt) || baseData, os:o, v, cliente, descricao:sv.descricao || sv.desc || '', fornecedor:sv.terceirizadoNome || sv.prestadorNome || sv.fornecedorServicoNome || '', documento:docExibicao || sv.pedido || sv.nf || sv.nfNumero || '', valor:valorEhCustoTerceiro ? num(custoTerceiroInformado) : 0, valorEhCustoTerceiro });
       });
       (o.servicosReais || o.servicosTerceirizadosReais || []).forEach(sv => {
         linhas.push({ origem:'real', data:dataTerceiroFinanceiro(sv.dataCompra || sv.dataServico || sv.data || sv.createdAt) || baseData, os:o, v, cliente, descricao:sv.descricao || sv.desc || '', fornecedor:sv.fornecedor || sv.fornecedorNome || sv.terceirizadoNome || '', documento:sv.pedidoFornecedor || sv.numeroPedidoFornecedor || sv.pedido || sv.nf || sv.nfNumero || sv.documento || '', valor:num(sv.valorCompra || sv.custo || sv.valorReal || sv.valor || 0) });
@@ -1246,9 +1251,10 @@
       return true;
     }).sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')));
     const totalReal = filtradas.filter(x=>x.origem==='real').reduce((s,x)=>s+num(x.valor),0);
+    const totalTerceirosOS = filtradas.filter(x=>x.origem==='os' && x.valorEhCustoTerceiro).reduce((s,x)=>s+num(x.valor),0);
     const resumo = byId('finTerceiroResumo');
-    if (resumo) resumo.innerHTML = `<b style="color:var(--cyan)">${filtradas.length} registro(s)</b> • custos reais documentados: <b style="color:var(--warn)">${moeda(totalReal)}</b>`;
-    tb.innerHTML = filtradas.map(x => `<tr><td>${esc(x.data || '-')}</td><td><b>${esc(String(x.os?.numero || x.os?.id || '').slice(-8).toUpperCase())}</b><br><small>${esc(x.os?.placa || x.v?.placa || '-')}</small></td><td>${esc(x.cliente?.nome || x.os?.cliente || '-')}</td><td>${esc(x.descricao || '-')}<br><small>${x.origem==='real'?'CUSTO REAL / DOCUMENTO':'SERVIÇO LANÇADO NA O.S.'}</small></td><td>${esc(x.fornecedor || '-')}</td><td>${esc(x.documento || '-')}</td><td>${moeda(x.valor || 0)}</td><td>${esc(x.os?.status || '-')}</td></tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">Nenhum serviço terceirizado encontrado para os filtros informados.</td></tr>';
+    if (resumo) resumo.innerHTML = `<b style="color:var(--cyan)">${filtradas.length} registro(s)</b> • serviços terceiros informados: <b style="color:var(--warn)">${moeda(totalTerceirosOS)}</b> • custos reais documentados: <b style="color:var(--warn)">${moeda(totalReal)}</b>`;
+    tb.innerHTML = filtradas.map(x => `<tr><td>${esc(x.data || '-')}</td><td><b>${esc(String(x.os?.numero || x.os?.id || '').slice(-8).toUpperCase())}</b><br><small>${esc(x.os?.placa || x.v?.placa || '-')}</small></td><td>${esc(x.cliente?.nome || x.os?.cliente || '-')}</td><td>${esc(x.descricao || '-')}<br><small>${x.origem==='real'?'CUSTO REAL / DOCUMENTO':'SERVIÇO LANÇADO NA O.S.'}</small></td><td>${esc(x.fornecedor || '-')}</td><td>${esc(x.documento || '-')}</td><td>${x.origem==='os' && !x.valorEhCustoTerceiro ? '<span style="color:var(--muted)">NÃO INFORMADO</span>' : moeda(x.valor || 0)}</td><td>${esc(x.os?.status || '-')}</td></tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">Nenhum serviço terceirizado encontrado para os filtros informados.</td></tr>';
   };
 
   function fornecedorNomePacote(id) {

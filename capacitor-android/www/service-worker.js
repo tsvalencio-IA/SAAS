@@ -1,4 +1,4 @@
-const CACHE='oficin-ia-v26-15-1-fin-terceiros-sem-pacotes-20260811';
+const CACHE='oficin-ia-v26-15-2-terceiro-cliente-comum-20260811';
 const ASSETS=[
   './checklist.html','./js/checklist.js','./js/config.js','./data/checklist-model.json',
   './checklist.webmanifest','./assets/icons/checklist-192.png','./assets/icons/checklist-512.png'
