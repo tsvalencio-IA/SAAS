@@ -238,13 +238,7 @@
     const cardBody = byId('tbFinanceiro')?.closest('.j-card-body');
     if (!section || !cardBody) return;
 
-    const financeiroCard = cardBody.closest('.j-card');
-    const financeiroHeader = financeiroCard?.querySelector('.j-card-header');
-    const headerControls = financeiroHeader?.lastElementChild || null;
-    const filtroCategoriaExistente = byId('filtroFinCategoria');
-    if (headerControls && filtroCategoriaExistente && !headerControls.contains(filtroCategoriaExistente)) headerControls.insertBefore(filtroCategoriaExistente, headerControls.firstChild);
-    const btnGastoExistente = byId('btnGastoInternoV263');
-    if (headerControls && btnGastoExistente && !headerControls.contains(btnGastoExistente)) headerControls.appendChild(btnGastoExistente);
+    const headerControls = section.querySelector('.j-card-header>div:last-child');
 
     if (headerControls && !byId('filtroFinCategoria')){
       const select = D.createElement('select');
@@ -388,6 +382,7 @@
       if (byId('dreSaldo')) { byId('dreSaldo').textContent=money(entradas-saidas); byId('dreSaldo').style.color=(entradas-saidas)>=0?'var(--cyan)':'var(--danger)'; }
       decorateRows();
       syncQuickChips();
+      W.renderServicosTerceirizadosFinanceiro?.();
     };
     W.__finRenderV263Wrapped = true;
   }

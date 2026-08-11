@@ -1077,7 +1077,8 @@
     listen('notas_fiscais_entrada','notasFiscaisEntrada', renderDocsFiscais);
     listen('nf_itens_vinculos','nfItensVinculos', renderDocsFiscais);
     listen('estoque_movimentos','estoqueMovimentos', renderDocsFiscais);
-    listen('pacotes_boletos','pacotesBoletos', renderPacotesBoletos);
+    // Painel de pacotes removido da interface por decisão operacional.
+    // Dados existentes em pacotes_boletos são preservados; não mantemos listener sem uso.
   }
 
   function installDocsFiscaisPanel() {
@@ -1171,34 +1172,84 @@
   };
 
   function installPacotesPanel() {
+    // O antigo quadro superior de pacotes/duplicatas foi retirado da tela financeira.
+    // Nenhum documento é excluído. O agrupamento direto da lista financeira permanece intacto.
+    const antigo = byId('pacotesBoletosPanel');
+    if (antigo) antigo.remove();
+  }
+
+  function instalarConsultaServicosTerceirizadosFinanceiro() {
     const sec = byId('s-financeiro');
-    if (!sec || byId('pacotesBoletosPanel')) return;
-    const p = D.createElement('div');
-    p.id = 'pacotesBoletosPanel';
-    p.className = 'op-card j-card';
-    p.innerHTML = `
+    if (!sec || byId('consultaServicosTerceirizadosFin')) return;
+    const fluxo = byId('tbFinanceiro')?.closest('.j-card');
+    if (!fluxo) return;
+    const card = D.createElement('div');
+    card.id = 'consultaServicosTerceirizadosFin';
+    card.className = 'op-card j-card';
+    card.innerHTML = `
       <div class="j-card-header">
-        <div><div class="j-card-title">AGRUPAR BOLETOS / DUPLICATAS DO FORNECEDOR</div><div style="font-family:var(--fm);font-size:.58rem;color:var(--muted);margin-top:3px;line-height:1.4;">Use quando várias NFs/contas do mesmo fornecedor viram um ou mais boletos reais. 1) escolha o fornecedor; 2) liste os títulos; 3) marque o que pertence ao pacote; 4) informe os boletos recebidos. Nada é alterado antes da confirmação final.</div></div>
-        <div class="j-collapse-tools"><button type="button" class="btn-ghost j-collapse-toggle" onclick="window.toggleJarvisCollapse(this)" title="Minimizar ou expandir pacotes">−</button></div>
+        <div><div class="j-card-title">SERVIÇOS TERCEIRIZADOS — CONSULTA FINANCEIRA</div>
+        <div style="font-family:var(--fm);font-size:.58rem;color:var(--muted);margin-top:3px;">Consulta os serviços terceirizados lançados nas O.S. e os custos reais informados no controle interno. Usa a O.S. já carregada no sistema e não cria leitura extra no Firebase.</div></div>
+        <div class="j-collapse-tools"><button type="button" class="btn-ghost j-collapse-toggle" onclick="window.toggleJarvisCollapse(this)" title="Minimizar ou expandir">−</button></div>
       </div>
       <div class="j-card-body">
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;align-items:end;margin-bottom:8px;">
-          <div class="form-group"><label class="j-label">1. Fornecedor</label><select class="j-select" id="pkgFornecedor" onchange="window.reiniciarSelecaoPacoteBoletos?.()"></select></div>
-          <div class="form-group"><label class="j-label">Período inicial (opcional)</label><input type="date" class="j-input" id="pkgInicio" onchange="window.reiniciarSelecaoPacoteBoletos?.()"></div>
-          <div class="form-group"><label class="j-label">Período final (opcional)</label><input type="date" class="j-input" id="pkgFim" onchange="window.reiniciarSelecaoPacoteBoletos?.()"></div>
-          <button class="btn-outline" id="pkgBtnListar" onclick="window.previewPacoteBoletosHardening()" disabled>2. LISTAR NFs / CONTAS</button>
-          <button class="btn-primary" id="pkgBtnPreparar" onclick="window.prepararPacoteBoletosHardening()" disabled title="Liste os títulos e marque ao menos um antes de continuar">3. INFORMAR BOLETOS RECEBIDOS</button>
+        <div style="display:grid;grid-template-columns:minmax(260px,1fr) 150px 150px 160px;gap:8px;align-items:end;margin-bottom:8px;">
+          <div class="form-group"><label class="j-label">Pesquisar</label><input class="j-input" id="finTerceiroBusca" placeholder="Serviço, fornecedor, placa, O.S., pedido ou NF" oninput="window.renderServicosTerceirizadosFinanceiro?.()"></div>
+          <div class="form-group"><label class="j-label">De</label><input type="date" class="j-input" id="finTerceiroInicio" onchange="window.renderServicosTerceirizadosFinanceiro?.()"></div>
+          <div class="form-group"><label class="j-label">Até</label><input type="date" class="j-input" id="finTerceiroFim" onchange="window.renderServicosTerceirizadosFinanceiro?.()"></div>
+          <div class="form-group"><label class="j-label">Origem</label><select class="j-select" id="finTerceiroOrigem" onchange="window.renderServicosTerceirizadosFinanceiro?.()"><option value="">Todos</option><option value="os">Serviço da O.S.</option><option value="real">Custo real / documento</option></select></div>
         </div>
-        <div id="pkgSelecaoResumo" style="font-family:var(--fm);font-size:.62rem;color:var(--muted);margin:-2px 0 8px;">Nenhum título selecionado.</div>
-        <div id="pkgPreview" style="display:none;border:1px solid var(--border);background:var(--surf2);border-radius:4px;padding:10px;margin-bottom:8px;font-size:.72rem;"></div>
-        <div id="pkgBoletosEditor" style="display:none;border:1px solid rgba(125,211,252,.35);background:rgba(125,211,252,.055);border-radius:4px;padding:10px;margin-bottom:8px;"></div>
-        <div style="font-family:var(--fm);font-size:.60rem;color:var(--muted);font-weight:800;letter-spacing:.8px;margin:12px 0 6px;">PACOTES JÁ GERADOS</div>
-        <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Pacote</th><th>Fornecedor</th><th>Período</th><th>Títulos</th><th>Boletos reais</th><th>Total</th><th>Status</th><th>Ações</th></tr></thead><tbody id="tbPacotesBoletos"></tbody></table></div>
+        <div id="finTerceiroResumo" style="font-family:var(--fm);font-size:.62rem;color:var(--muted);margin:4px 0 8px;">Nenhum filtro aplicado.</div>
+        <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Data</th><th>O.S. / Placa</th><th>Cliente</th><th>Serviço</th><th>Prestador / Fornecedor</th><th>Pedido / NF / Documento</th><th>Valor / Custo</th><th>Status O.S.</th></tr></thead><tbody id="tbServicosTerceirizadosFin"></tbody></table></div>
       </div>`;
-    sec.prepend(p);
-    wrapToggleFinanceiroAgrupado();
-    setTimeout(renderPacotesBoletos, 100);
+    fluxo.parentNode.insertBefore(card, fluxo);
+    W.renderServicosTerceirizadosFinanceiro?.();
   }
+
+  function dataTerceiroFinanceiro(valor) {
+    if (!valor) return '';
+    if (typeof valor === 'string') return valor.slice(0,10);
+    try { if (valor.toDate) return valor.toDate().toISOString().slice(0,10); } catch (_) {}
+    return '';
+  }
+
+  W.renderServicosTerceirizadosFinanceiro = function () {
+    instalarConsultaServicosTerceirizadosFinanceiro();
+    const tb = byId('tbServicosTerceirizadosFin');
+    if (!tb) return;
+    const busca = norm(byId('finTerceiroBusca')?.value || '');
+    const ini = byId('finTerceiroInicio')?.value || '';
+    const fim = byId('finTerceiroFim')?.value || '';
+    const origemFiltro = byId('finTerceiroOrigem')?.value || '';
+    const linhas = [];
+    (J().os || []).forEach(o => {
+      const v = veiculoByOS(o) || {};
+      const cliente = (J().clientes || []).find(c => String(c.id) === String(o.clienteId)) || {};
+      const baseData = dataTerceiroFinanceiro(o.updatedAt || o.createdAt || o.dataAbertura || o.data);
+      (o.servicos || []).forEach(sv => {
+        const terceirizado = String(sv.tipoExecucao || sv.execucaoTipo || '').toLowerCase() === 'terceirizada' || sv.terceirizado === true || sv.servicoTerceirizado === true || !!(sv.terceirizadoNome || sv.prestadorNome || sv.fornecedorServicoNome);
+        if (!terceirizado) return;
+        linhas.push({ origem:'os', data:dataTerceiroFinanceiro(sv.dataServico || sv.dataLancamento || sv.createdAt) || baseData, os:o, v, cliente, descricao:sv.descricao || sv.desc || '', fornecedor:sv.terceirizadoNome || sv.prestadorNome || sv.fornecedorServicoNome || '', documento:sv.pedidoFornecedor || sv.numeroPedidoFornecedor || sv.pedido || sv.nf || sv.nfNumero || '', valor:num(sv.valorCobrado || sv.valor || sv.preco || 0) });
+      });
+      (o.servicosReais || o.servicosTerceirizadosReais || []).forEach(sv => {
+        linhas.push({ origem:'real', data:dataTerceiroFinanceiro(sv.dataCompra || sv.dataServico || sv.data || sv.createdAt) || baseData, os:o, v, cliente, descricao:sv.descricao || sv.desc || '', fornecedor:sv.fornecedor || sv.fornecedorNome || sv.terceirizadoNome || '', documento:sv.pedidoFornecedor || sv.numeroPedidoFornecedor || sv.pedido || sv.nf || sv.nfNumero || sv.documento || '', valor:num(sv.valorCompra || sv.custo || sv.valorReal || sv.valor || 0) });
+      });
+    });
+    const filtradas = linhas.filter(x => {
+      if (origemFiltro && x.origem !== origemFiltro) return false;
+      if (ini && x.data && x.data < ini) return false;
+      if (fim && x.data && x.data > fim) return false;
+      if (busca) {
+        const alvo = norm([x.descricao,x.fornecedor,x.documento,x.os?.numero,x.os?.id,x.os?.placa,x.v?.placa,x.cliente?.nome,x.os?.status].filter(Boolean).join(' '));
+        if (!busca.split(/\s+/).filter(Boolean).every(t => alvo.includes(t))) return false;
+      }
+      return true;
+    }).sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')));
+    const totalReal = filtradas.filter(x=>x.origem==='real').reduce((s,x)=>s+num(x.valor),0);
+    const resumo = byId('finTerceiroResumo');
+    if (resumo) resumo.innerHTML = `<b style="color:var(--cyan)">${filtradas.length} registro(s)</b> • custos reais documentados: <b style="color:var(--warn)">${moeda(totalReal)}</b>`;
+    tb.innerHTML = filtradas.map(x => `<tr><td>${esc(x.data || '-')}</td><td><b>${esc(String(x.os?.numero || x.os?.id || '').slice(-8).toUpperCase())}</b><br><small>${esc(x.os?.placa || x.v?.placa || '-')}</small></td><td>${esc(x.cliente?.nome || x.os?.cliente || '-')}</td><td>${esc(x.descricao || '-')}<br><small>${x.origem==='real'?'CUSTO REAL / DOCUMENTO':'SERVIÇO LANÇADO NA O.S.'}</small></td><td>${esc(x.fornecedor || '-')}</td><td>${esc(x.documento || '-')}</td><td>${moeda(x.valor || 0)}</td><td>${esc(x.os?.status || '-')}</td></tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">Nenhum serviço terceirizado encontrado para os filtros informados.</td></tr>';
+  };
 
   function fornecedorNomePacote(id) {
     const f = (J().fornecedores || []).find(x => String(x.id) === String(id));
@@ -1759,6 +1810,7 @@
     installFiscalListeners();
     installDocsFiscaisPanel();
     installPacotesPanel();
+    instalarConsultaServicosTerceirizadosFinanceiro();
     wrapToggleFinanceiroAgrupado();
     overrideEstoqueFornecedores();
     wrapSalvarOS();
