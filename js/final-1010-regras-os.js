@@ -197,7 +197,11 @@
       const db = window.db || window.J?.db; if(!db) return [];
       const q = String(codigoOuDesc||'').trim().toLowerCase(); if(!q) return [];
       const snap = await db.collection('nf_itens_vinculos').where('tenantId','==',window.J?.tid||sessionStorage.getItem('j_tid')||'').limit(80).get();
-      const arr = snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>String([x.desc,x.codigo,x.vinculo,x.finalidade].join(' ')).toLowerCase().includes(q));
+      const arr = snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>{
+        const status=String([x.status,x.situacao,x.statusVinculo].filter(Boolean).join(' ')).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+        if(/cancelad|excluid|estornad|devolvid/.test(status)) return false;
+        return String([x.desc,x.descricao,x.codigo,x.codigoFornecedor,x.codigoComercial,x.vinculo,x.finalidade,x.destino,x.placa,x.osId].join(' ')).toLowerCase().includes(q);
+      });
       return arr;
     }catch(e){ console.warn('[rastreio peça]',e); return []; }
   };

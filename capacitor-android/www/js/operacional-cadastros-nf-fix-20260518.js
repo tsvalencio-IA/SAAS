@@ -273,7 +273,14 @@
 
   function collectItensNFEdit() {
     if (typeof W.thiaNFCollectItens === 'function') {
-      try { return W.thiaNFCollectItens(); } catch (e) { toast(e.message || String(e), 'warn'); return []; }
+      try {
+        const stamp = Date.now();
+        return (W.thiaNFCollectItens() || []).map((it, idx) => {
+          const existente = it?.itemFiscalIndex ?? it?.itemIndex;
+          const itemFiscalIndex = existente !== undefined && existente !== null && existente !== '' ? existente : `edit_${stamp}_${idx}`;
+          return Object.assign({}, it, { itemFiscalIndex, itemIndex: itemFiscalIndex });
+        });
+      } catch (e) { toast(e.message || String(e), 'warn'); return []; }
     }
     return Array.from(D.querySelectorAll('#containerItensNF .nf-real-row')).map(row => {
       let base = {};
@@ -309,11 +316,20 @@
         vinculo: row.querySelector('.nf-vinculo')?.value || osId || base.vinculo || '',
         valorLiquido: Math.max(qtd * custo - descValor, 0)
       });
-    }).filter(x => x.descricao);
+    }).filter(x => x.descricao).map((it, idx) => {
+      const existente = it?.itemFiscalIndex ?? it?.itemIndex;
+      const itemFiscalIndex = existente !== undefined && existente !== null && existente !== '' ? existente : `edit_${Date.now()}_${idx}`;
+      return Object.assign({}, it, { itemFiscalIndex, itemIndex: itemFiscalIndex });
+    });
   }
 
   function itemKeyNF(item, idx) {
-    return String(item?.origemNFItemKey || item?.nItem || item?.numeroItem || item?.codigoFornecedor || item?.codigo || item?.descricao || idx);
+    const itemIndex = item?.itemFiscalIndex ?? item?.itemIndex;
+    if (itemIndex !== undefined && itemIndex !== null && itemIndex !== '') return `idx:${String(itemIndex)}`;
+    const numeroItem = item?.nItem || item?.numeroItem || item?.item;
+    if (numeroItem !== undefined && numeroItem !== null && numeroItem !== '') return `nitem:${String(numeroItem)}`;
+    if (item?.origemNFItemKey) return `origem:${String(item.origemNFItemKey)}`;
+    return `fallback:${idx}:${String(item?.codigoFornecedor || item?.codigo || '')}:${String(item?.descricao || item?.desc || '')}`;
   }
 
   function resumoDiffItensNF(antes, depois) {
@@ -549,124 +565,481 @@
     return { os: osAfetadas, pecas: pecasAfetadas };
   }
 
+  function vinculoAtivoEdicaoNF(v) {
+    const status = normNF([v?.status, v?.situacao, v?.statusVinculo].filter(Boolean).join(' '));
+    return !/cancelad|excluid|estornad|devolvid/.test(status);
+  }
+
+  function indexItemEdicaoNF(item) {
+    const v = item?.itemFiscalIndex ?? item?.itemIndex;
+    return v !== undefined && v !== null && v !== '' ? String(v) : '';
+  }
+
+  function numeroItemEdicaoNF(item) {
+    const v = item?.numeroItem ?? item?.nItem ?? item?.item;
+    return v !== undefined && v !== null && v !== '' ? String(v) : '';
+  }
+
+  function destinosItemEdicaoNF(item) {
+    if (!item) return [];
+    let arr = [];
+    try {
+      if (typeof W.thiaNFExpandirItensPorDestino === 'function') arr = W.thiaNFExpandirItensPorDestino([item]) || [];
+    } catch (_) { arr = []; }
+    if (!arr.length) {
+      const src = Array.isArray(item.destinosOperacionais) ? item.destinosOperacionais : (Array.isArray(item.destinos) ? item.destinos : []);
+      if (src.length) arr = src.map(d => Object.assign({}, item, d));
+      else arr = [Object.assign({}, item, { qtd: Number(item.quantidadeOperacional || item.qtdOperacional || item.quantidade || item.qtd || 0) || 0 })];
+    }
+    const idxItem = item?.itemFiscalIndex ?? item?.itemIndex;
+    return arr.map((d, idx) => Object.assign({}, item, d, {
+      itemFiscalIndex: idxItem !== undefined && idxItem !== null && idxItem !== '' ? idxItem : d.itemFiscalIndex,
+      itemIndex: idxItem !== undefined && idxItem !== null && idxItem !== '' ? idxItem : d.itemIndex,
+      destinoIndice: d.destinoIndice ?? idx,
+      destinoKey: d.destinoKey || `destino_${d.destinoIndice ?? idx}`,
+      quantidade: Number(d.quantidade || d.qtd || 0) || 0,
+      qtd: Number(d.qtd || d.quantidade || 0) || 0
+    })).filter(d => (Number(d.qtd || d.quantidade || 0) || 0) > 0);
+  }
+
+  function destinoEstoqueEdicaoNF(d) {
+    if (typeof W.thiaNFDestinoEstoque === 'function') {
+      try { return !!W.thiaNFDestinoEstoque(d); } catch (_) {}
+    }
+    const destino = normNF(d?.destino || d?.finalidade || 'estoque');
+    return !destino || destino === 'estoque';
+  }
+
+  function destinoVinculadoEdicaoNF(d) {
+    if (typeof W.thiaNFDestinoVinculado === 'function') {
+      try { return !!W.thiaNFDestinoVinculado(d); } catch (_) {}
+    }
+    const destino = normNF(d?.destino || d?.finalidade || '');
+    return destino === 'os' || destino === 'placa' || !!d?.osId;
+  }
+
+  function destinoSigEdicaoNF(d) {
+    const destino = normNF(d?.destino || d?.finalidade || 'estoque') || 'estoque';
+    const osId = String(d?.osId || '');
+    const placa = String(d?.placa || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const vinculo = normNF(d?.vinculo || '');
+    return [destino, osId, placa, vinculo].join('|');
+  }
+
+  function linkCombinaItemPrecisoEdicaoNF(v, item) {
+    const vi = indexItemEdicaoNF(v);
+    const ii = indexItemEdicaoNF(item);
+    if (vi && ii) return vi === ii;
+    const vn = numeroItemEdicaoNF(v);
+    const inn = numeroItemEdicaoNF(item);
+    if (vn && inn) return vn === inn;
+    return itemCombina(v, item);
+  }
+
+  function linkComoDestinoEdicaoNF(v, item) {
+    return Object.assign({}, item || {}, v || {}, {
+      destino: v?.destino || v?.finalidade || item?.destino || item?.finalidade || 'estoque',
+      finalidade: v?.finalidade || v?.destino || item?.finalidade || item?.destino || 'estoque',
+      quantidade: Number(v?.qtd || v?.quantidade || item?.quantidade || item?.qtd || 0) || 0,
+      qtd: Number(v?.qtd || v?.quantidade || item?.quantidade || item?.qtd || 0) || 0,
+      destinoIndice: v?.destinoIndice ?? item?.destinoIndice ?? 0,
+      destinoKey: v?.destinoKey || item?.destinoKey || `destino_${v?.destinoIndice ?? item?.destinoIndice ?? 0}`,
+      __link: v || null
+    });
+  }
+
+  function estoqueParaItemEdicaoNF(oldLinks, antesItem, depoisItem) {
+    const id = oldLinks.find(v => v?.estoqueId)?.estoqueId || '';
+    if (id) return { id, item: (J().estoque || []).find(e => String(e.id || '') === String(id)) || null };
+    const alvo = estoqueAtualPorVinculo(depoisItem || antesItem || {});
+    return { id: alvo?.id || '', item: alvo || null };
+  }
+
+  function pecaOSCombinaEdicaoNF(p, nfId, item, oldLink) {
+    if (String(p?.nfId || '') !== String(nfId || '')) return false;
+    const origemP = String(p?.origemNFItemKey || '');
+    const origemL = String(oldLink?.origemNFItemKey || '');
+    if (origemP && origemL && origemP === origemL) return true;
+    const pi = indexItemEdicaoNF(p);
+    const ii = indexItemEdicaoNF(item);
+    if (pi && ii && pi === ii) return true;
+    const pn = numeroItemEdicaoNF(p);
+    const inn = numeroItemEdicaoNF(item);
+    if (pn && inn && pn === inn) return true;
+    return itemCombina(p, item);
+  }
+
+  function removerUmaPecaArrayEdicaoNF(arr, nfId, item, oldLink) {
+    const out = Array.isArray(arr) ? arr.slice() : [];
+    const idx = out.findIndex(p => pecaOSCombinaEdicaoNF(p, nfId, item, oldLink));
+    if (idx >= 0) out.splice(idx, 1);
+    return { lista: out, removeu: idx >= 0 };
+  }
+
+  async function carregarOSEdicaoNF(osId) {
+    if (!osId) return null;
+    const local = (J().os || []).find(o => String(o.id || '') === String(osId)) || null;
+    // Em edição de NF, prefira a versão atual da nuvem para não sobrescrever
+    // peças adicionadas por outro computador com um cache local antigo.
+    try {
+      const snap = await db().collection('ordens_servico').doc(osId).get();
+      if (snap.exists) return { id: snap.id, ...snap.data() };
+    } catch (_) {}
+    try {
+      if (typeof W.thiaNFResolverOSDestino === 'function') {
+        const os = await W.thiaNFResolverOSDestino({ osId });
+        if (os?.id) return os;
+      }
+    } catch (_) {}
+    return local;
+  }
+
+  function fieldIncrementEdicaoNF(delta) {
+    try {
+      const fv = W.firebase?.firestore?.FieldValue || (typeof firebase !== 'undefined' ? firebase.firestore?.FieldValue : null);
+      if (fv?.increment) return fv.increment(delta);
+    } catch (_) {}
+    return null;
+  }
+
+  function fornecedorNomeEdicaoNF(antes) {
+    const fornecedorId = val('nfFornec') || antes?.fornecedorId || '';
+    const f = (J().fornecedores || []).find(x => String(x.id || '') === String(fornecedorId)) || {};
+    return antes?.fornecedorSnapshot?.nome || antes?.fornecedorNome || f.nome || f.razao || f.razaoSocial || 'Fornecedor';
+  }
+
+  function criarVinculoAtualEdicaoNF(nfId, antes, item, dest, estoqueId, agora) {
+    const fornecedorId = val('nfFornec') || antes?.fornecedorId || '';
+    const fornecedorNome = fornecedorNomeEdicaoNF(antes);
+    const idx = item?.itemFiscalIndex ?? item?.itemIndex ?? '';
+    const destinoIndice = dest?.destinoIndice ?? 0;
+    const numeroItem = item?.numeroItem || item?.nItem || item?.item || '';
+    const qtd = Number(dest?.qtd || dest?.quantidade || 0) || 0;
+    const custo = Number(dest?.valorUnitario || dest?.custo || item?.valorUnitario || item?.custo || 0) || 0;
+    const total = Number(dest?.valorLiquido || dest?.totalOperacional || (qtd * custo)) || 0;
+    const origem = typeof W.thiaNFOrigemItemKey === 'function'
+      ? W.thiaNFOrigemItemKey(Object.assign({}, item, dest, { itemFiscalIndex: idx, destinoIndice }), nfId)
+      : [nfId, numeroItem, idx, destinoIndice, dest?.osId || '', dest?.placa || '', item?.codigoFornecedor || item?.codigo || '', item?.descricao || item?.desc || ''].join('|');
+    return {
+      tenantId: J().tid,
+      nfId,
+      nfNumero: val('nfNumero') || antes?.numero || '',
+      chave: antes?.chave || '',
+      fornecedorId,
+      fornecedorNome,
+      estoqueId: estoqueId || '',
+      itemFiscalIndex: idx,
+      itemIndex: idx,
+      numeroItem,
+      destinoIndice,
+      destinoKey: dest?.destinoKey || `destino_${destinoIndice}`,
+      origemNFItemKey: origem,
+      codigo: item?.codigo || item?.codigoFornecedor || '',
+      codigoFornecedor: item?.codigoFornecedor || item?.codigo || '',
+      codigoComercial: item?.codigoComercial || item?.oem || '',
+      ean: item?.ean || '',
+      desc: item?.descricao || item?.desc || '',
+      marca: item?.marca || '',
+      qtd,
+      quantidadeFiscal: Number(item?.quantidadeFiscal || item?.quantidade || 0) || 0,
+      quantidadeOperacionalTotal: destinosItemEdicaoNF(item).reduce((sum, d) => sum + (Number(d.qtd || d.quantidade || 0) || 0), 0),
+      fatorOperacional: Number(item?.fatorOperacional || 1) || 1,
+      custo,
+      valorUnitarioFiscal: Number(item?.valorUnitario || item?.custo || 0) || 0,
+      desconto: Number(item?.desconto || 0) || 0,
+      total,
+      ncm: item?.ncm || '',
+      cest: item?.cest || '',
+      cfop: item?.cfop || '',
+      finalidade: dest?.destino || dest?.finalidade || 'estoque',
+      destino: dest?.destino || dest?.finalidade || 'estoque',
+      vinculo: dest?.vinculo || '',
+      osId: dest?.osId || '',
+      placa: dest?.placa || '',
+      estoqueBaixadoAutomatico: destinoVinculadoEdicaoNF(dest),
+      status: 'Ativo',
+      recriadoPorEdicaoNF: true,
+      editadoEmNF: true,
+      createdAt: agora,
+      updatedAt: agora
+    };
+  }
+
+  function movimentoEdicaoNF(nfId, antes, item, estoqueId, qtd, tipo, motivo, extra) {
+    return Object.assign({
+      tenantId: J().tid,
+      estoqueId: estoqueId || '',
+      tipo,
+      nfId,
+      nfNumero: val('nfNumero') || antes?.numero || '',
+      chave: antes?.chave || '',
+      codigo: item?.codigoFornecedor || item?.codigo || '',
+      desc: item?.descricao || item?.desc || '',
+      qtd: Number(qtd || 0) || 0,
+      custo: Number(item?.valorUnitario || item?.custo || 0) || 0,
+      total: Number(item?.valorLiquido || item?.total || 0) || 0,
+      motivo,
+      createdAt: new Date().toISOString(),
+      usuario: J().nome || 'Sistema'
+    }, extra || {});
+  }
+
   async function aplicarEstornosEdicaoNF(batch, nfId, antes, diff, motivo) {
     const vinculos = await carregarVinculosNF(nfId, antes);
-    const excluidos = diff.excluidos || [];
-    const alterados = diff.alterados || [];
+    const usados = new Set();
     const agora = new Date().toISOString();
-    const resumo = { vinculosCancelados: 0, vinculosAtualizados: 0, movimentos: 0, os: 0, pecasOS: 0 };
+    const resumo = {
+      vinculosCancelados: 0,
+      vinculosCriados: 0,
+      vinculosAtualizados: 0,
+      movimentos: 0,
+      os: 0,
+      pecasOS: 0,
+      estoqueAjustado: 0,
+      transferenciasVinculo: 0
+    };
+    const stockDeltas = new Map();
+    const osPlans = new Map();
 
-    excluidos.forEach(item => {
-      const matchs = vinculos.filter(v => !/cancelado|excluido|estornado/i.test(String(v.status || '')) && itemCombina(v, item));
-      matchs.forEach(v => {
-        if (v.id) {
-          batch.update(db().collection('nf_itens_vinculos').doc(v.id), {
-            status: 'Cancelado por edicao de NF',
-            canceladoEm: agora,
-            canceladoPor: J().nome || 'Sistema',
-            motivoCancelamento: motivo,
-            updatedAt: agora
-          });
-          resumo.vinculosCancelados += 1;
-        }
-        const qtd = Number(v.qtd || item.quantidade || 0) || 0;
-        const est = estoqueAtualPorVinculo(v);
-        if (v.estoqueId && !v.estoqueBaixadoAutomatico && est) {
-          batch.update(db().collection('estoqueItems').doc(v.estoqueId), { qtd: Math.max(0, (Number(est.qtd) || 0) - qtd), updatedAt: agora });
-        }
-        batch.set(db().collection('estoque_movimentos').doc(), {
-          tenantId: J().tid,
-          estoqueId: v.estoqueId || '',
-          tipo: 'estorno_entrada_nf_editada',
-          nfId,
-          nfNumero: antes.numero || v.nfNumero || '',
-          codigo: v.codigoFornecedor || v.codigo || '',
-          desc: v.desc || item.descricao || '',
-          qtd: -Math.abs(qtd),
-          custo: Number(v.custo || item.valorUnitario || 0) || 0,
-          total: Number(v.total || item.valorLiquido || 0) || 0,
-          osId: v.osId || item.osId || '',
-          placa: v.placa || item.placa || '',
-          motivo,
-          createdAt: agora,
-          usuario: J().nome || 'Sistema'
+    const linksItem = item => {
+      const disponiveis = vinculos.filter(v => vinculoAtivoEdicaoNF(v) && !usados.has(v.id || v));
+      const ii = indexItemEdicaoNF(item);
+      const inn = numeroItemEdicaoNF(item);
+      const exatos = disponiveis.filter(v => {
+        const vi = indexItemEdicaoNF(v);
+        const vn = numeroItemEdicaoNF(v);
+        if (ii && vi) return ii === vi;
+        if (inn && vn) return inn === vn;
+        return false;
+      });
+      let escolhidos = exatos;
+      if (!escolhidos.length) {
+        const candidatos = disponiveis.filter(v => itemCombina(v, item));
+        const esperados = destinosItemEdicaoNF(item);
+        escolhidos = [];
+        esperados.forEach(d => {
+          const sig = destinoSigEdicaoNF(d);
+          let pos = candidatos.findIndex(v => !escolhidos.includes(v) && destinoSigEdicaoNF(linkComoDestinoEdicaoNF(v, item)) === sig);
+          if (pos < 0) pos = candidatos.findIndex(v => !escolhidos.includes(v));
+          if (pos >= 0) escolhidos.push(candidatos[pos]);
         });
+        if (!esperados.length && candidatos[0]) escolhidos = [candidatos[0]];
+      }
+      escolhidos.forEach(v => usados.add(v.id || v));
+      return escolhidos;
+    };
+
+    const ensureOSPlan = async osId => {
+      if (!osId) return null;
+      if (osPlans.has(osId)) return osPlans.get(osId);
+      const os = await carregarOSEdicaoNF(osId);
+      if (!os?.id) return null;
+      const plan = {
+        os,
+        pecasReais: Array.isArray(os.pecasReais) ? os.pecasReais.slice() : [],
+        pecas: Array.isArray(os.pecas) ? os.pecas.slice() : [],
+        timeline: Array.isArray(os.timeline) ? os.timeline.slice() : [],
+        mudou: false,
+        removidas: 0,
+        adicionadas: 0
+      };
+      osPlans.set(osId, plan);
+      return plan;
+    };
+
+    const processar = async (antesItem, depoisItem, excluido) => {
+      const oldLinks = linksItem(antesItem);
+      const oldDests = oldLinks.length ? oldLinks.map(v => linkComoDestinoEdicaoNF(v, antesItem)) : destinosItemEdicaoNF(antesItem);
+      const newDests = excluido ? [] : destinosItemEdicaoNF(depoisItem);
+      const estInfo = estoqueParaItemEdicaoNF(oldLinks, antesItem, depoisItem);
+      const estoqueId = estInfo.id || '';
+
+      const oldTotal = oldDests.reduce((sum, d) => sum + (Number(d.qtd || d.quantidade || 0) || 0), 0);
+      const newTotal = newDests.reduce((sum, d) => sum + (Number(d.qtd || d.quantidade || 0) || 0), 0);
+      const deltaEntrada = Math.round((newTotal - oldTotal) * 1000) / 1000;
+      if (Math.abs(deltaEntrada) > 0.0001) {
+        batch.set(db().collection('estoque_movimentos').doc(), movimentoEdicaoNF(nfId, antes, depoisItem || antesItem, estoqueId, deltaEntrada, 'ajuste_entrada_nf_editada', motivo, {
+          itemFiscalIndex: indexItemEdicaoNF(depoisItem || antesItem),
+          origem: 'edicao_nf',
+          osId: '', placa: '', destino: 'entrada_operacional'
+        }));
         resumo.movimentos += 1;
-        if (v.estoqueBaixadoAutomatico) {
-          batch.set(db().collection('estoque_movimentos').doc(), {
-            tenantId: J().tid,
-            estoqueId: v.estoqueId || '',
-            tipo: 'estorno_baixa_auto_nf_editada',
-            nfId,
-            nfNumero: antes.numero || v.nfNumero || '',
-            codigo: v.codigoFornecedor || v.codigo || '',
-            desc: v.desc || item.descricao || '',
-            qtd: Math.abs(qtd),
-            custo: Number(v.custo || item.valorUnitario || 0) || 0,
-            total: Number(v.total || item.valorLiquido || 0) || 0,
-            osId: v.osId || item.osId || '',
-            placa: v.placa || item.placa || '',
-            motivo,
-            createdAt: agora,
-            usuario: J().nome || 'Sistema'
-          });
-          resumo.movimentos += 1;
-        }
-      });
-    });
+      }
 
-    alterados.forEach(par => {
-      const depois = par.depois || {};
-      const antesItem = par.antes || {};
-      const matchs = vinculos.filter(v => !/cancelado|excluido|estornado/i.test(String(v.status || '')) && itemCombina(v, antesItem));
-      matchs.forEach(v => {
-        const qtdNova = Number(depois.quantidade || depois.qtd || 0) || 0;
-        const qtdAnt = Number(v.qtd || antesItem.quantidade || antesItem.qtd || 0) || 0;
-        const delta = qtdNova - qtdAnt;
-        if (v.id) {
-          batch.update(db().collection('nf_itens_vinculos').doc(v.id), {
-            codigo: depois.codigo || depois.codigoFornecedor || v.codigo || '',
-            codigoFornecedor: depois.codigoFornecedor || depois.codigo || v.codigoFornecedor || '',
-            codigoComercial: depois.codigoComercial || depois.oem || v.codigoComercial || '',
-            desc: depois.descricao || depois.desc || v.desc || '',
-            qtd: qtdNova,
-            custo: Number(depois.valorUnitario || depois.custo || 0) || 0,
-            total: Number(depois.valorLiquido || depois.total || 0) || 0,
-            desconto: Number(depois.desconto || 0) || 0,
-            editadoEmNF: true,
-            editadoEm: agora,
-            motivoEdicao: motivo,
-            updatedAt: agora
-          });
-          resumo.vinculosAtualizados += 1;
-        }
-        const est = estoqueAtualPorVinculo(v);
-        if (delta && v.estoqueId && !v.estoqueBaixadoAutomatico && est) {
-          batch.update(db().collection('estoqueItems').doc(v.estoqueId), { qtd: Math.max(0, (Number(est.qtd) || 0) + delta), updatedAt: agora });
-          batch.set(db().collection('estoque_movimentos').doc(), {
-            tenantId: J().tid,
-            estoqueId: v.estoqueId || '',
-            tipo: 'ajuste_qtd_nf_editada',
-            nfId,
-            nfNumero: antes.numero || v.nfNumero || '',
-            codigo: depois.codigoFornecedor || depois.codigo || v.codigoFornecedor || v.codigo || '',
-            desc: depois.descricao || depois.desc || v.desc || '',
-            qtd: delta,
-            custo: Number(depois.valorUnitario || depois.custo || 0) || 0,
-            total: Number(depois.valorLiquido || depois.total || 0) || 0,
-            motivo,
-            createdAt: agora,
-            usuario: J().nome || 'Sistema'
-          });
-          resumo.movimentos += 1;
-        }
-      });
-    });
+      const oldStock = oldDests.filter(destinoEstoqueEdicaoNF).reduce((sum, d) => sum + (Number(d.qtd || d.quantidade || 0) || 0), 0);
+      const newStock = newDests.filter(destinoEstoqueEdicaoNF).reduce((sum, d) => sum + (Number(d.qtd || d.quantidade || 0) || 0), 0);
+      const deltaStock = Math.round((newStock - oldStock) * 1000) / 1000;
+      if (estoqueId && Math.abs(deltaStock) > 0.0001) stockDeltas.set(estoqueId, (stockDeltas.get(estoqueId) || 0) + deltaStock);
 
-    const rem = atualizarPecasReaisOSBatch(batch, nfId, excluidos, motivo, 'remover');
-    const upd = atualizarPecasReaisOSBatch(batch, nfId, alterados, motivo, 'atualizar');
-    resumo.os = rem.os + upd.os;
-    resumo.pecasOS = rem.pecas + upd.pecas;
+      const oldLinked = new Map();
+      const newLinked = new Map();
+      oldDests.filter(destinoVinculadoEdicaoNF).forEach(d => {
+        const sig = destinoSigEdicaoNF(d);
+        const e = oldLinked.get(sig) || { qtd: 0, d };
+        e.qtd += Number(d.qtd || d.quantidade || 0) || 0;
+        oldLinked.set(sig, e);
+      });
+      newDests.filter(destinoVinculadoEdicaoNF).forEach(d => {
+        const sig = destinoSigEdicaoNF(d);
+        const e = newLinked.get(sig) || { qtd: 0, d };
+        e.qtd += Number(d.qtd || d.quantidade || 0) || 0;
+        newLinked.set(sig, e);
+      });
+      const sigs = new Set([...oldLinked.keys(), ...newLinked.keys()]);
+      sigs.forEach(sig => {
+        const oldE = oldLinked.get(sig);
+        const newE = newLinked.get(sig);
+        const qtdMov = Math.round(((oldE?.qtd || 0) - (newE?.qtd || 0)) * 1000) / 1000;
+        if (Math.abs(qtdMov) <= 0.0001) return;
+        const d = newE?.d || oldE?.d || {};
+        batch.set(db().collection('estoque_movimentos').doc(), movimentoEdicaoNF(nfId, antes, depoisItem || antesItem, estoqueId, qtdMov, qtdMov > 0 ? 'estorno_baixa_vinculo_nf_editada' : 'baixa_vinculo_nf_editada', motivo, {
+          itemFiscalIndex: indexItemEdicaoNF(depoisItem || antesItem),
+          destino: d.destino || d.finalidade || 'os',
+          destinoKey: d.destinoKey || '',
+          osId: d.osId || '',
+          placa: d.placa || '',
+          vinculo: d.vinculo || '',
+          origem: 'edicao_nf_vinculo'
+        }));
+        resumo.movimentos += 1;
+        resumo.transferenciasVinculo += 1;
+      });
+
+      oldLinks.forEach(v => {
+        if (!v.id) return;
+        batch.update(db().collection('nf_itens_vinculos').doc(v.id), {
+          status: 'Cancelado por edicao de NF',
+          ativo: false,
+          canceladoEm: agora,
+          canceladoPor: J().nome || 'Sistema',
+          motivoCancelamento: motivo,
+          substituidoPorEdicaoNF: !excluido,
+          updatedAt: agora
+        });
+        resumo.vinculosCancelados += 1;
+      });
+
+      for (const d0 of newDests) {
+        let d = Object.assign({}, d0);
+        if (destinoVinculadoEdicaoNF(d)) {
+          let os = null;
+          if (d.osId) os = await carregarOSEdicaoNF(d.osId);
+          if (!os && typeof W.thiaNFResolverOSDestino === 'function') os = await W.thiaNFResolverOSDestino(d);
+          if (!os?.id) throw new Error(`Nao foi possivel resolver a O.S. para a peca "${depoisItem?.descricao || depoisItem?.desc || depoisItem?.codigo || 'sem descricao'}". Selecione uma O.S. valida antes de salvar a edicao.`);
+          d.osId = os.id;
+          d.placa = d.placa || os.placa || ((J().veiculos || []).find(v => String(v.id || '') === String(os.veiculoId || os.veiculo || ''))?.placa || '');
+        }
+        const payloadVinculo = criarVinculoAtualEdicaoNF(nfId, antes, depoisItem, d, estoqueId, agora);
+        batch.set(db().collection('nf_itens_vinculos').doc(), payloadVinculo);
+        resumo.vinculosCriados += 1;
+      }
+
+      // Remove a representacao antiga da(s) O.S. e recria somente nos destinos atuais.
+      for (const d of oldDests.filter(destinoVinculadoEdicaoNF)) {
+        const oldOsId = d.osId || d.__link?.osId || '';
+        if (!oldOsId) continue;
+        const plan = await ensureOSPlan(oldOsId);
+        if (!plan) continue;
+        const remReal = removerUmaPecaArrayEdicaoNF(plan.pecasReais, nfId, antesItem, d.__link);
+        plan.pecasReais = remReal.lista;
+        const remVis = removerUmaPecaArrayEdicaoNF(plan.pecas, nfId, antesItem, d.__link);
+        plan.pecas = remVis.lista;
+        if (remReal.removeu || remVis.removeu) {
+          plan.mudou = true;
+          plan.removidas += remReal.removeu ? 1 : 0;
+          resumo.pecasOS += remReal.removeu ? 1 : 0;
+        }
+      }
+
+      if (!excluido) {
+        const fornecedorId = val('nfFornec') || antes?.fornecedorId || '';
+        const fornecedorNome = fornecedorNomeEdicaoNF(antes);
+        const nfRef = { id: nfId };
+        const nfPayload = { numero: val('nfNumero') || antes?.numero || '', chave: antes?.chave || '', dataNF: val('nfData') || antes?.dataNF || antes?.data || '' };
+        for (const d0 of newDests.filter(destinoVinculadoEdicaoNF)) {
+          let d = Object.assign({}, d0);
+          let os = d.osId ? await carregarOSEdicaoNF(d.osId) : null;
+          if (!os && typeof W.thiaNFResolverOSDestino === 'function') os = await W.thiaNFResolverOSDestino(d);
+          if (!os?.id) throw new Error(`Nao foi possivel resolver a O.S. de destino da peca "${depoisItem?.descricao || depoisItem?.desc || depoisItem?.codigo || 'sem descricao'}".`);
+          d.osId = os.id;
+          d.placa = d.placa || os.placa || ((J().veiculos || []).find(v => String(v.id || '') === String(os.veiculoId || os.veiculo || ''))?.placa || '');
+          const plan = await ensureOSPlan(os.id);
+          if (!plan) throw new Error(`O.S. ${os.id} nao encontrada para atualizar o vinculo da NF.`);
+          let pecaReal = null;
+          if (typeof W.thiaNFPecaRealFromDestino === 'function') pecaReal = W.thiaNFPecaRealFromDestino(Object.assign({}, depoisItem, d), os, nfRef, nfPayload, fornecedorId, fornecedorNome);
+          if (!pecaReal) pecaReal = Object.assign({}, depoisItem, d, { nfId, nf: nfPayload.numero, nfNumero: nfPayload.numero, origem: 'nf_entrada', registradoEm: agora });
+          if (typeof W.thiaNFMergePecasReais === 'function') plan.pecasReais = W.thiaNFMergePecasReais(plan.pecasReais, [pecaReal]);
+          else plan.pecasReais.push(pecaReal);
+          if (!(typeof W.thiaNFOSClienteOficial === 'function' && W.thiaNFOSClienteOficial(os))) {
+            const vis = typeof W.thiaNFPecaOrcamentoFromReal === 'function' ? W.thiaNFPecaOrcamentoFromReal(pecaReal) : null;
+            if (vis) {
+              if (typeof W.thiaNFMergePecasOrcamento === 'function') plan.pecas = W.thiaNFMergePecasOrcamento(plan.pecas, [vis]);
+              else plan.pecas.push(vis);
+            }
+          }
+          plan.mudou = true;
+          plan.adicionadas += 1;
+          resumo.pecasOS += 1;
+        }
+      }
+    };
+
+    for (const item of (diff.excluidos || [])) await processar(item, null, true);
+    for (const par of (diff.alterados || [])) await processar(par.antes || {}, par.depois || {}, false);
+
+    for (const [estoqueId, deltaBruto] of stockDeltas.entries()) {
+      const delta = Math.round(deltaBruto * 1000) / 1000;
+      if (Math.abs(delta) <= 0.0001) continue;
+      const incremento = fieldIncrementEdicaoNF(delta);
+      if (incremento) {
+        batch.update(db().collection('estoqueItems').doc(estoqueId), {
+          qtd: incremento,
+          updatedAt: agora,
+          ultimaEdicaoNFId: nfId
+        });
+      } else {
+        let est = null;
+        try {
+          const snap = await db().collection('estoqueItems').doc(estoqueId).get();
+          if (snap.exists) est = { id: snap.id, ...snap.data() };
+        } catch (_) {}
+        if (!est) est = (J().estoque || []).find(e => String(e.id || '') === String(estoqueId)) || null;
+        if (!est) throw new Error(`Item de estoque ${estoqueId} nao encontrado para reconciliar a edicao da NF.`);
+        batch.update(db().collection('estoqueItems').doc(estoqueId), {
+          qtd: Math.max(0, (Number(est.qtd) || 0) + delta),
+          updatedAt: agora,
+          ultimaEdicaoNFId: nfId
+        });
+      }
+      resumo.estoqueAjustado += 1;
+    }
+
+    for (const [osId, plan] of osPlans.entries()) {
+      if (!plan.mudou) continue;
+      plan.timeline.push({
+        ts: Date.now(),
+        por: J().nome || 'Sistema',
+        msg: `Vinculo de peca(s) atualizado por edicao auditada da NF ${val('nfNumero') || antes?.numero || nfId}. Removidas: ${plan.removidas}; adicionadas/atualizadas: ${plan.adicionadas}. Motivo: ${motivo}`,
+        tipo: 'edicao_nf_vinculo_peca',
+        nfId
+      });
+      batch.set(db().collection('ordens_servico').doc(osId), {
+        pecasReais: plan.pecasReais,
+        pecas: plan.pecas,
+        timeline: plan.timeline,
+        ultimaEntradaNFVinculada: val('nfNumero') || antes?.numero || nfId,
+        updatedAt: agora
+      }, { merge: true });
+      const local = (J().os || []).find(o => String(o.id || '') === String(osId));
+      if (local) {
+        local.pecasReais = plan.pecasReais;
+        local.pecas = plan.pecas;
+        local.timeline = plan.timeline;
+        local.updatedAt = agora;
+      }
+      resumo.os += 1;
+    }
+
     return resumo;
   }
 
@@ -795,6 +1168,13 @@
     if (!n) { toast('Nota fiscal não encontrada nos dados carregados.', 'warn'); return; }
     W.prepNF?.();
     W._thiaModoNF = 'edicao_nf';
+    n = Object.assign({}, n, {
+      itens: (Array.isArray(n.itens) ? n.itens : []).map((it, idx) => {
+        const existente = it?.itemFiscalIndex ?? it?.itemIndex;
+        const itemFiscalIndex = existente !== undefined && existente !== null && existente !== '' ? existente : idx;
+        return Object.assign({}, it, { itemFiscalIndex, itemIndex: itemFiscalIndex });
+      })
+    });
     W._thiaNfEditBefore = clone(n);
     setValue('nfEditId', id);
     setValue('nfEditCollection', col);

@@ -166,6 +166,12 @@
   }
 
   function linkMatchesItem(v, item, index) {
+    const itemIndex = item?.itemFiscalIndex ?? item?.itemIndex ?? index;
+    const vincIndex = v?.itemFiscalIndex ?? v?.itemIndex;
+    if (vincIndex !== undefined && vincIndex !== null && vincIndex !== '' && itemIndex !== undefined && itemIndex !== null && itemIndex !== '' && String(vincIndex) === String(itemIndex)) return true;
+    const numeroItem = item?.numeroItem ?? item?.nItem ?? item?.item;
+    const vincNumeroItem = v?.numeroItem ?? v?.nItem ?? v?.item;
+    if (numeroItem !== undefined && numeroItem !== null && numeroItem !== '' && vincNumeroItem !== undefined && vincNumeroItem !== null && vincNumeroItem !== '' && String(numeroItem) === String(vincNumeroItem)) return true;
     const itemKeys = [
       item?.nfItemKey, item?.itemNFKey, item?.origemNFItemKey, item?.vinculoKey,
       item?.destinoKey, item?.id
@@ -233,8 +239,13 @@
     }) || null;
   }
 
+  function activeFiscalLink(v) {
+    const raw = norm([v?.status, v?.situacao, v?.statusVinculo].filter(Boolean).join(' '));
+    return !/cancelad|excluid|estornad|devolvid/.test(raw);
+  }
+
   function buildFiscalPieceRecords() {
-    const linksAll = J().nfItensVinculos || [];
+    const linksAll = (J().nfItensVinculos || []).filter(activeFiscalLink);
     const out = [];
     (J().notasFiscaisEntrada || []).forEach(n => {
       const nfLinks = linksAll.filter(v => sameNF(v, n));
