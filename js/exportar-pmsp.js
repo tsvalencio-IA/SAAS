@@ -1590,6 +1590,7 @@
     tenant.tnome = pick(tenant.nomeFantasia, sessao.tnome, tenant.tnome, tenant.nome);
     tenant.nome = pick(tenant.nome, sessao.nome, tenant.tnome, tenant.nomeFantasia);
     const servicos = (os.servicos || []).filter(s => s.desc || s.valor || s.tempo);
+    const somentePercentualOficial = cli?.tipoCliente === 'governo';
     const pecas = (typeof U().getPublicBudgetPieces === 'function'
       ? U().getPublicBudgetPieces(os, cli)
       : (os.pecas || []).map((peca, index) => ({ peca, index })))
@@ -1600,8 +1601,16 @@
 
     const linhasServOriginal = servicos.map((s, index) => {
       const resolvido = U().resolvePMSPServico ? U().resolvePMSPServico(s, { veiculo, fallbackValorHora: valorHoraCliente }) : {};
+      const servicoCalculo = somentePercentualOficial ? {
+        ...s,
+        descontoIndividualTipo: 'valor',
+        descontoIndividualValor: 0,
+        descIndividualValor: 0,
+        descontoIndividual: 0,
+        descIndividualPct: 0
+      } : s;
       const calcServico = U().calcularServicoMaoObra
-        ? U().calcularServicoMaoObra(s, cli, {
+        ? U().calcularServicoMaoObra(servicoCalculo, cli, {
             os,
             descMO,
             veiculo,
@@ -1651,7 +1660,7 @@
       const qtd = n(p.qtd || p.q || 1) || 1;
       const valorUnit = n(p.venda || p.valor || p.v);
       const brutoItem = +(qtd * valorUnit).toFixed(2);
-      const descontoIndividualValor = U().getItemIndividualDiscountValue ? U().getItemIndividualDiscountValue(p, brutoItem) : n(p.descontoIndividualValor || 0);
+      const descontoIndividualValor = somentePercentualOficial ? 0 : (U().getItemIndividualDiscountValue ? U().getItemIndividualDiscountValue(p, brutoItem) : n(p.descontoIndividualValor || 0));
       const calcDesconto = U().calculateDiscountBreakdown
         ? U().calculateDiscountBreakdown(brutoItem, descPeca, descontoIndividualValor)
         : { valorFinal: +(brutoItem * (1 - descPeca) - descontoIndividualValor).toFixed(2), descontoGeralValor: +(brutoItem * descPeca).toFixed(2), descontoIndividualValor, descontoValor: +(brutoItem - Math.max(0, brutoItem * (1 - descPeca) - descontoIndividualValor)).toFixed(2), descPct: brutoItem > 0 ? (brutoItem - Math.max(0, brutoItem * (1 - descPeca) - descontoIndividualValor)) / brutoItem : 0 };
@@ -2209,8 +2218,13 @@
       const osId = document.getElementById('osId')?.value;
       if (!osId) { window.toast?.('Salve a O.S. antes de exportar.', 'warn'); return; }
 
-      const os = (window.J?.os || []).find(o => o.id === osId);
-      if (!os) { window.toast?.('O.S. nao encontrada.', 'err'); return; }
+      const osSalva = (window.J?.os || []).find(o => o.id === osId);
+      if (!osSalva) { window.toast?.('O.S. nao encontrada.', 'err'); return; }
+      // A exportação deve refletir exatamente a O.S. aberta, inclusive alterações ainda
+      // não persistidas, sem executar salvamento e sem gerar efeitos financeiros.
+      const os = typeof window.obterSnapshotOSExportacaoAtual === 'function'
+        ? (window.obterSnapshotOSExportacaoAtual(osSalva) || osSalva)
+        : osSalva;
 
       const cli = (window.J?.clientes || []).find(c => c.id === os.clienteId);
       if (!cli || cli.tipoCliente !== 'governo') {

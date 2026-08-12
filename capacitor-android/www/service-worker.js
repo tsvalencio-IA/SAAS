@@ -1,4 +1,4 @@
-const CACHE='oficin-ia-v26-16-0-nf-vinculo-lote-rastreio-20260812';
+const CACHE='oficin-ia-v26-17-2-cilia-tempa-fidelidade-20260812';
 const ASSETS=[
   './checklist.html','./js/checklist.js','./js/config.js','./data/checklist-model.json',
   './checklist.webmanifest','./assets/icons/checklist-192.png','./assets/icons/checklist-512.png'

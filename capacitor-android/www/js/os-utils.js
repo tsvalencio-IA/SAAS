@@ -828,6 +828,15 @@
     return sp.page < end.page || (sp.page === end.page && sp.y > end.y);
   }
 
+  U.getDeclaredCiliaItemCount = function(source) {
+    const text = Array.isArray(source)
+      ? source.map(x => typeof x === 'string' ? x : (x?.text || x?.str || '')).join(' ')
+      : String(source || '');
+    const normal = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+    const m = normal.match(/Pecas\s+e\s+Mao\s+de\s+Obra\s*\(\s*(\d+)\s+itens?\s*\)/i);
+    return m ? (parseInt(m[1], 10) || 0) : 0;
+  };
+
   U.isSaneCiliaPieces = function(pieces) {
     const list = pieces || [];
     if (!list.length) return false;
@@ -847,7 +856,28 @@
       const qtd = U.parseNumberBR(p.qtd || 0);
       return !qtd || qtd > 99;
     }).length;
-    return badDesc / list.length <= 0.12 && badQty / list.length <= 0.12;
+
+    // Quando o PDF Cília fornece preço bruto, quantidade, desconto e preço líquido,
+    // os quatro campos precisam ser matematicamente coerentes. Isso impede que um
+    // parser alternativo com 27 linhas, mas quantidades deslocadas, seja aceito.
+    const financeiros = list.filter(p =>
+      U.parseNumberBR(p.qtd || 0) > 0 &&
+      U.parseNumberBR(p.venda || p.valor || 0) > 0 &&
+      U.parseNumberBR(p.ciliaValorLiquido || 0) > 0 &&
+      U.parseNumberBR(p.ciliaDesconto || 0) > 0
+    );
+    const badFinanceiro = financeiros.filter(p => {
+      const qtd = U.parseNumberBR(p.qtd || 0);
+      const bruto = U.parseNumberBR(p.venda || p.valor || 0);
+      const desc = U.parseNumberBR(p.ciliaDesconto || 0);
+      const liquido = U.parseNumberBR(p.ciliaValorLiquido || 0);
+      const esperado = +(qtd * bruto * (1 - desc / 100)).toFixed(2);
+      return Math.abs(esperado - liquido) > 0.06;
+    }).length;
+
+    return badDesc / list.length <= 0.12 &&
+      badQty / list.length <= 0.12 &&
+      (!financeiros.length || badFinanceiro / financeiros.length <= 0.08);
   };
 
   U.parseCiliaPiecesFromSpans = function(spans) {
@@ -867,10 +897,20 @@
     const end = all.find(sp => isAfterPdfStart(sp, start) && isCiliaPartsTotalText(sp.text));
     const inParts = all.filter(sp => isAfterPdfStart(sp, start) && isBeforePdfEnd(sp, end));
 
+    // Usa a posição real dos cabeçalhos da tabela, em vez de depender de X fixo.
+    // Continua com os X históricos como fallback para PDFs Cília antigos.
+    const qtdHeader = inParts.find(sp => U.normalizeText(sp.text) === 'qtd');
+    const descHeader = inParts.find(sp => U.normalizeText(sp.text).includes('descricao/codigo'));
+    const fornecHeader = inParts.find(sp => U.normalizeText(sp.text).includes('fornecimento'));
+    const qtdX = Number.isFinite(qtdHeader?.x) ? qtdHeader.x : 100;
+    const descX = Number.isFinite(descHeader?.x) ? descHeader.x : 120;
+    const fornecX = Number.isFinite(fornecHeader?.x) ? fornecHeader.x : 352;
+
     const anchors = inParts.filter(sp =>
-      sp.x >= 88 && sp.x <= 125 &&
-      /^\d+(?:[,.]\d+)$/.test(sp.text) &&
-      !sp.text.includes(',') // no Cilia PDF, "Qtd" vem como 1.00/2.00; tempos usam virgula
+      sp.x >= qtdX - 18 && sp.x <= qtdX + 25 &&
+      /^\d+(?:[,.]\d+)?$/.test(sp.text) &&
+      // tempo/TMO fica em outra coluna; quantidade aceita 1, 1.00 ou 1,00.
+      U.parseNumberBR(sp.text) > 0 && U.parseNumberBR(sp.text) <= 99
     ).sort(comparePdfSpans);
 
     const pieces = [];
@@ -885,15 +925,18 @@
         .sort((a, b) => a.x - b.x);
 
       const descSpans = inParts
-        .filter(sp => sp.page === anchor.page && sp.x >= 120 && sp.x <= 345 && sp.y <= upper && sp.y >= lower)
+        .filter(sp => sp.page === anchor.page && sp.x >= descX - 10 && sp.x < fornecX - 4 && sp.y <= upper && sp.y >= lower)
         .sort(comparePdfSpans);
 
       const descParts = [];
       let codigo = '';
+      let marcadorCodigoVazio = false;
       descSpans.forEach(sp => {
         if (/^C.?d[:.]?/i.test(sp.text)) {
           const m = sp.text.match(/^C.?d[:.]?\s*(.*)$/i);
-          codigo = cleanCiliaCode(m?.[1] || '') || codigo;
+          const extraido = cleanCiliaCode(m?.[1] || '');
+          if (extraido) codigo = extraido;
+          else marcadorCodigoVazio = true;
           return;
         }
         if (isCiliaPartHeaderText(sp.text) || isCiliaPartsTotalText(sp.text)) return;
@@ -905,9 +948,19 @@
       const brutoSpan = money.find(sp => sp.x >= 400 && sp.x < 490) || money[0];
       const liquidoSpan = money.find(sp => sp.x >= 520) || money[money.length - 1];
       const descontoSpan = rowSpans.find(sp => /%\s*[\d.,]+/.test(sp.text));
-      const desc = descParts.join(' ').replace(/\s+/g, ' ').trim();
-      if (!desc && !codigo) return;
+      let desc = descParts.join(' ').replace(/\s+/g, ' ').trim();
 
+      // Alguns PDFs do Cília colocam o OEM antes da descrição e deixam apenas
+      // "Cód:" na linha inferior (ex.: "403002241R ARO DE RODA DE AÇO").
+      if (!codigo && marcadorCodigoVazio && desc) {
+        const lead = desc.match(/^([A-Z0-9][A-Z0-9./-]{7,24})\s+(.+)$/i);
+        if (lead && /\d/.test(lead[1])) {
+          codigo = cleanCiliaCode(lead[1]);
+          desc = lead[2].trim();
+        }
+      }
+
+      if (!desc && !codigo) return;
       pieces.push({
         codigo: codigo || 'sem oem',
         desc,

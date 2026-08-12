@@ -2451,13 +2451,73 @@ window._validarStatusMecanico = function(sel) {
   }
 };
 
+let _equipeGaleriaFotos = [];
+let _equipeGaleriaIndex = 0;
+let _equipeGaleriaKeydown = null;
+
+function fecharGaleriaFotosEquipe(){
+  document.getElementById('equipeGaleriaFotosOverlay')?.remove();
+  if(_equipeGaleriaKeydown) document.removeEventListener('keydown',_equipeGaleriaKeydown);
+  _equipeGaleriaKeydown=null;
+}
+function renderGaleriaFotosEquipe(){
+  const ov=document.getElementById('equipeGaleriaFotosOverlay');
+  if(!ov||!_equipeGaleriaFotos.length) return;
+  _equipeGaleriaIndex=Math.max(0,Math.min(_equipeGaleriaIndex,_equipeGaleriaFotos.length-1));
+  const foto=_equipeGaleriaFotos[_equipeGaleriaIndex];
+  const img=ov.querySelector('[data-eq-galeria-img]');
+  if(img){img.src=foto.url;img.alt=`Foto ${_equipeGaleriaIndex+1} da O.S.`;}
+  const c=ov.querySelector('[data-eq-galeria-count]'); if(c)c.textContent=`Foto ${_equipeGaleriaIndex+1} de ${_equipeGaleriaFotos.length}`;
+  ov.querySelectorAll('[data-eq-nav]').forEach(b=>b.style.visibility=_equipeGaleriaFotos.length>1?'visible':'hidden');
+}
+function navegarGaleriaFotosEquipe(delta){
+  if(_equipeGaleriaFotos.length<=1)return;
+  _equipeGaleriaIndex=(_equipeGaleriaIndex+Number(delta||0)+_equipeGaleriaFotos.length)%_equipeGaleriaFotos.length;
+  renderGaleriaFotosEquipe();
+}
+async function baixarFotoGaleriaEquipe(){
+  const foto=_equipeGaleriaFotos[_equipeGaleriaIndex]; if(!foto?.url)return;
+  const base=String(foto.url).split('?')[0].split('/').pop()||`foto_os_${Date.now()}.jpg`;
+  const nome=/\.[a-z0-9]{2,5}$/i.test(base)?base:`${base}.jpg`;
+  try{
+    const res=await fetch(foto.url,{mode:'cors'}); if(!res.ok)throw new Error(`HTTP ${res.status}`);
+    const blob=await res.blob(); const u=URL.createObjectURL(blob); const a=document.createElement('a');
+    a.href=u;a.download=nome;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),30000);
+  }catch(e){
+    console.warn('[EQUIPE GALERIA] download alternativo',e);
+    const a=document.createElement('a');a.href=foto.url;a.download=nome;a.rel='noopener';document.body.appendChild(a);a.click();a.remove();
+  }
+}
+function abrirGaleriaFotosEquipe(indiceMedia){
+  let media=[];try{media=JSON.parse($('mediaArray')?.value||'[]');}catch(_){media=[];}
+  _equipeGaleriaFotos=media.map((m,mediaIndex)=>({...m,mediaIndex})).filter(m=>m?.url&&!/^video$/i.test(String(m.type||'image'))&&!/^video\//i.test(String(m.type||'')));
+  if(!_equipeGaleriaFotos.length)return;
+  _equipeGaleriaIndex=Math.max(0,_equipeGaleriaFotos.findIndex(f=>Number(f.mediaIndex)===Number(indiceMedia)));
+  fecharGaleriaFotosEquipe();
+  const ov=document.createElement('div');ov.id='equipeGaleriaFotosOverlay';ov.setAttribute('role','dialog');ov.setAttribute('aria-modal','true');
+  ov.style.cssText='position:fixed;inset:0;z-index:10050;background:rgba(0,0,0,.94);display:flex;align-items:center;justify-content:center;padding:12px;';
+  ov.innerHTML=`<div style="width:min(1050px,100%);height:min(90vh,820px);display:flex;flex-direction:column;background:#090d12;border:1px solid rgba(0,212,255,.28);border-radius:8px;overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px;border-bottom:1px solid rgba(255,255,255,.1);"><strong data-eq-galeria-count style="font-family:var(--fm);color:var(--cyan);font-size:.72rem;">Foto</strong><div style="display:flex;gap:8px;"><button type="button" class="btn-ghost" onclick="baixarFotoGaleriaEquipe()">BAIXAR FOTO</button><button type="button" class="btn-ghost" onclick="fecharGaleriaFotosEquipe()">✕</button></div></div>
+    <div data-eq-area style="position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:pan-y;"><button data-eq-nav type="button" onclick="navegarGaleriaFotosEquipe(-1)" style="position:absolute;left:8px;z-index:2;width:46px;height:62px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);color:#fff;font-size:30px;border-radius:6px;">‹</button><img data-eq-galeria-img style="max-width:100%;max-height:100%;object-fit:contain;user-select:none;-webkit-user-drag:none;"><button data-eq-nav type="button" onclick="navegarGaleriaFotosEquipe(1)" style="position:absolute;right:8px;z-index:2;width:46px;height:62px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);color:#fff;font-size:30px;border-radius:6px;">›</button></div></div>`;
+  ov.addEventListener('click',e=>{if(e.target===ov)fecharGaleriaFotosEquipe();});
+  let touchX=null;const area=ov.querySelector('[data-eq-area]');
+  area?.addEventListener('touchstart',e=>{touchX=e.changedTouches?.[0]?.clientX??null;},{passive:true});
+  area?.addEventListener('touchend',e=>{if(touchX==null)return;const fim=e.changedTouches?.[0]?.clientX??touchX;const dx=fim-touchX;touchX=null;if(Math.abs(dx)>=45)navegarGaleriaFotosEquipe(dx<0?1:-1);},{passive:true});
+  document.body.appendChild(ov);
+  _equipeGaleriaKeydown=e=>{if(!document.getElementById('equipeGaleriaFotosOverlay'))return;if(e.key==='Escape')fecharGaleriaFotosEquipe();if(e.key==='ArrowLeft')navegarGaleriaFotosEquipe(-1);if(e.key==='ArrowRight')navegarGaleriaFotosEquipe(1);};
+  document.addEventListener('keydown',_equipeGaleriaKeydown);renderGaleriaFotosEquipe();
+}
+
 function renderMediaGrid(){
   const media=JSON.parse($('mediaArray')?.value||'[]');
-  $('mediaGrid').innerHTML=media.map((m,i)=>`
-    <div class="media-item">
-      ${m.type==='video'?`<video src="${m.url}" controls preload="metadata"></video>`:`<img src="${m.url}" loading="lazy" referrerpolicy="no-referrer" onclick="window.open('${m.url}')" style="cursor:zoom-in">`}
-      <button class="media-del" onclick="rmMedia(${i})">✕</button>
-    </div>`).join('');
+  $('mediaGrid').innerHTML=media.map((m,i)=>{
+    const url=String(m?.url||'').replace(/"/g,'&quot;');
+    const isVideo=/^video$/i.test(String(m?.type||''))||/^video\//i.test(String(m?.type||''));
+    return `<div class="media-item">
+      ${isVideo?`<video src="${url}" controls preload="metadata"></video>`:`<img src="${url}" loading="lazy" referrerpolicy="no-referrer" onclick="abrirGaleriaFotosEquipe(${i})" style="cursor:zoom-in" alt="Foto ${i+1} da O.S.">`}
+      <button type="button" class="media-del" onclick="event.stopPropagation();rmMedia(${i})">✕</button>
+    </div>`;
+  }).join('');
 }
 function rmMedia(idx){
   const media=JSON.parse($('mediaArray').value||'[]');
@@ -2722,7 +2782,7 @@ function aplicarSugestaoIA() {
 <script src="js/final-1010-regras-os.js"></script>
 <script src="js/theme.js"></script>
 <script src="js/hardening-comercial.js?v=26.13.0"></script>
-<script src="js/ia.js?v=26.13.0"></script>
+<script src="js/ia.js?v=26.17.0"></script>
 <script src="js/catalogos-ia.js?v=19.0.0"></script>
 <script src="js/uix-theme-fix.js"></script>
 <script src="js/equipe-comissoes-v21.js?v=26.1.0"></script>

@@ -48,6 +48,9 @@ function combinarDescontosOS(geral, individual) {
 }
 
 function descontoIndividualLinhaOS(row, tipo) {
+  // Cliente oficial usa exclusivamente o percentual geral congelado na O.S.
+  // Desconto individual em reais continua existindo apenas para os demais clientes.
+  if (clienteGovernamentalAtualOS()) return 0;
   const seletor = tipo === 'servico' ? '.serv-desc-individual' : '.peca-desc-individual';
   return Math.max(0, numBR(row?.querySelector?.(seletor)?.value || row?.dataset?.descontoIndividualValor || 0));
 }
@@ -132,7 +135,16 @@ function atualizarDescontoServicoPorValorCobradoOS(input) {
 window.atualizarDescontoServicoPorValorCobradoOS = atualizarDescontoServicoPorValorCobradoOS;
 
 function instalarDescontoIndividualLinhaOS(row, tipo, valor) {
-  if (!row || row.querySelector('.desconto-individual-os-wrap')) return;
+  if (!row) return;
+  // Regra do cliente oficial: somente desconto percentual geral da O.S.;
+  // não exibir nem aplicar desconto individual em reais nas linhas.
+  if (clienteGovernamentalAtualOS()) {
+    row.querySelector('.desconto-individual-os-wrap')?.remove();
+    row.dataset.descontoIndividualValor = '';
+    row.dataset.valorCobradoManual = '';
+    return;
+  }
+  if (row.querySelector('.desconto-individual-os-wrap')) return;
   garantirEstilosOSV22();
   const classe = tipo === 'servico' ? 'serv-desc-individual' : 'peca-desc-individual';
   const label = tipo === 'servico' ? 'DESCONTO DESTE SERVIÇO (R$)' : 'DESCONTO DESTA PEÇA (R$)';
@@ -1136,9 +1148,21 @@ window.atualizarVisibilidadeReaisOS = function() {
 
 window.atualizarVisibilidadeDescontosOS = function() {
   const bloco = document.getElementById('blocoDescontoOS');
+  const oficial = clienteGovernamentalAtualOS();
   if (bloco) {
-    const podeVer = roleDonoOficinaOS() || clienteGovernamentalAtualOS();
+    const podeVer = roleDonoOficinaOS() || oficial;
     bloco.style.display = podeVer ? 'block' : 'none';
+  }
+  // Ao trocar para cliente oficial, elimina apenas os controles individuais em R$.
+  // Os percentuais gerais da O.S. permanecem no bloco oficial e são a única regra de desconto.
+  if (oficial) {
+    document.querySelectorAll('#containerServicosOS .desconto-individual-os-wrap, #containerPecasOS .desconto-individual-os-wrap').forEach(el => el.remove());
+    document.querySelectorAll('#containerServicosOS > div, #containerPecasOS [data-cilia-piece-index], #containerPecasOS > div').forEach(row => {
+      if (row?.dataset) {
+        row.dataset.descontoIndividualValor = '';
+        row.dataset.valorCobradoManual = '';
+      }
+    });
   }
   window.atualizarVisibilidadeReaisOS?.();
 };
@@ -1314,7 +1338,7 @@ function atualizarBoxDescontoLinhaOS(row, tipo, bruto, liquido, taxa) {
   const econEl = box.querySelector(`.${tipo}-desc-econ`);
   const liqEl = box.querySelector(`.${tipo}-desc-val`);
   if (brutoEl) setTextOS(brutoEl, `Bruto: ${moedaOS(bruto)}`);
-  if (pctEl) setTextOS(pctEl, `Desconto: ${moedaOS(desconto)}`);
+  if (pctEl) setTextOS(pctEl, clienteGovernamentalAtualOS() ? `Desconto: ${pctOS(taxa || 0)}` : `Desconto: ${moedaOS(desconto)}`);
   if (econEl) setTextOS(econEl, `Desc.: ${moedaOS(desconto)}`);
   if (liqEl) setTextOS(liqEl, `Líquido: ${moedaOS(liquido)}`);
 }
@@ -2791,6 +2815,74 @@ window.atualizarValorServicoPorHora = function(row) {
   window.calcOSTotal?.();
 };
 
+// Snapshot exclusivamente para exportação: lê os valores que estão na O.S. aberta
+// sem salvar, sem disparar financeiro/comissão/estoque e sem alterar o estado do formulário.
+window.obterSnapshotOSExportacaoAtual = function(osBase) {
+  if (!osBase || !document.getElementById('containerServicosOS')) return osBase;
+  const idAberto = String(document.getElementById('osId')?.value || '');
+  if (!idAberto || idAberto !== String(osBase.id || '')) return osBase;
+
+  const snapshot = { ...osBase };
+  snapshot.modeloOS = document.getElementById('osModeloOS')?.value || osBase.modeloOS || '';
+  snapshot.oesModelo = snapshot.modeloOS;
+  snapshot.cabecalhoOS = document.getElementById('osCabecalhoOS')?.value || osBase.cabecalhoOS || '';
+  snapshot.govCabecalhoOS = snapshot.cabecalhoOS;
+  snapshot.valorHoraOS = numBR(document.getElementById('osValorHoraOS')?.value || osBase.valorHoraOS || osBase.govValorHoraOS || 0);
+  snapshot.govValorHoraOS = snapshot.valorHoraOS;
+  snapshot.descMO = descontoMaoObraAtualOS();
+  snapshot.descPeca = descontoPecasAtualOS();
+
+  const anteriores = Array.isArray(osBase.servicos) ? osBase.servicos : [];
+  const linhas = [
+    ...document.querySelectorAll('#containerServicosOS > div'),
+    ...document.querySelectorAll('#containerPecasOS .cilia-serv-relac')
+  ];
+  const atuais = [];
+
+  linhas.forEach((row, index) => {
+    const calc = calcularServicoLinhaOS(row, snapshot.descMO);
+    const desc = String(calc.desc || '').trim();
+    const valorBruto = numBR(calc.valorBruto || calc.bruto || 0);
+    const valorFinal = numBR(calc.valorFinal || 0);
+    const tempo = numBR(calc.tempo || 0);
+    if (!desc && valorBruto <= 0 && valorFinal <= 0 && tempo <= 0) return;
+
+    const anterior = anteriores[index] && typeof anteriores[index] === 'object' ? anteriores[index] : {};
+    const valorManual = row.dataset?.valorManual === '1';
+    const valorHoraManual = row.dataset?.valorHoraManual === '1';
+    atuais.push({
+      ...anterior,
+      ...dadosServicoLinhaOS(row),
+      desc,
+      valor: valorBruto,
+      valorBruto,
+      bruto: valorBruto,
+      valorFinal,
+      total: valorFinal,
+      valorManual,
+      valorHoraManual,
+      valorHora: numBR(calc.valorHora || 0),
+      valorHoraTabela: numBR(calc.valorHoraTabela || 0),
+      descGeralPct: numBR(calc.descGeralPct || snapshot.descMO || 0),
+      descontoGeralValor: numBR(calc.descontoGeralValor || Math.max(0, valorBruto * snapshot.descMO)),
+      descontoIndividualTipo: 'valor',
+      descontoIndividualValor: clienteGovernamentalAtualOS() ? 0 : numBR(calc.descontoIndividualValor || 0),
+      descIndividualValor: clienteGovernamentalAtualOS() ? 0 : numBR(calc.descontoIndividualValor || 0),
+      descontoIndividual: clienteGovernamentalAtualOS() ? 0 : numBR(calc.descontoIndividualValor || 0),
+      descIndividualPct: clienteGovernamentalAtualOS() ? 0 : numBR(calc.descIndividualPct || 0),
+      descontoValor: numBR(calc.descontoValor || Math.max(0, valorBruto - valorFinal)),
+      descPct: numBR(calc.descPct || (valorBruto > 0 ? (valorBruto - valorFinal) / valorBruto : 0)),
+      relacionadoCilia: row.dataset?.servRelacionado === '1',
+      ciliaPieceIndex: row.closest?.('.cilia-peca-wrap')?.dataset?.ciliaPieceIndex || row.dataset?.ciliaPieceIndex || '',
+      pecaCodigo: row.dataset?.pecaCodigo || anterior.pecaCodigo || anterior.codigoPeca || '',
+      pecaDesc: row.dataset?.pecaDesc || anterior.pecaDesc || anterior.descricaoPeca || ''
+    });
+  });
+
+  snapshot.servicos = atuais;
+  return snapshot;
+};
+
 window.adicionarServicoOS = function(options = {}) {
   const sel = document.createElement('div');
   const ehGov = typeof window._osClienteGovernamental === 'function' && window._osClienteGovernamental();
@@ -2838,6 +2930,7 @@ window.renderServicoOSRow = function(s) {
   div.dataset.sistemaTabela = s.sistemaTabela || s.sistema || '';
   div.dataset.tipoVeiculoTabela = s.tipoVeiculoTabela || s.tipoVeiculoTempa || s.tipoVeiculo || extrairTipoVeiculoTempaOS(s, window._osVeiculoAtual?.() || {});
   div.dataset.tempoTabela = s.tempoTabela || s.tempo || '';
+  div.dataset.valorManual = s.valorManual === true || s.valorManual === '1' ? '1' : '';
   const ehGov = typeof window._osClienteGovernamental === 'function' && window._osClienteGovernamental();
   const dadosGov = ehGov && typeof window._osDadosGovernamental === 'function' ? window._osDadosGovernamental() : null;
   const descMO = dadosGov ? taxaDescontoOS(dadosGov.descMO || 0) : 0;
@@ -4032,6 +4125,7 @@ window.salvarOS = async function() {
         valorHora,
         valorHoraTabela,
         valorHoraManual,
+        valorManual: row.dataset?.valorManual === '1',
         mecId: mecIdServico,
         mecNome: mecNomeServico,
         responsavelId: mecIdServico,
@@ -4446,6 +4540,38 @@ window.salvarOS = async function() {
   let motivoStatusSalvarOS = '';
   let finalizacaoSalvarOS = null;
   const auditoriaGeralOS = [];
+  const agoraAuditoriaOS = new Date().toISOString();
+  const usuarioAuditoriaOS = {
+      id: String(J.uid || J.userId || J.usuarioId || ''),
+      nome: funcUser,
+      perfil: String(J.role || J.perfil || 'gestor')
+  };
+  const eventoEstruturadoOS = (tipoEvento, acao, extra = {}) => Object.assign({
+      dt: agoraAuditoriaOS,
+      user: funcUser,
+      acao,
+      tipoEvento,
+      usuarioId: usuarioAuditoriaOS.id,
+      usuarioNome: usuarioAuditoriaOS.nome,
+      usuarioPerfil: usuarioAuditoriaOS.perfil,
+      osId: targetOsId,
+      placa: payload.placa || _oldOSPreservar?.placa || ''
+  }, extra || {});
+  const preservarMetaLancamentoOS = (novo, antigo, tipo) => {
+      const n = novo || {};
+      const a = antigo || {};
+      ['lancadoEm','lancadoPorId','lancadoPorNome','lancadoPorPerfil'].forEach(k => {
+          if ((n[k] == null || n[k] === '') && a[k] != null && a[k] !== '') n[k] = a[k];
+      });
+      if (!antigo) {
+          n.lancadoEm = n.lancadoEm || agoraAuditoriaOS;
+          n.lancadoPorId = n.lancadoPorId || usuarioAuditoriaOS.id;
+          n.lancadoPorNome = n.lancadoPorNome || usuarioAuditoriaOS.nome;
+          n.lancadoPorPerfil = n.lancadoPorPerfil || usuarioAuditoriaOS.perfil;
+          n.tipoRegistroAuditoria = n.tipoRegistroAuditoria || tipo;
+      }
+      return n;
+  };
 
   if (osId) {
       const oldOS = J.os.find(x => x.id === osId) || {};
@@ -4498,6 +4624,8 @@ window.salvarOS = async function() {
               }, 500);
           }
           if (payload.status === 'Pronto' && oldOS.status !== 'Pronto') {
+              payload.prontoEm = new Date().toISOString();
+              payload.prontoPor = funcUser;
               dispararAvisoPronto = true;
           }
           if ((payload.status === 'Entregue') && oldOS.status !== 'Entregue') {
@@ -4542,10 +4670,29 @@ window.salvarOS = async function() {
           const nomesOld = idsMecOld.map(id => snapshotMecanicoOS(id).nome || id).join(', ') || '-';
           const nomesNovo = idsMecNovo.map(id => snapshotMecanicoOS(id).nome || id).join(', ') || '-';
           addAuditoriaCampo(`Equipe mecânica da O.S.: ${nomesOld} -> ${nomesNovo}`);
+          idsMecNovo.filter(id => !idsMecOld.includes(id)).forEach(id => {
+              const mec = snapshotMecanicoOS(id, payload);
+              tl.push(eventoEstruturadoOS('mecanico_relacionado_os', `Relacionou o mecânico ${mec.nome || id} à O.S.`, {
+                  mecanicoId: id, mecanicoNome: mec.nome || id, origemEvento: 'salvar_os'
+              }));
+              registouAlgo = true;
+          });
+          idsMecOld.filter(id => !idsMecNovo.includes(id)).forEach(id => {
+              const mec = snapshotMecanicoOS(id, oldOS);
+              tl.push(eventoEstruturadoOS('mecanico_removido_os', `Removeu o mecânico ${mec.nome || id} da O.S.`, {
+                  mecanicoId: id, mecanicoNome: mec.nome || id, origemEvento: 'salvar_os'
+              }));
+              registouAlgo = true;
+          });
       } else if (oldOS.mecId !== payload.mecId && payload.mecId) {
           const mecOld = (J.equipe || []).find(m => m.id === oldOS.mecId);
           const mecNovo = (J.equipe || []).find(m => m.id === payload.mecId);
           addAuditoriaCampo(`Mecânico principal: ${mecOld?.nome || '-'} -> ${mecNovo?.nome || '-'}`);
+          tl.push(eventoEstruturadoOS('mecanico_principal_alterado', `Alterou mecânico principal de ${mecOld?.nome || '-'} para ${mecNovo?.nome || payload.mecId}.`, {
+              mecanicoId: payload.mecId, mecanicoNome: mecNovo?.nome || payload.mecNome || payload.mecId,
+              mecanicoAnteriorId: oldOS.mecId || '', mecanicoAnteriorNome: mecOld?.nome || ''
+          }));
+          registouAlgo = true;
       }
 
       // 3c. Mudança de KM
@@ -4589,8 +4736,13 @@ window.salvarOS = async function() {
           const descNovo = (newP.desc || '').toLowerCase().trim();
           const oldP = oldPecas.find(p => (p.desc || '').toLowerCase().trim() === descNovo);
           
+          preservarMetaLancamentoOS(newP, oldP || null, 'peca');
           if (!oldP) {
-              tl.push({ dt: new Date().toISOString(), user: funcUser, acao: `Adicionou peça: ${newP.desc} (Qtd: ${newP.qtd})` });
+              tl.push(eventoEstruturadoOS('peca_adicionada', `Adicionou peça: ${newP.desc} (Qtd: ${newP.qtd})`, {
+                  pecaCodigo: newP.codigo || newP.codigoExibicao || '', pecaDescricao: newP.desc || newP.descricao || '',
+                  quantidade: numBR(newP.qtd || 0), estoqueId: newP.estoqueId || '', nf: newP.nf || newP.nfNumero || '',
+                  fornecedor: newP.fornecedor || ''
+              }));
               registouAlgo = true;
           } else {
               if (numBR(oldP.qtd || 0) !== numBR(newP.qtd || 0) || numBR(oldP.venda || 0) !== numBR(newP.venda || 0)) {
@@ -4603,7 +4755,10 @@ window.salvarOS = async function() {
            const descOld = (oldP.desc || '').toLowerCase().trim();
            const newP = newPecas.find(p => (p.desc || '').toLowerCase().trim() === descOld);
            if (!newP) {
-               tl.push({ dt: new Date().toISOString(), user: funcUser, acao: `Removeu peça: ${oldP.desc}` });
+               tl.push(eventoEstruturadoOS('peca_removida', `Removeu peça: ${oldP.desc}`, {
+                   pecaCodigo: oldP.codigo || oldP.codigoExibicao || '', pecaDescricao: oldP.desc || oldP.descricao || '',
+                   quantidade: numBR(oldP.qtd || 0), estoqueId: oldP.estoqueId || ''
+               }));
                registouAlgo = true;
            }
       });
@@ -4616,10 +4771,32 @@ window.salvarOS = async function() {
           const descNovo = (newS.desc || '').toLowerCase().trim();
           const oldS = oldServicos.find(s => (s.desc || '').toLowerCase().trim() === descNovo);
           
+          preservarMetaLancamentoOS(newS, oldS || null, 'servico');
+          const mecanicoNovoServicoInicial = newS.mecId || newS.mecanicoId || newS.responsavelId || '';
           if (!oldS) {
-              tl.push({ dt: new Date().toISOString(), user: funcUser, acao: `Adicionou serviço: ${newS.desc}` });
+              if (mecanicoNovoServicoInicial) {
+                  const mec = snapshotMecanicoOS(mecanicoNovoServicoInicial, payload);
+                  newS.mecAtribuidoEm = newS.mecAtribuidoEm || agoraAuditoriaOS;
+                  newS.mecAtribuidoPorId = newS.mecAtribuidoPorId || usuarioAuditoriaOS.id;
+                  newS.mecAtribuidoPorNome = newS.mecAtribuidoPorNome || usuarioAuditoriaOS.nome;
+                  newS.mecAtribuidoPorPerfil = newS.mecAtribuidoPorPerfil || usuarioAuditoriaOS.perfil;
+                  newS.mecNome = newS.mecNome || mec.nome || '';
+              }
+              tl.push(eventoEstruturadoOS('servico_adicionado', `Adicionou serviço: ${newS.desc}`, {
+                  servicoDescricao: newS.desc || newS.descricao || '', servicoValor: numBR(newS.valorFinal ?? newS.valor ?? 0),
+                  mecanicoId: mecanicoNovoServicoInicial, mecanicoNome: newS.mecNome || snapshotMecanicoOS(mecanicoNovoServicoInicial, payload).nome || ''
+              }));
+              if (mecanicoNovoServicoInicial) {
+                  const mecNome = newS.mecNome || snapshotMecanicoOS(mecanicoNovoServicoInicial, payload).nome || mecanicoNovoServicoInicial;
+                  tl.push(eventoEstruturadoOS('mecanico_relacionado_servico', `Relacionou o mecânico ${mecNome} ao serviço "${newS.desc}".`, {
+                      servicoDescricao: newS.desc || newS.descricao || '', mecanicoId: mecanicoNovoServicoInicial, mecanicoNome: mecNome
+                  }));
+              }
               registouAlgo = true;
           } else {
+              ['mecAtribuidoEm','mecAtribuidoPorId','mecAtribuidoPorNome','mecAtribuidoPorPerfil'].forEach(k => {
+                  if ((newS[k] == null || newS[k] === '') && oldS[k] != null && oldS[k] !== '') newS[k] = oldS[k];
+              });
               if (numBR(oldS.valor || 0) !== numBR(newS.valor || 0)) {
                   addAuditoriaCampo(`Alterou valor do servico "${newS.desc}" para R$ ${(newS.valor||0).toFixed(2).replace('.', ',')}`);
               }
@@ -4635,7 +4812,18 @@ window.salvarOS = async function() {
               const oldMecServico = oldS.mecId || oldS.mecanicoId || oldS.responsavelId || oldOS.mecId || '';
               const newMecServico = newS.mecId || newS.mecanicoId || newS.responsavelId || payload.mecId || '';
               if (String(oldMecServico) !== String(newMecServico)) {
-                  addAuditoriaCampo(`Alterou responsável do serviço "${newS.desc}" de "${snapshotMecanicoOS(oldMecServico).nome || '-'}" para "${snapshotMecanicoOS(newMecServico).nome || '-'}"`);
+                  const oldMecNome = snapshotMecanicoOS(oldMecServico, oldOS).nome || '-';
+                  const newMecNome = snapshotMecanicoOS(newMecServico, payload).nome || '-';
+                  addAuditoriaCampo(`Alterou responsável do serviço "${newS.desc}" de "${oldMecNome}" para "${newMecNome}"`);
+                  newS.mecAtribuidoEm = agoraAuditoriaOS;
+                  newS.mecAtribuidoPorId = usuarioAuditoriaOS.id;
+                  newS.mecAtribuidoPorNome = usuarioAuditoriaOS.nome;
+                  newS.mecAtribuidoPorPerfil = usuarioAuditoriaOS.perfil;
+                  tl.push(eventoEstruturadoOS('mecanico_relacionado_servico', `Alterou responsável do serviço "${newS.desc}" de ${oldMecNome} para ${newMecNome}.`, {
+                      servicoDescricao: newS.desc || newS.descricao || '', mecanicoId: newMecServico, mecanicoNome: newMecNome,
+                      mecanicoAnteriorId: oldMecServico, mecanicoAnteriorNome: oldMecNome
+                  }));
+                  registouAlgo = true;
               }
           }
       });
@@ -4644,7 +4832,10 @@ window.salvarOS = async function() {
            const descOld = (oldS.desc || '').toLowerCase().trim();
            const newS = newServicos.find(s => (s.desc || '').toLowerCase().trim() === descOld);
            if (!newS) {
-               tl.push({ dt: new Date().toISOString(), user: funcUser, acao: `Removeu serviço: ${oldS.desc}` });
+               tl.push(eventoEstruturadoOS('servico_removido', `Removeu serviço: ${oldS.desc}`, {
+                   servicoDescricao: oldS.desc || oldS.descricao || '', mecanicoId: oldS.mecId || oldS.mecanicoId || oldS.responsavelId || '',
+                   mecanicoNome: oldS.mecNome || oldS.mecanicoNome || oldS.responsavelNome || ''
+               }));
                registouAlgo = true;
            }
       });
@@ -4669,9 +4860,45 @@ window.salvarOS = async function() {
       }
       
   } else {
-      // Criação de Nova O.S.
+      // Criação de Nova O.S. — preserva o evento legado e acrescenta auditoria estruturada dos dados iniciais.
       tl = JSON.parse($('osTimelineData')?.value || '[]');
-      tl.push({ dt: new Date().toISOString(), user: funcUser, acao: `Abriu a O.S. (Status inicial: ${STATUS_MAP_LEGACY[payload.status] || payload.status})` });
+      tl.push(eventoEstruturadoOS('os_aberta', `Abriu a O.S. (Status inicial: ${STATUS_MAP_LEGACY[payload.status] || payload.status})`, {
+          statusNovo: payload.status || ''
+      }));
+      idsMecanicosDocumentoOS(payload).forEach(id => {
+          const mec = snapshotMecanicoOS(id, payload);
+          tl.push(eventoEstruturadoOS('mecanico_relacionado_os', `Relacionou o mecânico ${mec.nome || id} à O.S.`, {
+              mecanicoId: id, mecanicoNome: mec.nome || id, origemEvento: 'criacao_os'
+          }));
+      });
+      (payload.pecas || []).forEach(p => {
+          preservarMetaLancamentoOS(p, null, 'peca');
+          tl.push(eventoEstruturadoOS('peca_adicionada', `Adicionou peça: ${p.desc || p.descricao || '-'} (Qtd: ${p.qtd || 0})`, {
+              pecaCodigo: p.codigo || p.codigoExibicao || '', pecaDescricao: p.desc || p.descricao || '',
+              quantidade: numBR(p.qtd || 0), estoqueId: p.estoqueId || '', nf: p.nf || p.nfNumero || '', fornecedor: p.fornecedor || ''
+          }));
+      });
+      (payload.servicos || []).forEach(sv => {
+          preservarMetaLancamentoOS(sv, null, 'servico');
+          const mid = sv.mecId || sv.mecanicoId || sv.responsavelId || '';
+          const mn = sv.mecNome || sv.mecanicoNome || sv.responsavelNome || snapshotMecanicoOS(mid, payload).nome || '';
+          if (mid) {
+              sv.mecAtribuidoEm = sv.mecAtribuidoEm || agoraAuditoriaOS;
+              sv.mecAtribuidoPorId = sv.mecAtribuidoPorId || usuarioAuditoriaOS.id;
+              sv.mecAtribuidoPorNome = sv.mecAtribuidoPorNome || usuarioAuditoriaOS.nome;
+              sv.mecAtribuidoPorPerfil = sv.mecAtribuidoPorPerfil || usuarioAuditoriaOS.perfil;
+          }
+          tl.push(eventoEstruturadoOS('servico_adicionado', `Adicionou serviço: ${sv.desc || sv.descricao || '-'}`, {
+              servicoDescricao: sv.desc || sv.descricao || '', servicoValor: numBR(sv.valorFinal ?? sv.valor ?? 0), mecanicoId: mid, mecanicoNome: mn
+          }));
+          if (mid) tl.push(eventoEstruturadoOS('mecanico_relacionado_servico', `Relacionou o mecânico ${mn || mid} ao serviço "${sv.desc || sv.descricao || '-'}".`, {
+              servicoDescricao: sv.desc || sv.descricao || '', mecanicoId: mid, mecanicoNome: mn || mid
+          }));
+      });
+      if (payload.status === 'Entregue') {
+          payload.finalizadoEm = payload.finalizadoEm || agoraAuditoriaOS;
+          payload.finalizadoPor = payload.finalizadoPor || funcUser;
+      }
   }
 
   if (registroReaberturaAprovacaoOS) {
@@ -5335,14 +5562,122 @@ window.uploadOsMediaBatch = async function() {
   else window.toast('✕ Nenhum arquivo enviado.', 'err');
 };
 
+window._osGaleriaFotoIndex = 0;
+window._osGaleriaFotos = [];
+
+window.fecharGaleriaFotosOS = function() {
+  const overlay = document.getElementById('osGaleriaFotosOverlay');
+  if (overlay) overlay.remove();
+  document.removeEventListener('keydown', window._osGaleriaKeydown || (()=>{}));
+};
+
+window.renderGaleriaFotoOS = function() {
+  const fotos = window._osGaleriaFotos || [];
+  const overlay = document.getElementById('osGaleriaFotosOverlay');
+  if (!overlay || !fotos.length) return;
+  const idx = Math.max(0, Math.min(window._osGaleriaFotoIndex || 0, fotos.length - 1));
+  window._osGaleriaFotoIndex = idx;
+  const foto = fotos[idx];
+  const img = overlay.querySelector('[data-os-galeria-img]');
+  const count = overlay.querySelector('[data-os-galeria-count]');
+  const prev = overlay.querySelector('[data-os-galeria-prev]');
+  const next = overlay.querySelector('[data-os-galeria-next]');
+  if (img) { img.src = foto.url; img.alt = `Foto ${idx + 1} da O.S.`; }
+  if (count) count.textContent = `Foto ${idx + 1} de ${fotos.length}`;
+  if (prev) prev.style.visibility = fotos.length > 1 ? 'visible' : 'hidden';
+  if (next) next.style.visibility = fotos.length > 1 ? 'visible' : 'hidden';
+};
+
+window.navegarGaleriaFotosOS = function(delta) {
+  const fotos = window._osGaleriaFotos || [];
+  if (fotos.length <= 1) return;
+  window._osGaleriaFotoIndex = (window._osGaleriaFotoIndex + Number(delta || 0) + fotos.length) % fotos.length;
+  window.renderGaleriaFotoOS();
+};
+
+window.baixarFotoGaleriaOS = async function() {
+  const foto = (window._osGaleriaFotos || [])[window._osGaleriaFotoIndex || 0];
+  if (!foto?.url) return;
+  const nomeUrl = String(foto.url).split('?')[0].split('/').pop() || `foto_os_${Date.now()}.jpg`;
+  const nome = /\.[a-z0-9]{2,5}$/i.test(nomeUrl) ? nomeUrl : `${nomeUrl}.jpg`;
+  try {
+    const res = await fetch(foto.url, { mode:'cors' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    await salvarBlobArquivoOS(blob, nome, blob.type || 'image/jpeg');
+  } catch (e) {
+    console.warn('[OS GALERIA] download via blob falhou; usando link direto.', e);
+    const a = document.createElement('a');
+    a.href = foto.url;
+    a.download = nome;
+    a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+};
+
+window.abrirGaleriaFotosOS = function(indiceMedia) {
+  let media = [];
+  try { media = JSON.parse($('osMediaArray')?.value || '[]'); } catch (_) { media = []; }
+  const fotos = media.map((m, mediaIndex) => ({ ...m, mediaIndex }))
+    .filter(m => m?.url && !/^video$/i.test(String(m.type || 'image')) && !/^video\//i.test(String(m.type || '')));
+  if (!fotos.length) return;
+  const pos = Math.max(0, fotos.findIndex(f => Number(f.mediaIndex) === Number(indiceMedia)));
+  window._osGaleriaFotos = fotos;
+  window._osGaleriaFotoIndex = pos;
+  window.fecharGaleriaFotosOS();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'osGaleriaFotosOverlay';
+  overlay.setAttribute('role','dialog');
+  overlay.setAttribute('aria-modal','true');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:10050;background:rgba(0,0,0,.94);display:flex;align-items:center;justify-content:center;padding:16px;';
+  overlay.innerHTML = `
+    <div style="width:min(1100px,100%);height:min(90vh,850px);display:flex;flex-direction:column;position:relative;background:#090d12;border:1px solid rgba(0,212,255,.28);border-radius:8px;overflow:hidden;box-shadow:0 18px 60px rgba(0,0,0,.65);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.1);">
+        <strong data-os-galeria-count style="font-family:var(--fm);font-size:.75rem;color:var(--cyan);">Foto</strong>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button type="button" class="btn-ghost" onclick="window.baixarFotoGaleriaOS()">BAIXAR FOTO</button>
+          <button type="button" class="btn-ghost" onclick="window.fecharGaleriaFotosOS()" aria-label="Fechar galeria">✕</button>
+        </div>
+      </div>
+      <div data-os-galeria-area style="position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:pan-y;">
+        <button data-os-galeria-prev type="button" onclick="window.navegarGaleriaFotosOS(-1)" aria-label="Foto anterior" style="position:absolute;left:10px;z-index:2;width:48px;height:64px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.55);color:#fff;font-size:30px;border-radius:6px;cursor:pointer;">‹</button>
+        <img data-os-galeria-img alt="Foto da O.S." style="max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;user-select:none;-webkit-user-drag:none;">
+        <button data-os-galeria-next type="button" onclick="window.navegarGaleriaFotosOS(1)" aria-label="Próxima foto" style="position:absolute;right:10px;z-index:2;width:48px;height:64px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.55);color:#fff;font-size:30px;border-radius:6px;cursor:pointer;">›</button>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', e => { if (e.target === overlay) window.fecharGaleriaFotosOS(); });
+  let touchX = null;
+  const area = overlay.querySelector('[data-os-galeria-area]');
+  area?.addEventListener('touchstart', e => { touchX = e.changedTouches?.[0]?.clientX ?? null; }, { passive:true });
+  area?.addEventListener('touchend', e => {
+    if (touchX == null) return;
+    const fim = e.changedTouches?.[0]?.clientX ?? touchX;
+    const dx = fim - touchX; touchX = null;
+    if (Math.abs(dx) >= 45) window.navegarGaleriaFotosOS(dx < 0 ? 1 : -1);
+  }, { passive:true });
+  document.body.appendChild(overlay);
+  window._osGaleriaKeydown = e => {
+    if (!document.getElementById('osGaleriaFotosOverlay')) return;
+    if (e.key === 'Escape') window.fecharGaleriaFotosOS();
+    if (e.key === 'ArrowLeft') window.navegarGaleriaFotosOS(-1);
+    if (e.key === 'ArrowRight') window.navegarGaleriaFotosOS(1);
+  };
+  document.addEventListener('keydown', window._osGaleriaKeydown);
+  window.renderGaleriaFotoOS();
+};
+
 window.renderMediaOS = function() {
   const media = JSON.parse($('osMediaArray')?.value || '[]');
   if($('osMediaGrid')) {
-      $('osMediaGrid').innerHTML = media.map((m, i) => `
-        <div class="media-item">
-          ${m.type === 'video' ? `<video src="${m.url}" controls preload="metadata"></video>` : `<img src="${m.url}" loading="lazy" referrerpolicy="no-referrer" onclick="window.open('${m.url}')" style="cursor:zoom-in">`}
-          <button class="media-del" onclick="window.removerMediaOS(${i})">✕</button>
-        </div>`).join('');
+      $('osMediaGrid').innerHTML = media.map((m, i) => {
+        const url = String(m?.url || '').replace(/"/g, '&quot;');
+        const isVideo = /^video$/i.test(String(m?.type || '')) || /^video\//i.test(String(m?.type || ''));
+        return `<div class="media-item">
+          ${isVideo ? `<video src="${url}" controls preload="metadata"></video>` : `<img src="${url}" loading="lazy" referrerpolicy="no-referrer" onclick="window.abrirGaleriaFotosOS(${i})" style="cursor:zoom-in" alt="Foto ${i + 1} da O.S.">`}
+          <button type="button" class="media-del" onclick="event.stopPropagation();window.removerMediaOS(${i})" title="Remover">✕</button>
+        </div>`;
+      }).join('');
   }
 };
 
@@ -7868,6 +8203,97 @@ function _ciliaWrapTemServicoTempa(wrap, itemTempa, peca) {
   });
 }
 
+
+function _ciliaTipoVeiculoSelecionado(veiculoAtual = {}) {
+  const tipoTela = String(document.getElementById('osTipoVeiculo')?.value || '').trim();
+  return tipoTela || String(
+    veiculoAtual?.tipoVeiculoOS ||
+    veiculoAtual?.tipoVeiculo ||
+    veiculoAtual?.porte ||
+    veiculoAtual?.categoria ||
+    veiculoAtual?.tipo || ''
+  ).trim();
+}
+
+function _ciliaVeiculoContextoAtual(veiculoAtual = {}) {
+  const base = { ...(veiculoAtual || {}) };
+  const tipo = _ciliaTipoVeiculoSelecionado(base);
+  if (tipo) {
+    // Para a busca Cília/Tempária, o tipo cadastrado/selecionado manda sobre
+    // inferências pelo modelo (ex.: Duster cadastrada como COMPACTO).
+    base.tipoVeiculoOS = tipo;
+    base.tipoVeiculo = tipo;
+    base.tipo = tipo;
+  }
+  return base;
+}
+
+function _ciliaClasseVeiculoExplicita(veiculoAtual = {}) {
+  const n = _ciliaNormServicoTexto(_ciliaTipoVeiculoSelecionado(veiculoAtual));
+  if (!n) return '';
+  if (/\bcompacto\b/.test(n)) return 'compacto';
+  if (/\bhatch\b/.test(n)) return 'hatch';
+  if (/\bsedan\b/.test(n)) return 'sedan';
+  if (/\bsuv\b/.test(n)) return 'suv';
+  if (/\bmicro\s*onibus\b|\bmicroonibus\b/.test(n)) return 'microonibus';
+  if (/\bonibus\b/.test(n)) return 'onibus';
+  if (/\bcaminhao\b|\btruck\b|\bcarreta\b/.test(n)) return 'caminhao';
+  if (/\butilitario\b|\bpicape\b|\bpickup\b/.test(n)) return 'utilitario';
+  if (/\bvan\b/.test(n)) return 'van';
+  if (/\bmoto\b|\bmotocicleta\b/.test(n)) return 'moto';
+  return '';
+}
+
+function _ciliaClasseItemTempa(itemTempa) {
+  const n = _ciliaNormServicoTexto(itemTempa?.sistema || '');
+  if (/\bcompacto\b/.test(n)) return 'compacto';
+  if (/\bhatch\b/.test(n)) return 'hatch';
+  if (/\bsedan\b/.test(n)) return 'sedan';
+  if (/\bsuv\b/.test(n)) return 'suv';
+  if (/\bmicro\s*onibus\b|\bmicroonibus\b/.test(n)) return 'microonibus';
+  if (/\bonibus\b/.test(n)) return 'onibus';
+  if (/\bcaminhao\b/.test(n)) return 'caminhao';
+  if (/\butilitario\b/.test(n)) return 'utilitario';
+  if (/\bvan\b/.test(n)) return 'van';
+  if (/\bmoto\b|\bmotocicleta\b/.test(n)) return 'moto';
+  return '';
+}
+
+function _ciliaDirecaoServicoCompativel(itemTempa, peca) {
+  const origem = _ciliaNormServicoTexto(peca?.desc || peca?.descricao || '');
+  const alvo = _ciliaNormServicoTexto([itemTempa?.operacao, itemTempa?.item].filter(Boolean).join(' '));
+  const origemDiant = /\b(diant|dianteir)/.test(origem);
+  const origemTras = /\b(tras|traseir)/.test(origem);
+  const alvoDiant = /\b(diant|dianteir)/.test(alvo);
+  const alvoTras = /\b(tras|traseir)/.test(alvo);
+  if (origemDiant && alvoTras && !alvoDiant) return false;
+  if (origemTras && alvoDiant && !alvoTras) return false;
+
+  const origemDir = /\b(dir|direit)/.test(origem);
+  const origemEsq = /\b(esq|esquerd)/.test(origem);
+  const alvoDir = /\b(dir|direit|ld)\b/.test(alvo);
+  const alvoEsq = /\b(esq|esquerd|le)\b/.test(alvo);
+  if (origemDir && alvoEsq && !alvoDir) return false;
+  if (origemEsq && alvoDir && !alvoEsq) return false;
+
+  // Não confundir componentes diferentes que compartilham palavras.
+  if (/\b(haste|bieleta|liame|tirante)\b/.test(origem) && /\bbarra estabilizadora\b/.test(origem)) {
+    if (!/\b(haste|bieleta|liame|tirante)\b/.test(alvo)) return false;
+  }
+  if (/\btambor\b/.test(origem) && /\bfreio\b/.test(origem) && /\bsapata/.test(alvo) && !/\btambor de freio\b/.test(alvo)) return false;
+  if (/\bpastilhas?\b/.test(origem) && /\bfreio\b/.test(origem) && !/\bpastilhas?\b/.test(alvo)) return false;
+  if (/\bbraco oscilante\b/.test(origem) && !/\bbraco\b/.test(alvo)) return false;
+  if (/\bagregado\b/.test(origem) && /\bsuspensao\b/.test(origem)) { if (!/\b(quadro|agregado)\b/.test(alvo) || /\bbuchas?\b/.test(alvo)) return false; }
+  if (/\bmoldura\b/.test(origem) && /\bsoleira\b/.test(origem) && !(/\bmoldura\b/.test(alvo) && /\bsoleira\b/.test(alvo))) return false;
+
+  // Não confundir a peça inteira com um subcomponente da peça.
+  const subcomponentes = ['bucha', 'coifa', 'reparo', 'reparos', 'articulacao', 'pino', 'mangueira', 'capa', 'suporte'];
+  for (const termo of subcomponentes) {
+    if (new RegExp(`\\b${termo}\\b`).test(alvo) && !new RegExp(`\\b${termo}\\b`).test(origem)) return false;
+  }
+  return true;
+}
+
 async function _ciliaAdicionarPecas(pecas) {
   pecas = OSU().normalizeCiliaPieces ? OSU().normalizeCiliaPieces(pecas) : pecas;
   if (!pecas || !pecas.length) {
@@ -7879,7 +8305,7 @@ async function _ciliaAdicionarPecas(pecas) {
   const ehGov = typeof window._osClienteGovernamental === 'function' && window._osClienteGovernamental();
   const dadosGov = ehGov && typeof window._osDadosGovernamental === 'function' ? window._osDadosGovernamental() : null;
   const descPeca = dadosGov ? taxaDescontoOS(dadosGov.descPeca || 0) : 0;
-  const veiculoAtual = typeof _veiculoOS === 'function' ? _veiculoOS() : {};
+  const veiculoAtual = _ciliaVeiculoContextoAtual(window._osVeiculoAtual?.() || {});
   const valorHoraOficina = numBR((typeof window._osValorHoraCliente === 'function' ? window._osValorHoraCliente() : 0) || window.J?.valorHoraMecanica || 120);
   const tempaOk = await _ciliaGarantirTabelaTempa();
   const jaImportadas = document.querySelectorAll('#containerPecasOS [data-cilia-piece-index]').length;
@@ -8030,6 +8456,8 @@ function _ciliaBuscarServicoTempa(peca, veiculoAtual) {
   const desc = String(peca?.desc || '').trim();
   const codigo = String(peca?.codigo || '').trim();
   if (!desc && !codigo) return null;
+
+  veiculoAtual = _ciliaVeiculoContextoAtual(veiculoAtual || window._osVeiculoAtual?.() || {});
   const descLimpa = _ciliaLimparDescParaTempa(desc);
   const consultas = _ciliaConsultasTempaPeca(desc, codigo);
   [
@@ -8039,26 +8467,54 @@ function _ciliaBuscarServicoTempa(peca, veiculoAtual) {
     descLimpa,
     codigo
   ].filter(Boolean).forEach(q => { if (!consultas.includes(q)) consultas.push(q); });
-  const vistos = new Set();
+
+  const classeExplicita = _ciliaClasseVeiculoExplicita(veiculoAtual);
+  const veiculoBuscaTempa = classeExplicita ? { tipo: classeExplicita } : veiculoAtual;
+  const candidatos = new Map();
   for (const consulta of consultas) {
-    const resultadosPrecisos = window.tempaBuscarPorTexto(consulta, { veiculo: veiculoAtual, limite: 12, preciso: true }) || [];
-    const resultados = resultadosPrecisos.length
-      ? resultadosPrecisos
-      : (window.tempaBuscarPorTexto(consulta, { veiculo: veiculoAtual, limite: 12 }) || []);
+    // Associação automática Cília → Tempária é deliberadamente estrita.
+    // Se a O.S. informa uma classe (ex.: COMPACTO), a busca é orientada por
+    // essa classe, sem deixar o nome/modelo (ex.: Duster) puxar SUV por engano.
+    // A busca aproximada continua disponível na seleção manual da Tempária.
+    const resultados = window.tempaBuscarPorTexto(consulta, { veiculo: veiculoBuscaTempa, limite: 40, preciso: true }) || [];
     for (const item of resultados) {
       const chave = `${item.codigo || ''}|${item.sistema || ''}|${item.operacao || ''}|${item.item || ''}`;
-      if (vistos.has(chave)) continue;
-      vistos.add(chave);
+      if (candidatos.has(chave)) continue;
       if (numBR(item.tempo || 0) <= 0) continue;
       if (!_ciliaTempaCompativelComVeiculo(item, veiculoAtual)) continue;
-      return item;
+      if (!_ciliaDirecaoServicoCompativel(item, peca)) continue;
+      candidatos.set(chave, {
+        item,
+        score: _ciliaScoreTempaPeca(item, desc, codigo)
+      });
     }
+    // Um candidato muito forte dispensa consultas genéricas seguintes.
+    const melhorParcial = Array.from(candidatos.values()).sort((a, b) => b.score - a.score)[0];
+    if (melhorParcial && melhorParcial.score >= 85) break;
   }
-  return null;
+
+  const ordenados = Array.from(candidatos.values()).sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    const ak = `${a.item.sistema || ''}|${a.item.operacao || ''}|${a.item.item || ''}`;
+    const bk = `${b.item.sistema || ''}|${b.item.operacao || ''}|${b.item.item || ''}`;
+    return ak.localeCompare(bk, 'pt-BR');
+  });
+  // Abaixo deste nível, não há evidência suficiente para vincular automaticamente.
+  return ordenados[0] && ordenados[0].score >= 28 ? ordenados[0].item : null;
 }
 
 function _ciliaTempaCompativelComVeiculo(itemTempa, veiculoAtual) {
   const normalizar = OSU().normalizeText || (v => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase());
+  veiculoAtual = _ciliaVeiculoContextoAtual(veiculoAtual || {});
+
+  // Se a O.S./cadastro informou uma classe específica, ela é mandatória.
+  // COMPACTO não pode receber serviço SUV/HATCH/SEDAN por inferência do modelo.
+  const classeExplicita = _ciliaClasseVeiculoExplicita(veiculoAtual);
+  if (classeExplicita) {
+    return _ciliaClasseItemTempa(itemTempa) === classeExplicita;
+  }
+
+  // Compatibilidade legada preservada para cadastros sem classe específica.
   const tipoOS = normalizar([
     veiculoAtual?.tipoVeiculoOS,
     veiculoAtual?.tipoVeiculo,
@@ -8083,6 +8539,7 @@ function _ciliaNormServicoTexto(v) {
 function _ciliaConsultasTempaPeca(desc, codigo) {
   const limpa = _ciliaLimparDescParaTempa(desc);
   const n = _ciliaNormServicoTexto(limpa);
+  const nOriginal = _ciliaNormServicoTexto(desc);
   const termos = [
     `substituir ${limpa}`,
     `troca ${limpa}`,
@@ -8094,9 +8551,19 @@ function _ciliaConsultasTempaPeca(desc, codigo) {
   if (/\b(coxim|calco|suporte)\b/.test(n) && /\bmotor\b/.test(n)) termos.push('substituir coxim motor', 'substituir suporte motor', 'substituir calco motor');
   if (/\b(cubo|rolamento)\b/.test(n) && /\broda\b/.test(n)) termos.push('substituir cubo roda', 'substituir rolamento roda', 'remover e instalar cubo roda');
   if (/\bbateria\b/.test(n)) termos.push('substituir bateria', 'remover e instalar bateria');
-  if (/\b(pastilha|disco)\b/.test(n) && /\bfreio\b/.test(n)) termos.push('substituir freio', 'substituir pastilha freio', 'substituir disco freio');
+  if (/\b(pastilhas?|discos?)\b/.test(n) && /\bfreio\b/.test(n)) termos.push('substituir freio', 'substituir pastilha freio', 'substituir pastilhas freio', 'substituir disco freio', 'substituir discos freio');
   if (/\bamortecedor\b/.test(n)) termos.push('substituir amortecedor', 'remover e instalar amortecedor');
   if (/\bfiltro\b/.test(n)) termos.push('substituir filtro', 'troca filtro');
+  if (/\b(haste|bieleta|liame|tirante)\b/.test(n) && /\bbarra estabilizadora\b/.test(n)) termos.push('substituir bieleta barra estabilizadora', 'substituir liame barra estabilizadora');
+  if (/\bsemieixo\b|\bsemi eixo\b/.test(n)) termos.push('remover e instalar semi eixo', 'substituir semi eixo');
+  if (/\baro\b/.test(n) && /\broda\b/.test(n)) termos.push('remover e instalar aro de roda', 'substituir aro de roda');
+  if (/\bsapatas?\b/.test(n) && /\bfreio\b/.test(n)) termos.push('substituir sapatas freio');
+  if (/\baditivo\b/.test(n) && /\b(?:radiador|arrefecimento|agua)\b/.test(n)) termos.push('substituir aditivo agua', 'aditivo agua', 'aditivo da agua');
+  if (/\breservatorio\b/.test(n) && /\b(?:radiador|arrefecimento|agua)\b/.test(n)) termos.push('substituir reservatorio expansao', 'reservatorio expansao', 'reservatorio de expansao');
+  if (/\bagregado\b/.test(nOriginal) && /\bsuspensao\b/.test(nOriginal) && /\b(diant|dianteir)/.test(nOriginal)) termos.push('substituir quadro suspensao dianteira', 'quadro suspensao dianteira');
+  if (/\bbraco oscilante\b/.test(nOriginal) && /\b(diant|dianteir)/.test(nOriginal)) termos.push('remover e instalar braco suspensao bandeja dianteira', 'braco suspensao bandeja dianteira');
+  if (/\bmoldura\b/.test(n) && /\bsoleira\b/.test(n)) termos.push('substituir moldura soleira porta dianteira', 'moldura soleira porta dianteira');
+  if (/\btambor\b/.test(n) && /\bfreio\b/.test(n)) termos.push('substituir tambor freio');
   return [...new Set(termos.map(x => String(x || '').replace(/\s+/g, ' ').trim()).filter(Boolean))];
 }
 
@@ -8126,6 +8593,12 @@ function _ciliaScoreTempaPeca(itemTempa, desc, codigo) {
   if (/\bmotor\b/.test(base) && /\bmotor\b/.test(alvo)) score += 10;
   if (/\broda\b/.test(base) && /\broda\b/.test(alvo)) score += 10;
   if (/\bfreio\b/.test(base) && /\bfreio\b/.test(alvo)) score += 10;
+  if (/\b(diant|dianteir)/.test(base) && /\b(diant|dianteir)/.test(alvo)) score += 22;
+  if (/\b(tras|traseir)/.test(base) && /\b(tras|traseir)/.test(alvo)) score += 22;
+  if (/\b(dir|direit)/.test(base) && /\b(dir|direit|ld)\b/.test(alvo)) score += 16;
+  if (/\b(esq|esquerd)/.test(base) && /\b(esq|esquerd|le)\b/.test(alvo)) score += 16;
+  const classePeca = _ciliaClasseItemTempa(itemTempa);
+  if (classePeca) score += 8;
   return score;
 }
 
@@ -8154,7 +8627,7 @@ function _ciliaContextoServico(row) {
     wrap,
     pecaRow,
     ehGov,
-    veiculoAtual: window._osVeiculoAtual?.() || {},
+    veiculoAtual: _ciliaVeiculoContextoAtual(window._osVeiculoAtual?.() || {}),
     valorHoraOficina: window._osValorHoraCliente?.() || window.J?.valorHoraMecanica || 120,
     pecaDesc: row?.dataset?.pecaDesc || pecaRow?.querySelector?.('.peca-desc-livre')?.value || '',
     pecaCodigo: row?.dataset?.pecaCodigo || pecaRow?.querySelector?.('.peca-codigo')?.value || ''
@@ -8474,7 +8947,7 @@ window._ciliaAddServicoRelacionado = function(btn, opts = {}) {
   const itemTempa = opts.itemTempa || null;
   const servico = opts.servico || null;
   const ehGov = !!opts.ehGov || (typeof window._osClienteGovernamental === 'function' && window._osClienteGovernamental());
-  const ctxBase = { ehGov, veiculoAtual: opts.veiculoAtual || window._osVeiculoAtual?.() || {}, valorHoraOficina: opts.valorHoraOficina || window._osValorHoraCliente?.() || window.J?.valorHoraMecanica || 120 };
+  const ctxBase = { ehGov, veiculoAtual: _ciliaVeiculoContextoAtual(opts.veiculoAtual || window._osVeiculoAtual?.() || {}), valorHoraOficina: opts.valorHoraOficina || window._osValorHoraCliente?.() || window.J?.valorHoraMecanica || 120 };
 
   let desc = servico?.desc || '';
   let tempo = numBR(servico?.tempo || 0);
@@ -8641,7 +9114,7 @@ async function _ciliaProcessarPDF(file) {
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
-    // Coleta TODOS os spans com coordenadas X,Y de todas as páginas
+    // Coleta TODOS os spans com coordenadas X,Y de todas as páginas.
     const allSpans = [];
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
@@ -8658,79 +9131,79 @@ async function _ciliaProcessarPDF(file) {
       });
     }
 
-    // Agrupa por linha (Y ±4px), ordena por X dentro de cada linha
-    const linhasMap = {};
+    // Linha precisa ser agrupada por PÁGINA + Y. A versão anterior misturava
+    // conteúdos de páginas diferentes quando possuíam a mesma coordenada Y.
+    const linhasMap = new Map();
     allSpans.forEach(sp => {
       const yKey = Math.round(sp.y / 4) * 4;
-      if (!linhasMap[yKey]) linhasMap[yKey] = [];
-      linhasMap[yKey].push(sp);
+      const key = `${sp.page}:${yKey}`;
+      if (!linhasMap.has(key)) linhasMap.set(key, { page: sp.page, y: yKey, spans: [] });
+      linhasMap.get(key).spans.push(sp);
     });
-    // PDF: Y cresce de baixo pra cima — invertemos para ter ordem natural
-    const linhas = Object.keys(linhasMap)
-      .map(Number)
-      .sort((a, b) => b - a)
-      .map(y => linhasMap[y].sort((a, b) => a.x - b.x).map(s => s.text).join(' '));
+    const linhas = Array.from(linhasMap.values())
+      .sort((a, b) => (a.page - b.page) || (b.y - a.y))
+      .map(row => row.spans.sort((a, b) => a.x - b.x).map(sp => sp.text).join(' '));
 
     const tokensOrdenados = linhas.join(' ').split(/\s+/).filter(Boolean);
     const utils = OSU();
     const sane = lista => !utils.isSaneCiliaPieces || utils.isSaneCiliaPieces(lista || []);
-    let pecas = utils.parseCiliaPiecesFromSpans ? utils.parseCiliaPiecesFromSpans(allSpans) : [];
-    if (!pecas.length || !sane(pecas)) {
-      pecas = utils.parseCiliaPiecesFromLines ? utils.parseCiliaPiecesFromLines(linhas) : [];
-    }
-    if (!pecas.length || !sane(pecas)) {
-      const porTokens = utils.parseCiliaPiecesFromTokens ? utils.parseCiliaPiecesFromTokens(tokensOrdenados) : [];
-      pecas = sane(porTokens) ? porTokens : [];
-    }
-    const brl = s => numBR(s);
+    const declarado = Number(utils.getDeclaredCiliaItemCount?.(allSpans) || utils.getDeclaredCiliaItemCount?.(linhas) || 0);
 
-    for (const linha of (pecas.length ? [] : linhas)) {
-      // ── PADRÃO PRINCIPAL CÍLIA ──────────────────────────────────────────────
-      // "T R&I 0,00 1.00 BOMBA DE COMBUSTÍVEL Cód: 172029382R Oficina R$ 1.795,30 % 48,00 R$ 933,56"
-      // Captura: operação | TMO | qtd | DESCRIÇÃO Cód: CODIGO Fornec | preçoBruto | %desc | preçoLíquido
-      const mPrincipal = linha.match(
-        /(?:[TR](?:\s+R&I)?)\s+[\d,]+\s+([\d,]+)\s+(.+?)\s+C.?d[:\.]\s*([A-Z0-9\-\.\/]+)\s+\w+\s+R\$\s*([\d\.,]+)\s+%\s*[\d,]+\s+R\$\s*([\d\.,]+)/i
-      );
-      if (mPrincipal) {
-        pecas.push({
-          codigo: mPrincipal[3].trim(),
-          desc:   mPrincipal[2].trim(),
-          qtd:    numBR(mPrincipal[1]) || 1,
-          venda:  brl(mPrincipal[4]), // preço bruto fiel ao PDF; desconto do cliente calcula o líquido
-          ciliaValorLiquido: brl(mPrincipal[5])
-        });
-        continue;
-      }
+    // Executa os parsers independentes e escolhe o candidato íntegro. Não aceita
+    // mais silenciosamente uma extração parcial só porque as linhas encontradas parecem válidas.
+    const candidatos = [
+      { origem: 'coordenadas', prioridade: 3, itens: utils.parseCiliaPiecesFromSpans ? utils.parseCiliaPiecesFromSpans(allSpans) : [] },
+      { origem: 'linhas', prioridade: 2, itens: utils.parseCiliaPiecesFromLines ? utils.parseCiliaPiecesFromLines(linhas) : [] },
+      { origem: 'tokens', prioridade: 1, itens: utils.parseCiliaPiecesFromTokens ? utils.parseCiliaPiecesFromTokens(tokensOrdenados) : [] }
+    ].filter(c => Array.isArray(c.itens) && c.itens.length && sane(c.itens));
 
-      // ── PADRÃO SEM OPERAÇÃO: "DESCRICAO Cód: CODIGO Qtd R$ PRECO_LIQ" ──────
-      const mSemOp = linha.match(/(.+?)\s+C.?d[:\.]\s*([A-Z0-9\-\.\/]+)\s+[\w\/]+\s+R\$\s*([\d\.,]+)\s+%\s*[\d,]+\s+R\$\s*([\d\.,]+)/i);
-      if (mSemOp) {
-        pecas.push({
-          codigo: mSemOp[2].trim(),
-          desc:   mSemOp[1].trim(),
-          qtd:    1,
-          venda:  brl(mSemOp[3]),
-          ciliaValorLiquido: brl(mSemOp[4])
-        });
-        continue;
+    candidatos.sort((a, b) => {
+      if (declarado > 0) {
+        const aExato = a.itens.length === declarado ? 1 : 0;
+        const bExato = b.itens.length === declarado ? 1 : 0;
+        if (aExato !== bExato) return bExato - aExato;
+        const da = Math.abs(a.itens.length - declarado);
+        const db = Math.abs(b.itens.length - declarado);
+        if (da !== db) return da - db;
       }
+      if (a.itens.length !== b.itens.length) return b.itens.length - a.itens.length;
+      return b.prioridade - a.prioridade;
+    });
 
-      // ── PADRÃO LEGADO (espaços largos): "CODIGO   DESCRICAO   QTD   VALOR" ─
-      const mLeg = linha.match(/^([A-Z0-9\-\.\/]{4,25})\s{2,}(.+?)\s{2,}(\d+(?:[,.]\d+)?)\s{2,}([\d\.,]+)\s*$/);
-      if (mLeg) {
-        pecas.push({
-          codigo: mLeg[1].trim(),
-          desc:   mLeg[2].trim(),
-          qtd:    numBR(mLeg[3]) || 1,
-          venda:  brl(mLeg[4])
-        });
+    let pecas = candidatos[0]?.itens || [];
+
+    // Fallback legado preservado, usado apenas se os três parsers estruturados falharem.
+    if (!pecas.length) {
+      const brl = s => numBR(s);
+      const legado = [];
+      for (const linha of linhas) {
+        const mPrincipal = linha.match(
+          /(?:[TR](?:\s+R&I)?)\s+[\d,]+\s+([\d,.]+)\s+(.+?)\s+C.?d[:\.]\s*([A-Z0-9\-\.\/]+)\s+\w+\s+R\$\s*([\d\.,]+)\s+%\s*[\d,]+\s+R\$\s*([\d\.,]+)/i
+        );
+        if (mPrincipal) {
+          legado.push({ codigo:mPrincipal[3].trim(), desc:mPrincipal[2].trim(), qtd:numBR(mPrincipal[1])||1, venda:brl(mPrincipal[4]), ciliaValorLiquido:brl(mPrincipal[5]) });
+          continue;
+        }
+        const mSemOp = linha.match(/(.+?)\s+C.?d[:\.]\s*([A-Z0-9\-\.\/]+)\s+[\w\/]+\s+R\$\s*([\d\.,]+)\s+%\s*[\d,]+\s+R\$\s*([\d\.,]+)/i);
+        if (mSemOp) legado.push({ codigo:mSemOp[2].trim(), desc:mSemOp[1].trim(), qtd:1, venda:brl(mSemOp[3]), ciliaValorLiquido:brl(mSemOp[4]) });
       }
+      pecas = sane(legado) ? (utils.normalizeCiliaPieces ? utils.normalizeCiliaPieces(legado) : legado) : [];
     }
 
     if (!pecas.length || !sane(pecas)) {
       if (typeof window.toast === 'function') window.toast('Não foi possível extrair as peças do PDF Cília com segurança. Tente exportar o Cília em XML para melhor resultado.', 'warn');
       return;
     }
+
+    if (declarado > 0 && pecas.length !== declarado) {
+      console.error('[Cília PDF] Extração parcial bloqueada.', { declarado, extraido: pecas.length, candidatos: candidatos.map(c => ({ origem:c.origem, itens:c.itens.length })) });
+      if (typeof window.toast === 'function') {
+        window.toast(`PDF Cília declara ${declarado} item(ns), mas foram validados ${pecas.length}. Importação cancelada para não perder peça.`, 'err');
+      }
+      return;
+    }
+
+    console.info('[Cília PDF] Importação validada', { declarado: declarado || pecas.length, extraido: pecas.length, parser: candidatos[0]?.origem || 'legado' });
     _ciliaAdicionarPecas(pecas);
   } catch(err) {
     if (typeof window.toast === 'function') window.toast('Erro ao ler PDF Cília: ' + err.message, 'err');
