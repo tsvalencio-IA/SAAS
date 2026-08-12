@@ -8231,16 +8231,15 @@ function _ciliaVeiculoContextoAtual(veiculoAtual = {}) {
 function _ciliaClasseVeiculoExplicita(veiculoAtual = {}) {
   const n = _ciliaNormServicoTexto(_ciliaTipoVeiculoSelecionado(veiculoAtual));
   if (!n) return '';
+  // Regra operacional definida: a associação automática Cília → Tempária
+  // usa SOMENTE estas quatro categorias. O tipo selecionado na O.S. manda.
   if (/\bcompacto\b/.test(n)) return 'compacto';
   if (/\bhatch\b/.test(n)) return 'hatch';
-  if (/\bsedan\b/.test(n)) return 'sedan';
   if (/\bsuv\b/.test(n)) return 'suv';
-  if (/\bmicro\s*onibus\b|\bmicroonibus\b/.test(n)) return 'microonibus';
-  if (/\bonibus\b/.test(n)) return 'onibus';
-  if (/\bcaminhao\b|\btruck\b|\bcarreta\b/.test(n)) return 'caminhao';
-  if (/\butilitario\b|\bpicape\b|\bpickup\b/.test(n)) return 'utilitario';
-  if (/\bvan\b/.test(n)) return 'van';
-  if (/\bmoto\b|\bmotocicleta\b/.test(n)) return 'moto';
+  if (/\butilitario\b|\bpicape\b|\bpickup\b|\bvan\b/.test(n)) return 'utilitario';
+  // CARRO, SEDAN, CAMINHÃO, ÔNIBUS, MOTO, OUTRO e NÃO DEFINIDO
+  // não recebem categoria por inferência/modelo. As peças continuam importadas
+  // e o serviço pode ser lançado manualmente, sem inventar uma classe Tempária.
   return '';
 }
 
@@ -8248,15 +8247,16 @@ function _ciliaClasseItemTempa(itemTempa) {
   const n = _ciliaNormServicoTexto(itemTempa?.sistema || '');
   if (/\bcompacto\b/.test(n)) return 'compacto';
   if (/\bhatch\b/.test(n)) return 'hatch';
-  if (/\bsedan\b/.test(n)) return 'sedan';
   if (/\bsuv\b/.test(n)) return 'suv';
-  if (/\bmicro\s*onibus\b|\bmicroonibus\b/.test(n)) return 'microonibus';
-  if (/\bonibus\b/.test(n)) return 'onibus';
-  if (/\bcaminhao\b/.test(n)) return 'caminhao';
   if (/\butilitario\b/.test(n)) return 'utilitario';
-  if (/\bvan\b/.test(n)) return 'van';
-  if (/\bmoto\b|\bmotocicleta\b/.test(n)) return 'moto';
   return '';
+}
+
+function _ciliaCederUI() {
+  return new Promise(resolve => {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+    else setTimeout(resolve, 0);
+  });
 }
 
 function _ciliaDirecaoServicoCompativel(itemTempa, peca) {
@@ -8306,8 +8306,12 @@ async function _ciliaAdicionarPecas(pecas) {
   const dadosGov = ehGov && typeof window._osDadosGovernamental === 'function' ? window._osDadosGovernamental() : null;
   const descPeca = dadosGov ? taxaDescontoOS(dadosGov.descPeca || 0) : 0;
   const veiculoAtual = _ciliaVeiculoContextoAtual(window._osVeiculoAtual?.() || {});
+  const categoriaTempa = _ciliaClasseVeiculoExplicita(veiculoAtual);
+  _ciliaTempaBuscaCache.clear();
   const valorHoraOficina = numBR((typeof window._osValorHoraCliente === 'function' ? window._osValorHoraCliente() : 0) || window.J?.valorHoraMecanica || 120);
-  const tempaOk = await _ciliaGarantirTabelaTempa();
+  // Só carrega/pesquisa Tempária automaticamente nas quatro categorias autorizadas.
+  // Isso evita inferência CARRO→COMPACTO/SUV e elimina trabalho desnecessário.
+  const tempaOk = categoriaTempa ? await _ciliaGarantirTabelaTempa() : false;
   const jaImportadas = document.querySelectorAll('#containerPecasOS [data-cilia-piece-index]').length;
   let _ciliaPecaIndexCounter = jaImportadas;
   let servicosTempa = 0;
@@ -8328,7 +8332,8 @@ async function _ciliaAdicionarPecas(pecas) {
             ehGov,
             veiculoAtual,
             valorHoraOficina,
-            auto: true
+            auto: true,
+            suprimirRecalculo: true
           });
           servicosTempa++;
         } else if (!itemTempa) {
@@ -8336,6 +8341,7 @@ async function _ciliaAdicionarPecas(pecas) {
         }
       }
       atualizadas++;
+      if (((novas + atualizadas) % 2) === 0) await _ciliaCederUI();
       continue;
     }
 
@@ -8406,7 +8412,8 @@ async function _ciliaAdicionarPecas(pecas) {
           ehGov,
           veiculoAtual,
           valorHoraOficina,
-          auto: true
+          auto: true,
+          suprimirRecalculo: true
         });
         servicosTempa++;
       } else {
@@ -8415,11 +8422,20 @@ async function _ciliaAdicionarPecas(pecas) {
       }
     } else {
       semServicoTempa++;
-      _ciliaAvisoServicoSemTempa(servBloco, p, 'Tabela Tempária não carregada. Serviço deve ser preenchido manualmente.');
+      const tipoSelecionado = _ciliaTipoVeiculoSelecionado(veiculoAtual);
+      _ciliaAvisoServicoSemTempa(
+        servBloco,
+        p,
+        categoriaTempa
+          ? 'Tabela Tempária não carregada. Serviço deve ser preenchido manualmente.'
+          : `Tipo de veículo “${tipoSelecionado || 'não definido'}” sem associação automática da Tempária. Use Compacto, Hatch, SUV ou Pickup/Van (Utilitário), ou lance o serviço manualmente.`
+      );
     }
 
     _ciliaPecaIndexCounter++;
     novas++;
+    // Entrega a thread ao navegador durante importações grandes para manter a O.S. responsiva.
+    if (((novas + atualizadas) % 2) === 0) await _ciliaCederUI();
   }
 
   if (typeof window.calcOSTotal === 'function') window.calcOSTotal();
@@ -8450,6 +8466,8 @@ async function _ciliaGarantirTabelaTempa() {
   }
 }
 
+const _ciliaTempaBuscaCache = new Map();
+
 function _ciliaBuscarServicoTempa(peca, veiculoAtual) {
   if (typeof window.thiaModEnabled === 'function' && !window.thiaModEnabled('tabelaTempa')) return null;
   if (typeof window.tempaBuscarPorTexto !== 'function') return null;
@@ -8469,14 +8487,21 @@ function _ciliaBuscarServicoTempa(peca, veiculoAtual) {
   ].filter(Boolean).forEach(q => { if (!consultas.includes(q)) consultas.push(q); });
 
   const classeExplicita = _ciliaClasseVeiculoExplicita(veiculoAtual);
-  const veiculoBuscaTempa = classeExplicita ? { tipo: classeExplicita } : veiculoAtual;
+  // Sem uma das quatro categorias autorizadas, NÃO há associação automática.
+  if (!classeExplicita) return null;
+  const veiculoBuscaTempa = { tipo: classeExplicita };
   const candidatos = new Map();
   for (const consulta of consultas) {
     // Associação automática Cília → Tempária é deliberadamente estrita.
     // Se a O.S. informa uma classe (ex.: COMPACTO), a busca é orientada por
     // essa classe, sem deixar o nome/modelo (ex.: Duster) puxar SUV por engano.
     // A busca aproximada continua disponível na seleção manual da Tempária.
-    const resultados = window.tempaBuscarPorTexto(consulta, { veiculo: veiculoBuscaTempa, limite: 40, preciso: true }) || [];
+    const cacheKey = `${classeExplicita}|${_ciliaNormServicoTexto(consulta)}`;
+    let resultados = _ciliaTempaBuscaCache.get(cacheKey);
+    if (!resultados) {
+      resultados = window.tempaBuscarPorTexto(consulta, { veiculo: veiculoBuscaTempa, categoriaTempa: classeExplicita, limite: 24, preciso: true }) || [];
+      _ciliaTempaBuscaCache.set(cacheKey, resultados);
+    }
     for (const item of resultados) {
       const chave = `${item.codigo || ''}|${item.sistema || ''}|${item.operacao || ''}|${item.item || ''}`;
       if (candidatos.has(chave)) continue;
@@ -8504,32 +8529,10 @@ function _ciliaBuscarServicoTempa(peca, veiculoAtual) {
 }
 
 function _ciliaTempaCompativelComVeiculo(itemTempa, veiculoAtual) {
-  const normalizar = OSU().normalizeText || (v => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase());
   veiculoAtual = _ciliaVeiculoContextoAtual(veiculoAtual || {});
-
-  // Se a O.S./cadastro informou uma classe específica, ela é mandatória.
-  // COMPACTO não pode receber serviço SUV/HATCH/SEDAN por inferência do modelo.
   const classeExplicita = _ciliaClasseVeiculoExplicita(veiculoAtual);
-  if (classeExplicita) {
-    return _ciliaClasseItemTempa(itemTempa) === classeExplicita;
-  }
-
-  // Compatibilidade legada preservada para cadastros sem classe específica.
-  const tipoOS = normalizar([
-    veiculoAtual?.tipoVeiculoOS,
-    veiculoAtual?.tipoVeiculo,
-    veiculoAtual?.tipo,
-    veiculoAtual?.porte,
-    veiculoAtual?.modelo
-  ].filter(Boolean).join(' '));
-  const tipoTabela = normalizar(extrairTipoVeiculoTempaOS({ sistemaTabela: itemTempa?.sistema, sistema: itemTempa?.sistema }, veiculoAtual || {}));
-  const sistema = normalizar(itemTempa?.sistema || '');
-  const alvo = `${tipoTabela} ${sistema}`;
-  if (!tipoOS || !alvo.trim()) return true;
-  if (/\b(compacto|hatch|sedan|passeio|carro)\b/.test(tipoOS) && /\b(suv|utilitario|caminhao|onibus|microonibus|van)\b/.test(alvo)) return false;
-  if (/\b(suv|utilitario|pickup|picape|van)\b/.test(tipoOS) && /\b(caminhao|onibus|microonibus)\b/.test(alvo)) return false;
-  if (/\b(moto|motocicleta)\b/.test(tipoOS) && !/\b(moto|motocicleta)\b/.test(alvo)) return false;
-  return true;
+  if (!classeExplicita) return false;
+  return _ciliaClasseItemTempa(itemTempa) === classeExplicita;
 }
 
 function _ciliaNormServicoTexto(v) {
@@ -8797,7 +8800,13 @@ async function _ciliaBuscarTempaServicoInline(row, termo, opts = {}) {
     return [];
   }
   const ctx = _ciliaContextoServico(row);
-  const resultados = window.tempaBuscarPorTexto(q, { veiculo: ctx.veiculoAtual, limite: opts.limite || 120, preciso: true }) || [];
+  const categoriaTempa = _ciliaClasseVeiculoExplicita(ctx.veiculoAtual);
+  if (!categoriaTempa) {
+    _ciliaRenderResultadosTempaServico(row, [], q);
+    _ciliaAtualizarMetaServico(row, 'Selecione na O.S. um tipo compatível com a Tempária: Compacto, Hatch, SUV ou Pickup/Van (Utilitário).', 'warn');
+    return [];
+  }
+  const resultados = window.tempaBuscarPorTexto(q, { veiculo: { tipo: categoriaTempa }, categoriaTempa, limite: opts.limite || 120, preciso: true }) || [];
   _ciliaRenderResultadosTempaServico(row, resultados, q);
   return resultados;
 }
@@ -9041,7 +9050,7 @@ window._ciliaAddServicoRelacionado = function(btn, opts = {}) {
       if (inp && !inp.value) window._ciliaAgendarBuscaTempaServico(inp);
     }, 50);
   }
-  if (typeof window.calcOSTotal === 'function') window.calcOSTotal();
+  if (!opts.suprimirRecalculo && typeof window.calcOSTotal === 'function') window.calcOSTotal();
 };
 
 function _escVal(s) {

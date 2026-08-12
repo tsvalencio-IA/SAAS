@@ -2938,6 +2938,20 @@ window.filtrarVeiculosOS = function(opts) {
     const isDono = ['admin','superadmin'].includes((window.J?.role||'').toLowerCase());
     blocoReais.style.display = (window._pecasReaisDesbloqueadas === true) ? 'block' : 'none';
   }
+  // Atualiza imediatamente os exportadores oficiais também em NOVA O.S.
+  // A busca por placa preenche o cliente de forma programática e passa por esta função;
+  // portanto não é mais necessário fechar/reabrir a O.S. para reconhecer cliente oficial.
+  const osAtualId = document.getElementById('osId')?.value || '';
+  const btnPMSP = document.getElementById('btnExportarPMSP');
+  const btnPMSPItens = document.getElementById('btnExportarPMSPItens');
+  if (btnPMSP) {
+    btnPMSP.style.display = ehGov ? 'block' : 'none';
+    btnPMSP.dataset.osId = osAtualId;
+  }
+  if (btnPMSPItens) {
+    btnPMSPItens.style.display = ehGov ? 'block' : 'none';
+    btnPMSPItens.dataset.osId = osAtualId;
+  }
   // Preenche os dados oficiais da OS com o padrão do cliente selecionado.
   // Isso é apenas ponto de partida: ao salvar, os valores ficam congelados na OS.
   if (typeof window.preencherDadosOficiaisOSPadrao === 'function') window.preencherDadosOficiaisOSPadrao(cli, { force: !document.getElementById('osId')?.value });
@@ -4185,13 +4199,13 @@ window.iaAnalisarEstoque = function() { _jiaChamar('Quais pecas estao em estoque
 <script src="js/nfe-real-pro.js?v=26.16.0"></script>
 <script src="js/thia-runtime-core-v2613.js?v=26.13.0"></script>
 <script src="js/os-utils.js?v=26.17.2"></script>
-<script src="js/os.js?v=26.17.2"></script>
+<script src="js/os.js?v=26.17.3"></script>
 <script src="js/checklist-jarvis-bridge.js?v=26.13.0"></script>
 <script src="js/cotacoes.js"></script>
 <script src="js/assinatura-os.js"></script>
 <script src="js/ia.js?v=26.17.0"></script>
 <script src="js/catalogos-ia.js?v=19.0.0"></script>
-<script src="js/tabela-tempa.js?v=26.17.2"></script>
+<script src="js/tabela-tempa.js?v=26.17.3"></script>
 <script src="js/exportar-pmsp.js?v=26.17.1"></script>
 
 <script src="js/importar-orcamento-os.js"></script>

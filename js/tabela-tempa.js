@@ -20,7 +20,8 @@
     carregada: false,
     carregando: false,
     dados: null,         // { _metadata, sistemas, itens }
-    indice: null,        // mapa palavra-chave → array de itens (busca rápida)
+    indice: null,        // índice geral preservado para todos os fluxos existentes
+    indiceCategorias: null, // índices opcionais COMPACTO/HATCH/SUV/UTILITARIO para Cília/O.S.
     erro: null
   };
   window._tabelaTempa = TT;
@@ -49,12 +50,35 @@
     }
   };
 
+  function _categoriaTempaSistema(sistema) {
+    const n = _norm(sistema || '');
+    if (/\bcompacto\b/.test(n)) return 'compacto';
+    if (/\bhatch\b/.test(n)) return 'hatch';
+    if (/\bsuv\b/.test(n)) return 'suv';
+    if (/\butilitario\b/.test(n)) return 'utilitario';
+    return '';
+  }
+
   function _construirIndice(itens) {
-    // Tokeniza tudo em minúsculas removendo acentos para busca rápida
-    TT.indice = itens.map(it => ({
-      ref: it,
-      busca: _norm(it.sistema) + ' ' + _norm(it.operacao) + ' ' + _norm(it.item) + ' ' + _norm(it.codigoInterno) + ' ' + it.codigo
-    }));
+    // Índice geral permanece exatamente disponível para os fluxos existentes.
+    // Além dele, montamos quatro subconjuntos leves para a associação Cília → Tempária.
+    // Caminhão/ônibus/sedan etc. NÃO entram nesses subconjuntos.
+    TT.indiceCategorias = { compacto: [], hatch: [], suv: [], utilitario: [] };
+    TT.indice = itens.map(it => {
+      const entry = {
+        ref: it,
+        busca: _norm(it.sistema) + ' ' + _norm(it.operacao) + ' ' + _norm(it.item) + ' ' + _norm(it.codigoInterno) + ' ' + it.codigo
+      };
+      const categoria = _categoriaTempaSistema(it.sistema);
+      if (categoria && TT.indiceCategorias[categoria]) TT.indiceCategorias[categoria].push(entry);
+      return entry;
+    });
+  }
+
+  function _indiceParaBusca(opts) {
+    const categoria = _norm(opts?.categoriaTempa || '');
+    if (categoria && TT.indiceCategorias?.[categoria]) return TT.indiceCategorias[categoria];
+    return TT.indice || [];
   }
 
   function _norm(s) {
@@ -187,12 +211,13 @@
     opts = opts || {};
     const limite = opts.limite == null ? 0 : Number(opts.limite || 0);
     const sistemaFiltro = opts.sistema || '';
-    const preferenciasVeiculo = opts.veiculo ? _preferenciasSistemaVeiculo(opts.veiculo) : [];
+    const categoriaTempa = _norm(opts.categoriaTempa || '');
+    const preferenciasVeiculo = categoriaTempa ? [categoriaTempa] : (opts.veiculo ? _preferenciasSistemaVeiculo(opts.veiculo) : []);
     const consulta = _tempaPrepararConsultaPrecisa(texto);
     if (!consulta.obrigatorios.length && !sistemaFiltro) return [];
 
     const resultados = [];
-    for (const entry of TT.indice) {
+    for (const entry of _indiceParaBusca(opts)) {
       if (sistemaFiltro && entry.ref.sistema !== sistemaFiltro) continue;
 
       const itemNorm = _norm([entry.ref.operacao, entry.ref.item].filter(Boolean).join(' '));
@@ -243,13 +268,14 @@
     if (opts.preciso) return _tempaBuscarPorTextoPreciso(texto, opts);
     const limite = opts.limite == null ? 0 : Number(opts.limite || 0);
     const sistemaFiltro = opts.sistema || '';
-    const preferenciasVeiculo = opts.veiculo ? _preferenciasSistemaVeiculo(opts.veiculo) : [];
+    const categoriaTempa = _norm(opts.categoriaTempa || '');
+    const preferenciasVeiculo = categoriaTempa ? [categoriaTempa] : (opts.veiculo ? _preferenciasSistemaVeiculo(opts.veiculo) : []);
     const stop = new Set(['servico','servicos','troca','trocar','substituir','remover','instalar','retirar','colocar','de','da','do','das','dos','em','para','com','sem','uma','um','e']);
     const termos = _norm(texto).split(' ').filter(t => t.length >= 3 && !stop.has(t));
     if (termos.length === 0 && !sistemaFiltro) return [];
 
     const resultados = [];
-    for (const entry of TT.indice) {
+    for (const entry of _indiceParaBusca(opts)) {
       // Filtro por sistema se especificado
       if (sistemaFiltro && entry.ref.sistema !== sistemaFiltro) continue;
       let score = 0;
