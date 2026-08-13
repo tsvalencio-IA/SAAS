@@ -16,7 +16,7 @@
   if (W.__THIA_FIRESTORE_ECONOMICO_V265__) return;
   W.__THIA_FIRESTORE_ECONOMICO_V265__ = true;
 
-  const VERSION = '26.13.0';
+  const VERSION = '26.17.5';
   const J = () => W.J || {};
   const db = () => W.db || J().db;
   const byId = id => D.getElementById(id);
@@ -200,6 +200,47 @@
     return st.loading;
   }
 
+  async function ensureLiveKey(key, force=false) {
+    const cfg = CONFIG[key];
+    if (!cfg) return [];
+    const st = stateOf(key);
+    if (st.liveUnsub && !force) return J()[cfg.target] || [];
+    if (force && st.liveUnsub) { try { st.liveUnsub(); } catch (_) {} st.liveUnsub = null; }
+
+    // Clientes e veículos são dados operacionais compartilhados entre PCs/celulares.
+    // O cache serve apenas para primeira pintura; a fonte de verdade permanece o onSnapshot.
+    if (!st.loaded || !(J()[cfg.target] || []).length) await readCache(key);
+    const q = queryFor(key);
+    if (!q) return J()[cfg.target] || [];
+
+    return new Promise(resolve => {
+      let first = true;
+      metric(key, 'listen-open');
+      const onData = snap => {
+        metric(key, 'listen-event', snap);
+        const fromCache = !!snap.metadata?.fromCache;
+        applyDocs(key, snap.docs, fromCache ? 'cache-live' : 'server-live');
+        if (!fromCache) setStamp(key);
+        if (first) { first = false; resolve(J()[cfg.target] || []); }
+      };
+      const onError = err => {
+        console.warn('[V26.5 ' + cfg.collection + ' live]', err?.code || '', err?.message || err);
+        st.liveUnsub = null;
+        showSyncError(key, err);
+        if (first) { first = false; resolve(J()[cfg.target] || []); }
+      };
+      if (W.ThiaFirestoreV2612?.listen) {
+        st.liveUnsub = W.ThiaFirestoreV2612.listen('jarvis:' + key, q, {
+          includeMetadataChanges: true,
+          apply: onData,
+          error: onError
+        });
+      } else {
+        st.liveUnsub = q.onSnapshot({ includeMetadataChanges:true }, onData, onError);
+      }
+    });
+  }
+
   async function ensureOS(force=false) {
     const key = 'os';
     const cfg = CONFIG[key];
@@ -298,6 +339,7 @@
 
   async function ensureKey(key, opts={}) {
     if (key === 'os') return ensureOS(!!opts.force);
+    if (key === 'clientes' || key === 'veiculos') return ensureLiveKey(key, !!opts.force);
     if (key === 'fiscal') return loadFiscal(!!opts.force);
     if (CONFIG[key]) return loadOnce(key, opts);
     // Coleções pequenas e chats continuam usando suas rotinas originais, abertas somente na tela correspondente.
@@ -328,8 +370,8 @@
 
   // Sobrescreve somente as entradas de dados volumosas. O restante do sistema continua chamando os mesmos nomes.
   W.escutarOS = () => ensureOS(false);
-  W.escutarClientes = () => loadOnce('clientes');
-  W.escutarVeiculos = () => loadOnce('veiculos');
+  W.escutarClientes = () => ensureLiveKey('clientes', false);
+  W.escutarVeiculos = () => ensureLiveKey('veiculos', false);
   W.escutarEstoque = () => loadOnce('estoque');
   W.escutarFinanceiro = () => loadOnce('financeiro');
   W.escutarEquipe = () => loadOnce('equipe');

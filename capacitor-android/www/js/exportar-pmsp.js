@@ -1609,7 +1609,16 @@
         descontoIndividual: 0,
         descIndividualPct: 0
       } : s;
-      const calcServico = U().calcularServicoMaoObra
+      // FIDELIDADE DA O.S.: planilhas nunca recalculam/substituem um serviço já salvo
+      // pela Tempária. Descrição, TMO, valor/hora e valor bruto vêm da própria O.S.;
+      // a tabela é usada apenas como fallback de metadados quando o campo salvo estiver vazio.
+      const temValorSalvo = Object.prototype.hasOwnProperty.call(s || {}, 'valor') ||
+        Object.prototype.hasOwnProperty.call(s || {}, 'valorBruto') ||
+        Object.prototype.hasOwnProperty.call(s || {}, 'bruto');
+      const brutoSalvo = n(s.valor ?? s.valorBruto ?? s.bruto ?? 0);
+      const tempoSalvo = n(s.tempo || 0);
+      const valorHoraSalvo = n(s.valorHora ?? s.valorHoraSecao ?? s.precoHora ?? 0);
+      const calcLegado = !temValorSalvo && U().calcularServicoMaoObra
         ? U().calcularServicoMaoObra(servicoCalculo, cli, {
             os,
             descMO,
@@ -1617,12 +1626,30 @@
             fallbackValorHora: valorHoraCliente,
             usarHoraQuandoDisponivel: true
           })
+        : null;
+      const valorBrutoBase = temValorSalvo ? brutoSalvo : n(calcLegado?.valorBruto || calcLegado?.bruto || 0);
+      const descontoIndividualSalvo = somentePercentualOficial ? 0 : (
+        U().getItemIndividualDiscountValue ? U().getItemIndividualDiscountValue(s, valorBrutoBase) : n(s.descontoIndividualValor || 0)
+      );
+      const calcDescontoServico = U().calculateDiscountBreakdown
+        ? U().calculateDiscountBreakdown(valorBrutoBase, descMO, descontoIndividualSalvo)
         : {
-            tempo: n(s.tempo || 0),
-            valorHora: n(s.valorHora || s.valorHoraSecao || resolvido.valorHora || 0),
-            valorBruto: n(s.valor || s.valorBruto || 0),
-            valorFinal: +(n(s.valor || s.valorBruto || 0) * (1 - descMO)).toFixed(2)
+            valorBruto: valorBrutoBase,
+            bruto: valorBrutoBase,
+            valorFinal: +(valorBrutoBase * (1 - descMO) - descontoIndividualSalvo).toFixed(2),
+            descontoGeralValor: +(valorBrutoBase * descMO).toFixed(2),
+            descontoIndividualValor: descontoIndividualSalvo,
+            descontoValor: +(valorBrutoBase - Math.max(0, valorBrutoBase * (1 - descMO) - descontoIndividualSalvo)).toFixed(2),
+            descPct: valorBrutoBase > 0 ? (valorBrutoBase - Math.max(0, valorBrutoBase * (1 - descMO) - descontoIndividualSalvo)) / valorBrutoBase : 0
           };
+      const calcServico = {
+        ...(calcLegado || {}),
+        ...calcDescontoServico,
+        tempo: tempoSalvo || n(calcLegado?.tempo || 0),
+        valorHora: valorHoraSalvo || n(calcLegado?.valorHora || resolvido.valorHora || 0),
+        valorBruto: valorBrutoBase,
+        bruto: valorBrutoBase
+      };
       const tempo = n(calcServico.tempo || 0);
       const valorHora = n(calcServico.valorHora || 0);
       const sistemaServico = resolvido.secaoHoraLabel || s.secaoHoraLabel || s.sistemaTabela || s.sistema || '';
@@ -1639,7 +1666,7 @@
         codigoTabela,
         sistema: limparTexto(sistemaServico),
         tipoVeiculo,
-        desc: limparTexto(s.desc || ''),
+        desc: limparTexto(s.desc ?? s.descricao ?? ''),
         tempo,
         valorHora,
         bruto: valorBrutoServico,

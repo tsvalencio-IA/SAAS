@@ -96,8 +96,16 @@
     calco: ['coxim', 'suporte', 'apoio'],
     suporte: ['coxim', 'calco', 'apoio'],
     cubo: ['rolamento', 'manga eixo'],
-    bandeja: ['braco', 'balanca'],
-    bieleta: ['tirante', 'barra estabilizadora'],
+    // Equivalências de nomenclatura de oficina/Cília confirmadas pelo gestor.
+    bandeja: ['braco oscilante', 'balanca'],
+    balanca: ['bandeja', 'braco oscilante'],
+    bieleta: ['haste', 'haste suspensao', 'suporte barra tensora', 'tirante', 'liame', 'barra estabilizadora'],
+    haste: ['bieleta'],
+    bucha: ['coxinha'],
+    coxinha: ['bucha'],
+    terminal: ['ponteira'],
+    ponteira: ['terminal'],
+    articulador: ['terminal axial', 'barra axial', 'articulacao setor'],
     bateria: ['acumulador'],
     oleo: ['lubrificante'],
     filtro: ['elemento filtrante'],
@@ -191,11 +199,45 @@
     return false;
   }
 
+  function _tempaEquivalenciaContextual(textoNorm, token, fraseConsulta) {
+    const alvo = _norm(textoNorm || '');
+    const t = _norm(token || '');
+    const ctx = _norm(fraseConsulta || '');
+
+    // Bieleta = haste (da suspensão) = suporte da barra tensora.
+    const ctxBieleta = /\b(bieleta|haste)\b/.test(ctx) || /\bsuporte\b.*\bbarra\b.*\btensora\b/.test(ctx);
+    const alvoBieleta = /\b(bieleta|haste|tirante|liame)\b/.test(alvo) || /\bsuporte\b.*\bbarra\b.*\btensora\b/.test(alvo);
+    if (ctxBieleta && alvoBieleta && ['bieleta','haste','suporte','tensora'].includes(t)) return true;
+
+    // Balança = bandeja = braço oscilante.
+    const ctxBandeja = /\b(balanca|bandeja)\b/.test(ctx) || /\bbraco\b.*\boscilante\b/.test(ctx);
+    const alvoBandeja = /\b(balanca|bandeja)\b/.test(alvo) || /\bbraco\b.*\boscilante\b/.test(alvo);
+    if (ctxBandeja && alvoBandeja && ['balanca','bandeja','braco','oscilante'].includes(t)) return true;
+
+    // Bucha/coxinha da barra estabilizadora = kit da barra estabilizadora.
+    const ctxBarraKit = /\b(bucha|coxinha|kit)\b.*\bbarra\b.*\bestabilizadora\b/.test(ctx);
+    const alvoBarraKit = /\b(bucha|coxinha|kit)\b.*\bbarra\b.*\bestabilizadora\b/.test(alvo);
+    if (ctxBarraKit && alvoBarraKit && ['bucha','coxinha','kit'].includes(t)) return true;
+
+    // Terminal axial = articulador = barra axial.
+    const ctxAxial = /\bterminal\b.*\baxial\b/.test(ctx) || /\barticulador\b/.test(ctx) || /\bbarra\b.*\baxial\b/.test(ctx);
+    const alvoAxial = /\bterminal\b.*\baxial\b/.test(alvo) || /\bbarra\b.*\baxial\b/.test(alvo) || (/\barticul/.test(alvo) && /\b(direcao|caixa|setor)\b/.test(alvo));
+    if (ctxAxial && alvoAxial && ['terminal','axial','articulador','barra'].includes(t)) return true;
+
+    // Terminal de direção = ponteira. Não aplica a ponteira homocinética/para-choque.
+    const ctxTerminal = /\b(terminal|ponteira)\b/.test(ctx) && !/\b(axial|homocinet|parachoque|para choque)\b/.test(ctx);
+    const alvoTerminal = /\b(terminal|ponteira)\b/.test(alvo) && !/\b(homocinet|parachoque|para choque)\b/.test(alvo);
+    if (ctxTerminal && alvoTerminal && ['terminal','ponteira'].includes(t)) return true;
+
+    return false;
+  }
+
   // Override limpo: a versao antiga acima preserva compatibilidade historica,
   // mas alguns boundaries vieram quebrados em arquivos zipados. Esta versao
   // tambem entende sinonimos reais de oficina/Cilia.
-  function _tempaTokenExiste(textoNorm, token) {
+  function _tempaTokenExiste(textoNorm, token, fraseConsulta) {
     if (!token) return true;
+    if (_tempaEquivalenciaContextual(textoNorm, token, fraseConsulta)) return true;
     const alternativas = _tempaAlternativasToken(token);
     if (alternativas.some(alt => alt && textoNorm.includes(alt))) return true;
     if (token.endsWith('s') && textoNorm.includes(token.slice(0, -1))) return true;
@@ -227,19 +269,19 @@
       // Precisão: para a busca da O.S., todos os termos essenciais digitados precisam existir.
       let todosObrigatorios = true;
       for (const t of consulta.obrigatorios) {
-        if (!_tempaTokenExiste(buscaNorm, t)) { todosObrigatorios = false; break; }
+        if (!_tempaTokenExiste(buscaNorm, t, consulta.frase)) { todosObrigatorios = false; break; }
       }
       if (!todosObrigatorios) continue;
 
       let score = 0;
       for (const t of consulta.obrigatorios) {
         score += 80 + (t.length * 8);
-        if (_tempaTokenExiste(itemNorm, t)) score += 45;
-        if (_tempaTokenExiste(sistemaNorm, t)) score += 12;
+        if (_tempaTokenExiste(itemNorm, t, consulta.frase)) score += 45;
+        if (_tempaTokenExiste(sistemaNorm, t, consulta.frase)) score += 12;
       }
       for (const t of consulta.auxiliares) {
-        if (_tempaTokenExiste(buscaNorm, t)) score += 18;
-        if (_tempaTokenExiste(itemNorm, t)) score += 10;
+        if (_tempaTokenExiste(buscaNorm, t, consulta.frase)) score += 18;
+        if (_tempaTokenExiste(itemNorm, t, consulta.frase)) score += 10;
       }
       if (consulta.frase && buscaNorm.includes(consulta.frase)) score += 120;
       preferenciasVeiculo.forEach((pref, idx) => {

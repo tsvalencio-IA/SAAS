@@ -2840,11 +2840,13 @@ window.obterSnapshotOSExportacaoAtual = function(osBase) {
   const atuais = [];
 
   linhas.forEach((row, index) => {
-    const calc = calcularServicoLinhaOS(row, snapshot.descMO);
-    const desc = String(calc.desc || '').trim();
-    const valorBruto = numBR(calc.valorBruto || calc.bruto || 0);
+    const dadosAtuais = dadosServicoLinhaOS(row);
+    const desc = String(dadosAtuais.desc || '').trim();
+    const valorBruto = numBR(dadosAtuais.valor || 0);
+    const tempo = numBR(dadosAtuais.tempo || 0);
+    const descontoIndividual = clienteGovernamentalAtualOS() ? 0 : descontoIndividualLinhaOS(row, 'servico');
+    const calc = calcularDescontosValorOS(valorBruto, snapshot.descMO, descontoIndividual);
     const valorFinal = numBR(calc.valorFinal || 0);
-    const tempo = numBR(calc.tempo || 0);
     if (!desc && valorBruto <= 0 && valorFinal <= 0 && tempo <= 0) return;
 
     const anterior = anteriores[index] && typeof anteriores[index] === 'object' ? anteriores[index] : {};
@@ -2852,7 +2854,7 @@ window.obterSnapshotOSExportacaoAtual = function(osBase) {
     const valorHoraManual = row.dataset?.valorHoraManual === '1';
     atuais.push({
       ...anterior,
-      ...dadosServicoLinhaOS(row),
+      ...dadosAtuais,
       desc,
       valor: valorBruto,
       valorBruto,
@@ -2861,15 +2863,15 @@ window.obterSnapshotOSExportacaoAtual = function(osBase) {
       total: valorFinal,
       valorManual,
       valorHoraManual,
-      valorHora: numBR(calc.valorHora || 0),
-      valorHoraTabela: numBR(calc.valorHoraTabela || 0),
-      descGeralPct: numBR(calc.descGeralPct || snapshot.descMO || 0),
+      valorHora: numBR(dadosAtuais.valorHora || 0),
+      valorHoraTabela: numBR(dadosAtuais.valorHoraTabela || 0),
+      descGeralPct: numBR(snapshot.descMO || 0),
       descontoGeralValor: numBR(calc.descontoGeralValor || Math.max(0, valorBruto * snapshot.descMO)),
       descontoIndividualTipo: 'valor',
       descontoIndividualValor: clienteGovernamentalAtualOS() ? 0 : numBR(calc.descontoIndividualValor || 0),
       descIndividualValor: clienteGovernamentalAtualOS() ? 0 : numBR(calc.descontoIndividualValor || 0),
       descontoIndividual: clienteGovernamentalAtualOS() ? 0 : numBR(calc.descontoIndividualValor || 0),
-      descIndividualPct: clienteGovernamentalAtualOS() ? 0 : numBR(calc.descIndividualPct || 0),
+      descIndividualPct: clienteGovernamentalAtualOS() ? 0 : (valorBruto > 0 ? +(numBR(calc.descontoIndividualValor || 0) / valorBruto).toFixed(6) : 0),
       descontoValor: numBR(calc.descontoValor || Math.max(0, valorBruto - valorFinal)),
       descPct: numBR(calc.descPct || (valorBruto > 0 ? (valorBruto - valorFinal) / valorBruto : 0)),
       relacionadoCilia: row.dataset?.servRelacionado === '1',
@@ -5943,11 +5945,15 @@ window.gerarPDFOS = async function(opcoes = {}) {
   const resumoSecoesPDF = {};
   let totalServicos = 0;
   const _coletarServicoParaPDF = row => {
-    const calc = calcularServicoLinhaOS(row, descMO);
-    const desc = String(calc.desc || '').trim();
-    const tempo = numBR(calc.tempo || 0);
-    const valorHora = numBR(calc.valorHora || 0);
-    const bruto = numBR(calc.valorBruto || calc.bruto || 0);
+    // FIDELIDADE DA O.S.: gerar PDF jamais recalcula/substitui o serviço pela Tempária.
+    // A linha da O.S. (carregada do registro salvo, ou editada pelo usuário) é a fonte de verdade.
+    const dados = dadosServicoLinhaOS(row);
+    const desc = String(dados.desc || '').trim();
+    const tempo = numBR(dados.tempo || 0);
+    const valorHora = numBR(dados.valorHora || 0);
+    const bruto = numBR(dados.valor || 0);
+    const descontoIndividual = clienteGovernamentalAtualOS() ? 0 : descontoIndividualLinhaOS(row, 'servico');
+    const calc = calcularDescontosValorOS(bruto, descMO, descontoIndividual);
     const final = numBR(calc.valorFinal || 0);
     const sel = row.querySelector('.serv-secao-hora');
     const sistema = sel?.options?.[sel.selectedIndex]?.text?.replace(/\s+-\s+R\$.*/, '') || row.dataset.secaoHoraLabel || row.dataset.sistemaTabela || '';
@@ -8277,18 +8283,33 @@ function _ciliaDirecaoServicoCompativel(itemTempa, peca) {
   if (origemEsq && alvoDir && !alvoEsq) return false;
 
   // Não confundir componentes diferentes que compartilham palavras.
-  if (/\b(haste|bieleta|liame|tirante)\b/.test(origem) && /\bbarra estabilizadora\b/.test(origem)) {
-    if (!/\b(haste|bieleta|liame|tirante)\b/.test(alvo)) return false;
-  }
+  // Equivalências confirmadas: bieleta = haste da suspensão = suporte da barra tensora.
+  const origemBieleta = (/\b(haste|bieleta|liame|tirante)\b/.test(origem) && /\b(suspensao|barra)\b/.test(origem)) || /\bsuporte\b.*\bbarra\b.*\btensora\b/.test(origem);
+  const alvoBieleta = (/\b(haste|bieleta|liame|tirante)\b/.test(alvo) && /\b(suspensao|barra)\b/.test(alvo)) || /\bsuporte\b.*\bbarra\b.*\btensora\b/.test(alvo);
+  if (origemBieleta && !alvoBieleta) return false;
+
   if (/\btambor\b/.test(origem) && /\bfreio\b/.test(origem) && /\bsapata/.test(alvo) && !/\btambor de freio\b/.test(alvo)) return false;
   if (/\bpastilhas?\b/.test(origem) && /\bfreio\b/.test(origem) && !/\bpastilhas?\b/.test(alvo)) return false;
-  if (/\bbraco oscilante\b/.test(origem) && !/\bbraco\b/.test(alvo)) return false;
+
+  // Balança = bandeja = braço oscilante.
+  const origemBandeja = /\b(balanca|bandeja)\b/.test(origem) || /\bbraco\b.*\boscilante\b/.test(origem);
+  const alvoBandeja = /\b(balanca|bandeja)\b/.test(alvo) || /\bbraco\b.*\boscilante\b/.test(alvo);
+  if (origemBandeja && !alvoBandeja) return false;
+
   if (/\bagregado\b/.test(origem) && /\bsuspensao\b/.test(origem)) { if (!/\b(quadro|agregado)\b/.test(alvo) || /\bbuchas?\b/.test(alvo)) return false; }
   if (/\bmoldura\b/.test(origem) && /\bsoleira\b/.test(origem) && !(/\bmoldura\b/.test(alvo) && /\bsoleira\b/.test(alvo))) return false;
+
+  const origemBarraKit = /\b(bucha|coxinha|kit)\b.*\bbarra\b.*\bestabilizadora\b/.test(origem);
+  const alvoBarraKit = /\b(bucha|coxinha|kit)\b.*\bbarra\b.*\bestabilizadora\b/.test(alvo);
+  const origemAxial = /\bterminal\b.*\baxial\b/.test(origem) || /\barticulador\b/.test(origem) || /\bbarra\b.*\baxial\b/.test(origem);
+  const alvoAxial = /\bterminal\b.*\baxial\b/.test(alvo) || /\bbarra\b.*\baxial\b/.test(alvo) || (/\barticul/.test(alvo) && /\b(direcao|caixa|setor)\b/.test(alvo));
 
   // Não confundir a peça inteira com um subcomponente da peça.
   const subcomponentes = ['bucha', 'coifa', 'reparo', 'reparos', 'articulacao', 'pino', 'mangueira', 'capa', 'suporte'];
   for (const termo of subcomponentes) {
+    if (termo === 'suporte' && origemBieleta && alvoBieleta) continue;
+    if (termo === 'bucha' && origemBarraKit && alvoBarraKit) continue;
+    if (termo === 'articulacao' && origemAxial && alvoAxial) continue;
     if (new RegExp(`\\b${termo}\\b`).test(alvo) && !new RegExp(`\\b${termo}\\b`).test(origem)) return false;
   }
   return true;
@@ -8552,6 +8573,23 @@ function _ciliaConsultasTempaPeca(desc, codigo) {
     codigo
   ];
   if (/\b(coxim|calco|suporte)\b/.test(n) && /\bmotor\b/.test(n)) termos.push('substituir coxim motor', 'substituir suporte motor', 'substituir calco motor');
+
+  // Equivalências de nomenclatura confirmadas pelo gestor — somente matcher Cília/Tempária.
+  const ehBieleta = (/\b(bieleta|haste)\b/.test(n) && (/\b(suspensao|barra|tensora)\b/.test(n) || n === 'bieleta' || n === 'haste')) || /\bsuporte\b.*\bbarra\b.*\btensora\b/.test(n);
+  if (ehBieleta) termos.push('substituir bieleta', 'substituir haste suspensao', 'substituir suporte barra tensora', 'substituir bieleta barra estabilizadora');
+
+  const ehBandeja = /\b(balanca|bandeja)\b/.test(n) || /\bbraco\b.*\boscilante\b/.test(n);
+  if (ehBandeja) termos.push('substituir bandeja', 'substituir balanca', 'substituir braco oscilante', 'remover e instalar braco suspensao bandeja');
+
+  const ehKitBarra = /\b(bucha|coxinha|kit)\b.*\bbarra\b.*\bestabilizadora\b/.test(n);
+  if (ehKitBarra) termos.push('substituir kit barra estabilizadora suspensao dianteira', 'kit barra estabilizadora suspensao dianteira', 'substituir bucha barra estabilizadora', 'substituir coxinha barra estabilizadora');
+
+  const ehAxial = /\bterminal\b.*\baxial\b/.test(n) || /\barticulador\b/.test(n) || /\bbarra\b.*\baxial\b/.test(n);
+  if (ehAxial) termos.push('terminal axial', 'articulador', 'barra axial', 'articulacao setor barra axial caixa direcao');
+
+  const ehTerminalPonteira = /\b(terminal|ponteira)\b/.test(n) && !ehAxial && !/\b(homocinet|parachoque|para choque)\b/.test(n);
+  if (ehTerminalPonteira) termos.push('terminal direcao', 'ponteira terminal direcao', 'ponteira direcao');
+
   if (/\b(cubo|rolamento)\b/.test(n) && /\broda\b/.test(n)) termos.push('substituir cubo roda', 'substituir rolamento roda', 'remover e instalar cubo roda');
   if (/\bbateria\b/.test(n)) termos.push('substituir bateria', 'remover e instalar bateria');
   if (/\b(pastilhas?|discos?)\b/.test(n) && /\bfreio\b/.test(n)) termos.push('substituir freio', 'substituir pastilha freio', 'substituir pastilhas freio', 'substituir disco freio', 'substituir discos freio');
@@ -8581,6 +8619,15 @@ function _ciliaScoreTempaPeca(itemTempa, desc, codigo) {
     calco: ['coxim', 'suporte', 'calco', 'apoio'],
     cubo: ['cubo', 'rolamento'],
     rolamento: ['rolamento', 'cubo'],
+    bieleta: ['bieleta', 'haste', 'tirante', 'liame', 'suporte barra tensora'],
+    haste: ['haste', 'bieleta', 'tirante', 'liame', 'suporte barra tensora'],
+    balanca: ['balanca', 'bandeja', 'braco oscilante'],
+    bandeja: ['bandeja', 'balanca', 'braco oscilante'],
+    bucha: ['bucha', 'coxinha', 'kit'],
+    coxinha: ['coxinha', 'bucha', 'kit'],
+    terminal: ['terminal', 'ponteira', 'barra axial', 'articulacao'],
+    ponteira: ['ponteira', 'terminal'],
+    articulador: ['articulador', 'articulacao', 'barra axial', 'terminal axial'],
     oleo: ['oleo', 'lubrificante'],
     filtro: ['filtro', 'elemento filtrante'],
     homocinetica: ['homocinetica', 'semi eixo', 'semieixo']
