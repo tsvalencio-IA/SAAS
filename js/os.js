@@ -8846,14 +8846,73 @@ async function _ciliaBuscarTempaServicoInline(row, termo, opts = {}) {
     _ciliaAtualizarMetaServico(row, 'Tabela Tempária não carregou. Verifique data/tabela-tempa.min.json.', 'warn');
     return [];
   }
+
+  // Busca MANUAL da O.S.: diferente da associação automática Cília → Tempária.
+  // O automático continua restrito à categoria cadastrada no veículo. Aqui o gestor
+  // pode procurar e escolher livremente entre as quatro categorias operacionais
+  // autorizadas (Compacto, Hatch, SUV e Utilitário), inclusive por código conhecido.
   const ctx = _ciliaContextoServico(row);
-  const categoriaTempa = _ciliaClasseVeiculoExplicita(ctx.veiculoAtual);
-  if (!categoriaTempa) {
-    _ciliaRenderResultadosTempaServico(row, [], q);
-    _ciliaAtualizarMetaServico(row, 'Selecione na O.S. um tipo compatível com a Tempária: Compacto, Hatch, SUV ou Pickup/Van (Utilitário).', 'warn');
-    return [];
+  const categoriaPreferida = _ciliaClasseVeiculoExplicita(ctx.veiculoAtual);
+  const categoriasPermitidas = ['compacto', 'hatch', 'suv', 'utilitario'];
+  const limite = Math.max(1, Number(opts.limite || 120));
+  const porCategoria = {};
+
+  // Usa os quatro índices específicos já existentes. Assim a busca manual enxerga
+  // todas as categorias permitidas sem percorrer caminhão/ônibus/sedan e sem alterar
+  // o mecanismo automático, que continua consultando somente a categoria da O.S.
+  categoriasPermitidas.forEach(categoriaTempa => {
+    porCategoria[categoriaTempa] = window.tempaBuscarPorTexto(q, {
+      veiculo: { tipo: categoriaTempa },
+      categoriaTempa,
+      limite,
+      preciso: true
+    }) || [];
+  });
+
+  const normCodigo = valor => String(valor || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const codigoBuscado = normCodigo(q);
+  const chaveItem = item => [
+    _ciliaNormServicoTexto(item?.sistema || ''),
+    normCodigo(item?.codigoInterno || ''),
+    normCodigo(item?.codigo || ''),
+    _ciliaNormServicoTexto(item?.operacao || ''),
+    _ciliaNormServicoTexto(item?.item || ''),
+    String(numBR(item?.tempo || 0))
+  ].join('|');
+  const vistos = new Set();
+  const resultados = [];
+  const adicionar = item => {
+    if (!item || resultados.length >= limite) return;
+    const chave = chaveItem(item);
+    if (vistos.has(chave)) return;
+    vistos.add(chave);
+    resultados.push(item);
+  };
+
+  // Se o gestor digitou exatamente um código interno/SIAFISICO, esses resultados
+  // vêm primeiro mesmo que pertençam a uma categoria diferente da O.S.
+  if (codigoBuscado) {
+    categoriasPermitidas.forEach(categoria => {
+      (porCategoria[categoria] || []).forEach(item => {
+        if (normCodigo(item?.codigoInterno) === codigoBuscado || normCodigo(item?.codigo) === codigoBuscado) adicionar(item);
+      });
+    });
   }
-  const resultados = window.tempaBuscarPorTexto(q, { veiculo: { tipo: categoriaTempa }, categoriaTempa, limite: opts.limite || 120, preciso: true }) || [];
+
+  // Mantém a categoria do veículo como preferência visual, sem bloquear as demais.
+  // O preenchimento em rodadas evita que uma categoria com muitos resultados esconda
+  // completamente SUV/Hatch/Utilitário na pesquisa manual.
+  const ordemCategorias = categoriaPreferida && categoriasPermitidas.includes(categoriaPreferida)
+    ? [categoriaPreferida, ...categoriasPermitidas.filter(c => c !== categoriaPreferida)]
+    : categoriasPermitidas.slice();
+  const maiorLista = Math.max(0, ...ordemCategorias.map(c => (porCategoria[c] || []).length));
+  for (let i = 0; i < maiorLista && resultados.length < limite; i++) {
+    for (const categoria of ordemCategorias) {
+      adicionar((porCategoria[categoria] || [])[i]);
+      if (resultados.length >= limite) break;
+    }
+  }
+
   _ciliaRenderResultadosTempaServico(row, resultados, q);
   return resultados;
 }
