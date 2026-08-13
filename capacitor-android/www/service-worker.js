@@ -1,4 +1,4 @@
-const CACHE='oficin-ia-v26-17-6-tempa-manual-quatro-categorias-20260813';
+const CACHE='oficin-ia-v26-17-7-desconto-percentual-valor-agrupado-20260813';
 const ASSETS=[
   './checklist.html','./js/checklist.js','./js/config.js','./data/checklist-model.json',
   './checklist.webmanifest','./assets/icons/checklist-192.png','./assets/icons/checklist-512.png'
